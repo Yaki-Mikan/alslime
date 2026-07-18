@@ -31,4 +31,4 @@ If you use the supporter features, see [Supporter Features](./07-sponsor.md) and
 
 - Target version: stated at the beginning of each chapter.
 - Screenshots include ones taken during development and may differ from the actual display.
-- If you find mistakes or unclear passages, please let us know via an [Issue](https://github.com/YakiMikan/alslime/issues).
+- If you find mistakes or unclear passages, please let us know via an [Issue](https://github.com/Yaki-Mikan/alslime/issues).
