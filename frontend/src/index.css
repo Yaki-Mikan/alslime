@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+html,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  @apply bg-gray-950 text-white;
+}
+
+.chat-viewport-shell {
+  height: var(--chat-viewport-height, 100svh);
+  min-height: 0;
+  overflow: hidden;
+}
+
+@supports not (height: 100svh) {
+  .chat-viewport-shell {
+    height: var(--chat-viewport-height, 100vh);
+  }
+}
+
+/* スクロールバー（アプリ全体ダークテーマ） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 transparent; /* thumb: gray-600 */
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #4b5563; /* gray-600 */
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280; /* gray-500 */
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
