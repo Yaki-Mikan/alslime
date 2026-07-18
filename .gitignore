@@ -1,0 +1,33 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.test
+*.out
+.gotmp/
+.gocache/
+build/bin/
+build/debug/
+build/release/
+
+# Node / frontend (vite の出力。Go 同梱用の internal/frontend/dist / dist_debug は embed のためコミットする。
+# dist_release は実 Firebase 設定を焼き込むためコミット禁止。build-release.ps1 -Public が生成する)
+frontend/node_modules/
+frontend/dist/
+frontend/.tmp/
+frontend/.env*.local
+internal/frontend/dist_release/
+
+# User workspace (実行時生成されるユーザーデータ。会話履歴・設定・認証トークンを含む)
+roleplay/
+
+# Sidecar modules (支援者向け配信物の配置先)
+modules/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
