@@ -362,8 +362,8 @@ const (
 // API が 400 を返す（フロントは ja へ寄せて送る）。
 // ※公開リポジトリ・Release が未作成のため URL は暫定値。Release 配置時に確定する。
 var SamplePackURLs = map[string]string{
-	"ja": "https://github.com/YakiMikan/alslime/releases/download/sample-pack/sample-pack-ja.zip",
-	"en": "https://github.com/YakiMikan/alslime/releases/download/sample-pack/sample-pack-en.zip",
+	"ja": "https://github.com/Yaki-Mikan/alslime/releases/download/sample-pack/sample-pack-ja.zip",
+	"en": "https://github.com/Yaki-Mikan/alslime/releases/download/sample-pack/sample-pack-en.zip",
 }
 
 // ハウスキーピング（使い捨て一時ファイルの掃除）のしきい値。

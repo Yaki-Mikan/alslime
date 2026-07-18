@@ -31,4 +31,4 @@ English version: [English version is here](en/index.md)
 
 - 対象バージョン: 各章の冒頭に記載します。
 - 画面写真は開発中のものを含み、実際の表示と異なる場合があります。
-- 誤りや分かりにくい箇所は [Issue](https://github.com/YakiMikan/alslime/issues) でお知らせください。
+- 誤りや分かりにくい箇所は [Issue](https://github.com/Yaki-Mikan/alslime/issues) でお知らせください。

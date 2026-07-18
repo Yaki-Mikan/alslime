@@ -58,7 +58,7 @@
 
 ## 8. 解決しないときは
 
-[GitHub の Issue](https://github.com/YakiMikan/alslime/issues) でお知らせください。その際、システム診断の表示内容（個人情報が写らない範囲で）を添えていただくと調査がはかどります。
+[GitHub の Issue](https://github.com/Yaki-Mikan/alslime/issues) でお知らせください。その際、システム診断の表示内容（個人情報が写らない範囲で）を添えていただくと調査がはかどります。
 
 ---
 

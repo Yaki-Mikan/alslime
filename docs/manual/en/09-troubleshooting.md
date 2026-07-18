@@ -58,7 +58,7 @@ Conversation history, settings, and characters all live under `roleplay/` in the
 
 ## 8. Still Stuck?
 
-Let us know via a [GitHub Issue](https://github.com/YakiMikan/alslime/issues). Attaching what System Diagnostics shows (to the extent it contains no personal information) helps the investigation a lot.
+Let us know via a [GitHub Issue](https://github.com/Yaki-Mikan/alslime/issues). Attaching what System Diagnostics shows (to the extent it contains no personal information) helps the investigation a lot.
 
 ---
 
