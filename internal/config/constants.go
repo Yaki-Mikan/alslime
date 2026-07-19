@@ -304,7 +304,9 @@ const (
 // 各 CLI が作業ディレクトリ（= WORKSPACE_ROOT。coreapi.CoreDeps.Cwd）から自動で読む
 // 指示ファイル（イメージ.md 原文の「基本指示」の実体。単一ディレクトリを持たず
 // ワークスペース内に散在する）。設定ファイルエディタから「書き換えのみ」可能にする
-// （新規作成・削除・リネーム不可。パックのインポート/エクスポート対象外）。
+// （新規作成・削除・リネーム不可）。設定パックでは C 分類 Kind
+// 「providerInstructions」としてインポート/エクスポート対象
+// （2026-07-19 に対象外方針を改定。domain/settingspack カタログ参照）。
 const (
 	// ProviderInstructionAntigravityFile は Antigravity CLI の指示ファイル。
 	// ルート直下の AGENTS.md ではなく .agents/rules/AGENTS.md が実効。

@@ -219,6 +219,58 @@ func TestImport_個別ポリシー上書き(t *testing.T) {
 	}
 }
 
+func TestImport_指示ファイルはポリシーによらず上書き(t *testing.T) {
+	m, root := newTestManager(t)
+	writeWorkspaceFile(t, root, config.ProviderInstructionClaudeFile, "古い指示")
+
+	pack := writeZip(t, t.TempDir(), map[string]string{
+		config.ProviderInstructionClaudeFile:      "新しい指示",
+		config.ProviderInstructionAntigravityFile: "AG指示",
+	})
+
+	// 既定（skip）でも指示ファイルは Forced で上書きされる。
+	result, err := m.Import(pack, ImportOptions{Policy: PolicySkip})
+	if err != nil {
+		t.Fatalf("Import 失敗: %v", err)
+	}
+	if len(result.Written) != 2 {
+		t.Fatalf("指示ファイル2件とも書かれるべき: %+v", result)
+	}
+	if got := readWorkspaceFile(t, root, config.ProviderInstructionClaudeFile); got != "新しい指示" {
+		t.Fatalf("skip 指定でも指示ファイルは上書きされるべき: %q", got)
+	}
+	// .agents/rules/ の親ディレクトリ自動作成込みで新規が書かれる。
+	if got := readWorkspaceFile(t, root, config.ProviderInstructionAntigravityFile); got != "AG指示" {
+		t.Fatalf("Antigravity 指示の新規書き込みが不正: %q", got)
+	}
+
+	// 個別ポリシーで skip を明示しても Forced が優先される。
+	writeWorkspaceFile(t, root, config.ProviderInstructionClaudeFile, "手で戻した指示")
+	if _, err := m.Import(pack, ImportOptions{
+		Policy:    PolicySkip,
+		Overrides: map[string]ImportPolicy{config.ProviderInstructionClaudeFile: PolicySkip},
+	}); err != nil {
+		t.Fatalf("Import(個別skip) 失敗: %v", err)
+	}
+	if got := readWorkspaceFile(t, root, config.ProviderInstructionClaudeFile); got != "新しい指示" {
+		t.Fatalf("個別 skip 指定でも指示ファイルは上書きされるべき: %q", got)
+	}
+
+	// inbox 経路（NoForceOverwrite）は既存を変更しない。
+	writeWorkspaceFile(t, root, config.ProviderInstructionClaudeFile, "inbox前の指示")
+	result, err = m.Import(pack, ImportOptions{Policy: PolicySkip, NoForceOverwrite: true})
+	if err != nil {
+		t.Fatalf("Import(NoForceOverwrite) 失敗: %v", err)
+	}
+	if got := readWorkspaceFile(t, root, config.ProviderInstructionClaudeFile); got != "inbox前の指示" {
+		t.Fatalf("NoForceOverwrite では既存が残るべき: %q", got)
+	}
+	// 1回目のインポートで AGENTS.md も作成済みのため、既存2件とも衝突 skip になる。
+	if len(result.Written) != 0 || len(result.Skipped) != 2 {
+		t.Fatalf("NoForceOverwrite では全衝突 skip になるべき: %+v", result)
+	}
+}
+
 func TestImport_認証入りパックは一切書かない(t *testing.T) {
 	m, root := newTestManager(t)
 	pack := writeZip(t, t.TempDir(), map[string]string{

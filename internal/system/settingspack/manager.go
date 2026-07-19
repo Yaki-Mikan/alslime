@@ -65,6 +65,10 @@ type ImportOptions struct {
 	Overrides map[string]ImportPolicy
 	// ImageGenAllowed は D 分類（画像生成系）の取り込み可否（tier ゲート）。
 	ImageGenAllowed bool
+	// NoForceOverwrite は Forced エントリ（AIプロバイダ指示ファイル等の
+	// 常時上書き種別）を通常の衝突扱いへ戻す。無確認適用の import_inbox 経路で
+	// 使い、「新規のみ・既存は変更しない」保証を維持する（設計 §5）。
+	NoForceOverwrite bool
 }
 
 // ImportedEntry は適用結果1件。
@@ -179,6 +183,11 @@ func (m *Manager) Import(zipPath string, opts ImportOptions) (ImportResult, erro
 			policy := opts.Policy
 			if override, ok := opts.Overrides[pe.Path]; ok && ValidPolicy(override) {
 				policy = override
+			}
+			if pe.Forced && !opts.NoForceOverwrite {
+				// 常時上書き種別（AIプロバイダ指示ファイル等）はポリシー・
+				// 個別指定によらず上書きする（取り込み＝内容の反映が目的）。
+				policy = PolicyOverwrite
 			}
 			switch policy {
 			case PolicySkip:

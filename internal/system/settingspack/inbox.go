@@ -83,8 +83,11 @@ func (m *Manager) ProcessInbox(imageGenAllowed bool) InboxReport {
 		item := InboxItem{File: name}
 		result, err := m.Import(filepath.Join(inboxAbs, name), ImportOptions{
 			// 無確認適用のため「新規のみ・衝突全スキップ」固定（設計 §5）。
-			Policy:          PolicySkip,
-			ImageGenAllowed: imageGenAllowed,
+			// Forced（指示ファイル等の常時上書き）も無効化し、既存ファイルは
+			// 一切変更しない保証を守る。
+			Policy:           PolicySkip,
+			ImageGenAllowed:  imageGenAllowed,
+			NoForceOverwrite: true,
 		})
 		if err != nil {
 			item.MessageKey = inboxMessageKey(err)
