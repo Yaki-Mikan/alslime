@@ -1155,6 +1155,24 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         if (settings.additionalOverallText !== undefined) setAdditionalOverallText(settings.additionalOverallText);
     };
 
+    // 項目設定・各種プリセットの「一覧（プルダウン選択肢）」だけを取り直す。
+    // 選択中の値・入力中の値・スキーマ本体は変更しない（編集中の状態を壊さないため）。
+    const reloadPresetsAndSchemas = async () => {
+        try {
+            const schemas = await getParameterSchemas();
+            setSchemaList(schemas.map(s => ({ id: s.id, name: s.name })));
+        } catch (error) {
+            console.warn('[RolePlaySettings] Failed to reload parameter schema list:', error);
+        }
+        try {
+            setPresets(await listPresets(backendUrl));
+            setSSRPAllPresets(await listSSRPAllPresets(backendUrl));
+            setSSRPParamPresets(await listSSRPParamPresets(backendUrl));
+        } catch (error) {
+            console.warn('[RolePlaySettings] Failed to reload preset lists:', error);
+        }
+    };
+
     // 初期化
     useEffect(() => {
         const init = async () => {
@@ -1190,21 +1208,20 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 applySettings(initialSettings);
             }
 
-            const presetList = await listPresets(backendUrl);
-            setPresets(presetList);
-
-            // SSRP全体プリセット一覧を読み込み
-            const ssrpAllPresetList = await listSSRPAllPresets(backendUrl);
-            setSSRPAllPresets(ssrpAllPresetList);
-
-            // SSRPパラメータプリセット一覧を読み込み
-            // SSRPパラメータプリセット一覧を読み込み
-            const ssrpParamPresetList = await listSSRPParamPresets(backendUrl);
-            setSSRPParamPresets(ssrpParamPresetList);
+            await reloadPresetsAndSchemas();
         };
         if (isOpen) {
             init();
         }
+
+        // 設定パック取り込み等（invalidateSSRPOptionsCache 呼び出し）で、メニューを
+        // 閉じ直さなくても項目設定・各種プリセットの一覧を取り直す。選択中の値や
+        // スキーマ本体は触らず、プルダウンの選択肢（一覧）だけを更新する。
+        const unsubscribe = subscribeSSRPOptionsInvalidation(() => {
+            if (isOpen) void reloadPresetsAndSchemas();
+        });
+
+        return () => { unsubscribe(); };
     }, [isOpen, initialSettings, backendUrl]);
 
     // データロード
@@ -1247,7 +1264,14 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
         // メニューを開いている間にキャッシュ破棄（設定パック取り込み等）が起きたら、
         // 閉じ直さなくても即時再取得する。この時点でキャッシュは null なので必ずサーバへ取りに行く。
-        const unsubscribe = subscribeSSRPOptionsInvalidation(() => { void loadOptions(); });
+        // 併せて、キャラ別の個別背景・衣装・性格キャッシュ（cache[charPath] があると
+        // スキップされる）を空にし、次の個別同期 useEffect で取り直させる。
+        const unsubscribe = subscribeSSRPOptionsInvalidation(() => {
+            setPersonalityOptionsCache({});
+            setOutfitOptionsCache({});
+            setBackgroundOptionsCache({});
+            void loadOptions();
+        });
 
         return () => {
             cancelled = true;
