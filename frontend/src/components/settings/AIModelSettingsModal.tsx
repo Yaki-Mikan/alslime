@@ -40,7 +40,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
     const [defaultPresetName, setDefaultPresetName] = useState<string>('');
     const [defaultPresetDirty, setDefaultPresetDirty] = useState(false);
 
-    // デフォルトプロバイダ設定（チャット欄の初期プロバイダ。空 = 従来どおり gemini）
+    // デフォルトプロバイダ設定（チャット欄の初期プロバイダ。空 = antigravity）
     const [defaultProvider, setDefaultProvider] = useState<string>('');
     const [defaultProviderDirty, setDefaultProviderDirty] = useState(false);
 

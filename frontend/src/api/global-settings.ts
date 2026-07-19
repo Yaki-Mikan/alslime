@@ -18,7 +18,7 @@ export interface GlobalSettings {
     antigravityDirectConnection?: boolean; // Antigravity直接接続モード（HTTP直接 vs agy.exe）
     antigravityStreamOutput?: boolean;     // Antigravityストリーム出力（stream vs non-stream）
     defaultModels?: Record<string, string>; // プロバイダ別デフォルトモデル（gemini/claude/antigravity → モデルID）
-    defaultProvider?: string;          // チャット欄の初期プロバイダ（空 = gemini）
+    defaultProvider?: string;          // チャット欄の初期プロバイダ（空 = antigravity）
     [key: string]: any;                // その他の設定
 }
 
