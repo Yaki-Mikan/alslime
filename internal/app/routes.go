@@ -418,12 +418,16 @@ func loadAIProcessLimits(svc *globalsettingssvc.Service) (process.Limits, bool) 
 // resolvePromptLocale は UI 言語設定（uiLanguage）に対応するプロンプト層の
 // 言語解決コンテキスト（prompt.* キーを含む i18n カタログ）を返す。
 // 設定・辞書の取得に失敗した場合は空（呼び出し側が日本語既定へフォールバック）。
+//
+// 必ず LoadPrompt（fallback 補完なし）を使うこと。Load（UI 辞書）を使うと
+// 内蔵 ja に無い prompt.* キーが内蔵 en から補完され、コード内日本語既定への
+// フォールバックが発動しなくなる（セリフ引用符が "" になった不具合の原因）。
 func resolvePromptLocale(i18nService *i18nsvc.Service, pwaSvc *pwasettingssvc.Service) coreapi.PromptLocale {
 	lang := ""
 	if settings, err := pwaSvc.Get(); err == nil {
 		lang, _ = settings["uiLanguage"].(string)
 	}
-	catalog, err := i18nService.Load(lang)
+	catalog, err := i18nService.LoadPrompt(lang)
 	if err != nil {
 		return coreapi.PromptLocale{Lang: lang}
 	}

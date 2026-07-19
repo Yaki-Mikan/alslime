@@ -1,6 +1,8 @@
 # 08 ComfyUI Integration (Image Generation, for Supporters)
 
-This supporter feature generates images with ComfyUI based on the content of your conversation.
+This supporter feature has the AI analyze the content of your conversation and generate an image of the scene it reads with ComfyUI.
+
+> **This feature is currently in preparation.** Please wait a little longer for its release. The contents of this chapter will become available once the feature is released.
 
 ## Prerequisites
 

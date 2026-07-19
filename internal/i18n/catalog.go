@@ -36,16 +36,22 @@ type Catalog struct {
 // （存在有無＋mtime＋size）の一致で変更なしとみなす。キャッシュした
 // Messages マップは読み取り専用として共有する（呼び出し側は参照のみ）。
 type Service struct {
-	resolver *paths.Resolver
-	baseDir  string
-	mu       sync.Mutex
-	cache    map[string]catalogCacheEntry
+	resolver    *paths.Resolver
+	baseDir     string
+	mu          sync.Mutex
+	cache       map[string]catalogCacheEntry
+	promptCache map[string]promptCacheEntry
 }
 
 type catalogCacheEntry struct {
 	catalog       Catalog
 	fallbackStamp externalStamp
 	langStamp     externalStamp
+}
+
+type promptCacheEntry struct {
+	catalog   Catalog
+	langStamp externalStamp
 }
 
 // externalStamp は外部辞書ファイルの変更検出用スタンプ。未存在はゼロ値。
@@ -61,7 +67,12 @@ func (a externalStamp) equal(b externalStamp) bool {
 
 // New は Service を生成する。
 func New(resolver *paths.Resolver, baseDir string) *Service {
-	return &Service{resolver: resolver, baseDir: baseDir, cache: map[string]catalogCacheEntry{}}
+	return &Service{
+		resolver:    resolver,
+		baseDir:     baseDir,
+		cache:       map[string]catalogCacheEntry{},
+		promptCache: map[string]promptCacheEntry{},
+	}
 }
 
 // Languages は内蔵辞書と外部辞書から利用可能な言語コードを返す。
@@ -155,6 +166,51 @@ func (s *Service) Load(lang string) (Catalog, error) {
 	}
 	s.mu.Lock()
 	s.cache[lang] = catalogCacheEntry{catalog: catalog, fallbackStamp: fallbackStamp, langStamp: langStamp}
+	s.mu.Unlock()
+	return catalog, nil
+}
+
+// LoadPrompt はプロンプト層（AI へ渡すタグ・指示文）専用の辞書を返す。
+//
+// UI 辞書（Load）と違い、fallback / default による未翻訳キーの補完を一切行わない。
+// マージ順（後勝ち）: 内蔵lang → 外部lang のみ。
+//
+// プロンプト層の正本はコード内の日本語既定文字列（PromptLocale.Text の fallback 引数）で、
+// 辞書は「その言語への任意翻訳」に過ぎない。Load の fallback 補完をプロンプト層へ使うと、
+// 内蔵 ja に無いキー（例: prompt.emotion.instruction）が内蔵 en から補完されて
+// Messages に載り、Text の日本語既定フォールバックが永遠に発動しなくなる。
+// 実際に uiLanguage=ja でも心情定義の TURN 出力契約が英語版
+// （CharacterName: "Dialogue"）で焼き込まれ、セリフが「」でなく ""
+// で生成される不具合が起きた（セリフ引用符問題 交換日記 02）。
+func (s *Service) LoadPrompt(lang string) (Catalog, error) {
+	if lang == "" {
+		lang = config.I18NDefaultLang
+	}
+	if !validLang(lang) {
+		return Catalog{}, ErrInvalidLang
+	}
+	langStamp := s.externalStamp(lang)
+	s.mu.Lock()
+	if entry, ok := s.promptCache[lang]; ok && entry.langStamp.equal(langStamp) {
+		s.mu.Unlock()
+		return entry.catalog, nil
+	}
+	s.mu.Unlock()
+
+	messages := map[string]string{}
+	merge(messages, builtinCatalogs[lang])
+	if external, err := s.loadExternal(lang); err == nil {
+		merge(messages, external)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return Catalog{}, err
+	}
+	catalog := Catalog{
+		Lang:        lang,
+		DefaultLang: config.I18NDefaultLang,
+		Messages:    messages,
+	}
+	s.mu.Lock()
+	s.promptCache[lang] = promptCacheEntry{catalog: catalog, langStamp: langStamp}
 	s.mu.Unlock()
 	return catalog, nil
 }
@@ -395,6 +451,9 @@ var builtinCatalogs = map[string]map[string]string{
 		"chatView.statusMenu":                                     "セッション状態",
 		"chatView.sessionHistory":                                 "セッション履歴",
 		"chatView.noSessionHistory":                               "セッション履歴がありません",
+		"chatView.sessionInfo.preset":                             "プリセット",
+		"chatView.sessionInfo.characters":                         "キャラクター",
+		"chatView.sessionInfo.situations":                         "シチュエーション",
 		"chatView.deleteSession":                                  "セッションを削除",
 		"chatView.deleteSession.confirmMessage":                   "このセッションを削除しますか？この操作は元に戻せません。",
 		"chatView.deleteSession.failed":                           "セッションの削除に失敗しました",
@@ -979,6 +1038,9 @@ var builtinCatalogs = map[string]map[string]string{
 		"chatView.statusMenu":                                     "Session status",
 		"chatView.sessionHistory":                                 "Session history",
 		"chatView.noSessionHistory":                               "No session history",
+		"chatView.sessionInfo.preset":                             "Preset",
+		"chatView.sessionInfo.characters":                         "Characters",
+		"chatView.sessionInfo.situations":                         "Situations",
 		"chatView.deleteSession":                                  "Delete session",
 		"chatView.deleteSession.confirmMessage":                   "Delete this session? This cannot be undone.",
 		"chatView.deleteSession.failed":                           "Failed to delete the session",
