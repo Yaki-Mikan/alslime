@@ -24,6 +24,7 @@ AlSlime is a local application that runs entirely on your own PC, letting you us
 - Windows / Linux
 - At least one AI CLI (Gemini CLI / Claude Code / Antigravity) installed and authenticated
   - Using each AI CLI may require a separate paid plan or subscription with its provider; check the provider's latest guidance for what is required
+  - For a table of which AI requires which subscription and which CLI, see [Manual, Chapter 01](docs/manual/en/01-setup.md)
 - To build from source: Go 1.26+ (plus Node.js if you want to modify the UI)
 
 ## Quick Start

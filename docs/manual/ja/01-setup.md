@@ -14,12 +14,24 @@ AlSlime のインストールから、最初の画面が表示されるまでを
 
 - **OS**: Windows / Linux
 - **ブラウザ**: 一般的なモダンブラウザ（Chrome / Edge / Firefox など）
-- **AI CLI**: 以下のいずれかが導入・認証済みであること
+- **AI CLI**: 以下のいずれかが導入・認証済みであること（準備の内容は次節）
+  - Antigravity CLI
   - Gemini CLI
   - Claude Code
-  - Antigravity CLI
 
-AlSlime は AI CLI の「フロントエンド」です。AI CLI 本体の導入・契約・認証はそれぞれの提供元の手順に従って、あらかじめ済ませておいてください。
+### AI CLI の準備（いずれか1つでよい）
+
+AlSlime は AI CLI の「フロントエンド」です。使いたい AI に合わせて、**提供元との契約・CLI のインストール・ログイン（認証）**を、AlSlime を使い始める前に各自で済ませておいてください。
+
+| 使いたい AI | 必要な契約 | インストールする CLI | 入手先 |
+| --- | --- | --- | --- |
+| Gemini（Google）を個人で使う | Google AI Pro / Ultra のサブスクリプション（CLI の追加課金なし） | **Antigravity CLI**（コマンド名 `agy`） | [Antigravity 公式サイト](https://antigravity.google/) |
+| Gemini（Google）を企業契約で使う | 企業向け Gemini Code Assist（Standard 等）の契約 | **Gemini CLI**（コマンド名 `gemini`） | [Gemini CLI 公式リポジトリ](https://github.com/google-gemini/gemini-cli) |
+| Claude（Anthropic）を使う | Claude の対応有料プラン（Max 等） | **Claude Code**（コマンド名 `claude`） | [Claude Code 公式サイト](https://claude.com/claude-code) |
+
+- **対応プラン・料金は変更されることがあります。契約前に必ず各提供元の最新の案内を確認してください。**
+- インストール後、**その CLI をターミナルで一度起動し、ログイン（認証）まで済ませてください**（`agy` / `gemini` / `claude` を実行するとブラウザでのログインが求められます）。AlSlime はこの認証済みの CLI を利用します。
+- 補足: Gemini CLI の個人向け認証経路（Google AI Pro / Ultra・個人向け Gemini Code Assist）は 2026 年 6 月 18 日に終了しました。個人で Google の AI を使う場合は、後継の Antigravity CLI を利用してください（企業向け Gemini Code Assist の契約では Gemini CLI を引き続き利用できます）。
 
 ## 2. 入手する
 

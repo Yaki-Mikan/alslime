@@ -13,12 +13,18 @@ import (
 	"alslime/internal/app"
 	"alslime/internal/config"
 	"alslime/internal/logging"
+	"alslime/internal/system/firstrun"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		logging.Error("設定の読み込みに失敗しました: %v", err)
+		os.Exit(1)
+	}
+
+	if err := firstrun.Ensure(cfg.WorkspaceRoot); err != nil {
+		logging.Error("ワークスペースの初期化に失敗しました: %v", err)
 		os.Exit(1)
 	}
 
