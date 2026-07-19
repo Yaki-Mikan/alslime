@@ -119,10 +119,24 @@ interface SSRPOptionsData {
 let ssrpOptionsCache: { data: SSRPOptionsData; fetchedAt: number } | null = null;
 const SSRP_OPTIONS_CACHE_TTL_MS = 30_000;
 
+// キャッシュ破棄の通知を受け取る購読者。開いている会話設定メニューが、
+// メニューを閉じずに（ピン留め等で isOpen が変化しないまま）即時再取得するために使う。
+const ssrpOptionsInvalidationSubscribers = new Set<() => void>();
+
+// 開いている会話設定メニューがキャッシュ破棄通知を購読する。戻り値で購読解除する。
+export function subscribeSSRPOptionsInvalidation(fn: () => void): () => void {
+    ssrpOptionsInvalidationSubscribers.add(fn);
+    return () => { ssrpOptionsInvalidationSubscribers.delete(fn); };
+}
+
 // 設定パック取り込み等、メニュー外の操作でワークスペース内容が変わった際に呼ぶ。
-// 破棄しておくと次回メニューを開いたときに必ず再取得される。
+// 破棄しておくと次回メニューを開いたときに必ず再取得される。加えて、開きっぱなしの
+// メニューにも通知し、その場で再取得させる。
 export function invalidateSSRPOptionsCache(): void {
     ssrpOptionsCache = null;
+    for (const fn of ssrpOptionsInvalidationSubscribers) {
+        fn();
+    }
 }
 
 async function fetchSSRPOptions(backendUrl: string): Promise<SSRPOptionsData> {
@@ -1230,7 +1244,15 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             }
         };
         loadOptions();
-        return () => { cancelled = true; };
+
+        // メニューを開いている間にキャッシュ破棄（設定パック取り込み等）が起きたら、
+        // 閉じ直さなくても即時再取得する。この時点でキャッシュは null なので必ずサーバへ取りに行く。
+        const unsubscribe = subscribeSSRPOptionsInvalidation(() => { void loadOptions(); });
+
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
     }, [isOpen, backendUrl]);
 
     // キャラパス→表示名の索引（選択表示ボタンでのスロット数×キャラ数の線形検索を避ける）
