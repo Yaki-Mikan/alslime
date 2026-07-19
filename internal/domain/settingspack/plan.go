@@ -69,6 +69,9 @@ type PlanEntry struct {
 	Action    Action `json:"action"`
 	ReasonKey string `json:"reasonKey,omitempty"`
 	SizeBytes int64  `json:"sizeBytes"`
+	// Forced は衝突時にポリシーを無視して常に上書きするエントリ
+	// （Kind.ForceOverwrite 由来。UI はポリシー選択を出さず「常に上書き」表示）。
+	Forced bool `json:"forced,omitempty"`
 }
 
 // Warning は整合性チェックの警告（ブロックはしない。設計 §4）。
@@ -147,6 +150,7 @@ func BuildPlan(entries []Entry, manifest *Manifest, opts PlanOptions) Plan {
 				pe.ReasonKey = ReasonCharacterInternal
 			case exists(e.Path):
 				pe.Action = ActionConflict
+				pe.Forced = c.Kind != nil && c.Kind.ForceOverwrite
 			default:
 				pe.Action = ActionNew
 			}

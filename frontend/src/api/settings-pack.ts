@@ -22,6 +22,8 @@ export interface SettingsPackPlanEntry {
     action: SettingsPackAction;
     reasonKey?: string;
     sizeBytes: number;
+    // 衝突時もポリシーによらず常に上書きされるエントリ（AIプロバイダ指示ファイル等）
+    forced?: boolean;
 }
 
 export interface SettingsPackWarning {

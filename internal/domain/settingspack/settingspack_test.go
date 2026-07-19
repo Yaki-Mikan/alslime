@@ -19,8 +19,9 @@ func TestClassify_分類テーブル(t *testing.T) {
 		{"職業は背景より優先（最長一致）", "roleplay/global/backgrounds/occupations/教師.md", ClassRoleplay, "occupation"},
 		{"背景", "roleplay/global/backgrounds/教室.md", ClassRoleplay, "background"},
 		{"文体設定", config.WritingStylesDir + "/default_v7.md", ClassRoleplay, "writingStyle"},
-		{"AIプロバイダ指示はパック対象外（未認識）", config.ProviderInstructionClaudeFile, "", ""},
-		{"Antigravity指示もパック対象外（未認識）", config.ProviderInstructionAntigravityFile, "", ""},
+		{"AIプロバイダ指示（Claude）はC分類", config.ProviderInstructionClaudeFile, ClassConfig, "providerInstructions"},
+		{"AIプロバイダ指示（Antigravity）はC分類", config.ProviderInstructionAntigravityFile, ClassConfig, "providerInstructions"},
+		{"AIプロバイダ指示（Gemini）はC分類", config.ProviderInstructionGeminiFile, ClassConfig, "providerInstructions"},
 		{"デフォルト項目設定", config.ParameterSchemaDefaultFile, ClassSchema, "parameterSchemas"},
 		{"カスタム項目設定", config.ParameterSchemaCustomDir + "/parameter-schema-abc.json", ClassSchema, "parameterSchemas"},
 		{"パラメータプリセット", config.ParameterNormalModePresetDir + "/parameter-presets-abc.json", ClassSchema, "parameterPresets"},
@@ -108,6 +109,25 @@ func TestBuildPlan_アクション判定(t *testing.T) {
 	}
 	if plan.Summary[ActionNew] != 1 || plan.Summary[ActionConflict] != 1 || plan.Summary[ActionSkip] != 5 {
 		t.Fatalf("Summary が不正: %+v", plan.Summary)
+	}
+}
+
+func TestBuildPlan_指示ファイルは常時上書きフラグ(t *testing.T) {
+	plan := BuildPlan([]Entry{
+		{Path: config.ProviderInstructionClaudeFile},
+		{Path: "roleplay/global/situations/既存.md"},
+	}, nil, PlanOptions{Exists: func(string) bool { return true }})
+	if plan.Entries[0].Action != ActionConflict || !plan.Entries[0].Forced {
+		t.Fatalf("指示ファイルは conflict+forced になるべき: %+v", plan.Entries[0])
+	}
+	if plan.Entries[1].Action != ActionConflict || plan.Entries[1].Forced {
+		t.Fatalf("通常種別の衝突に forced が付いてはいけない: %+v", plan.Entries[1])
+	}
+
+	// 既存が無ければただの new（forced は衝突時のみ意味を持つ）。
+	plan = BuildPlan([]Entry{{Path: config.ProviderInstructionGeminiFile}}, nil, PlanOptions{})
+	if plan.Entries[0].Action != ActionNew || plan.Entries[0].Forced {
+		t.Fatalf("既存無しの指示ファイルは new になるべき: %+v", plan.Entries[0])
 	}
 }
 

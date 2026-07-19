@@ -47,6 +47,7 @@ const FALLBACK_JA: Record<string, string> = {
     'settingsPack.policy.skip': 'スキップ（既存を残す）',
     'settingsPack.policy.overwrite': '上書き',
     'settingsPack.policy.rename': 'リネームして追加',
+    'settingsPack.policy.forced': '常に上書き',
     'settingsPack.policy.followGlobal': '一括設定に従う',
     'settingsPack.import.apply': '取り込み実行',
     'settingsPack.import.running': '取り込み中...',
@@ -428,7 +429,10 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                         {plan.entries.map((entry, i) => (
                                             <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
                                                 <span className="text-gray-300 truncate" title={entry.path}>{entry.path}</span>
-                                                {entry.action === 'conflict' && !plan.blocked ? (
+                                                {entry.action === 'conflict' && !plan.blocked && entry.forced ? (
+                                                /* 常時上書き種別（AIプロバイダ指示ファイル等）はポリシー選択不可 */
+                                                <span className="shrink-0 text-amber-300">{t('settingsPack.policy.forced')}</span>
+                                            ) : entry.action === 'conflict' && !plan.blocked ? (
                                                     /* 衝突エントリはファイル単位でポリシーを上書きできる（未指定は一括に従う） */
                                                     <select
                                                         value={overrides[entry.path] ?? ''}
@@ -464,7 +468,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
 
                                     {!plan.blocked && (
                                         <>
-                                            {(plan.summary.conflict ?? 0) > 0 && (
+                                            {plan.entries.some(e => e.action === 'conflict' && !e.forced) && (
                                                 <label className="block">
                                                     <span className="text-xs text-gray-500">{t('settingsPack.import.policyLabel')}</span>
                                                     <div className="relative mt-1">

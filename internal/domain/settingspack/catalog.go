@@ -48,6 +48,10 @@ type Kind struct {
 	Roots []string
 	// Files は種別に属する単一ファイル（WORKSPACE_ROOT 相対・"/" 区切り）。
 	Files []string
+	// ForceOverwrite は衝突時にポリシーを無視して常に上書きする種別。
+	// AIプロバイダ指示ファイルのように「取り込み＝内容の反映」が目的の
+	// 種別に使う。無確認適用の import_inbox 経路では無効化される（設計 §5）。
+	ForceOverwrite bool
 }
 
 // forbiddenRoots は F 分類（絶対除外）のディレクトリプレフィックス。
@@ -82,7 +86,11 @@ var envFiles = []string{
 // A（ロールプレイMD）は configeditor のカテゴリ定義から導出し、二重管理を避ける。
 // 文体設定も configeditor カテゴリ（ID "writingStyle"）に含まれるため導出で賄う。
 // 「基本指示」の実体は AIプロバイダ指示ファイル
-// （config.ProviderInstruction*File。設計 §8）であり、方針どおりパック対象外。
+// （config.ProviderInstruction*File。設計 §8）。当初はパック対象外だったが、
+// 2026-07-19 のユーザー判断で C 分類 Kind「providerInstructions」として対象化。
+// 指示ファイルは「パックの内容を反映させる」ことが取り込みの目的そのものなので、
+// 衝突時もポリシーによらず常に上書きする（ForceOverwrite）。
+// 例外は無確認適用の import_inbox のみ（新規のみ書き込みの保証を維持。設計 §5）。
 func kinds() []Kind {
 	out := make([]Kind, 0, 32)
 	for _, c := range configeditor.Categories() {
@@ -130,6 +138,17 @@ func kinds() []Kind {
 		Kind{ID: "globalDefaults", Label: "グローバル設定", Class: ClassConfig, Files: []string{config.GlobalSettingsFile}},
 		Kind{ID: "configTemplates", Label: "設定ファイルテンプレート", Class: ClassConfig, Roots: []string{config.ConfigEditorTemplateRoot}},
 		Kind{ID: "uiDictionaries", Label: "UI辞書", Class: ClassConfig, Roots: []string{config.I18NDir, config.LanguageDir}},
+		Kind{
+			ID:    "providerInstructions",
+			Label: "AIプロバイダ指示ファイル",
+			Class: ClassConfig,
+			Files: []string{
+				config.ProviderInstructionAntigravityFile,
+				config.ProviderInstructionClaudeFile,
+				config.ProviderInstructionGeminiFile,
+			},
+			ForceOverwrite: true,
+		},
 		// D: 画像生成系（tier ゲート対象）。
 		Kind{
 			ID:    "comfyDirectives",
