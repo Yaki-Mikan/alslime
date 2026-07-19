@@ -147,8 +147,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
 
     // モデル選択
     const [models, setModels] = useState<Model[]>([]);
-    const [selectedModel, setSelectedModel] = useState<string>('gemini-3.1-pro-preview');
-    const [selectedModelProvider, setSelectedModelProvider] = useState<ModelProvider>('gemini');
+    const [selectedModel, setSelectedModel] = useState<string>('antigravity');
+    const [selectedModelProvider, setSelectedModelProvider] = useState<ModelProvider>('antigravity');
     // プロバイダ別デフォルトモデル（グローバル設定 defaultModels）。
     // プロバイダ切替時の初期モデル選択に使う。
     const [defaultModels, setDefaultModels] = useState<Record<string, string>>({});
@@ -209,10 +209,10 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 if (dm[dp]) {
                     setSelectedModel(dm[dp]);
                 }
-            } else if (dm['gemini']) {
-                // デフォルトプロバイダ未設定でも、初期プロバイダ(gemini)の
+            } else if (dm['antigravity']) {
+                // デフォルトプロバイダ未設定でも、初期プロバイダ(antigravity)の
                 // デフォルトモデルは反映する。
-                setSelectedModel(dm['gemini']);
+                setSelectedModel(dm['antigravity']);
             }
         })();
         return () => { cancelled = true; };

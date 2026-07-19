@@ -137,7 +137,7 @@ export const SETTINGS_TEXT_FALLBACK_JA: Record<string, string> = {
     [SETTINGS_I18N_KEYS.defaultModelsAntigravityLabel]: 'Antigravity',
     [SETTINGS_I18N_KEYS.defaultProviderTitle]: 'デフォルトプロバイダ',
     [SETTINGS_I18N_KEYS.defaultProviderDescription]: '起動時にチャット欄で最初に選択されるプロバイダです。プロバイダ別デフォルトモデルと合わせて初期モデルも決まります。',
-    [SETTINGS_I18N_KEYS.defaultProviderNone]: '未設定（Gemini）',
+    [SETTINGS_I18N_KEYS.defaultProviderNone]: '未設定（Antigravity）',
     [SETTINGS_I18N_KEYS.serverTitle]: '起動設定',
     [SETTINGS_I18N_KEYS.serverPortLabel]: 'ポート',
     [SETTINGS_I18N_KEYS.serverBindAddressLabel]: '待受アドレス',
