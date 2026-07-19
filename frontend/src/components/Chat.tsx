@@ -48,6 +48,7 @@ import { fetchSystemHealth } from '../api/system';
 // Hooks
 import { useChat } from '../hooks/useChat';
 import { useSession } from '../hooks/useSession';
+import type { Session } from '../hooks/useSession';
 
 const DEFAULT_SSRP_LANGUAGE = 'ja';
 
@@ -515,6 +516,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         }
     };
 
+    // 履歴行ホバー時のセッション情報ツールチップ（大画面のみ表示。モーダルが
+    // overflow-y-auto でクリップするため fixed 配置し、行の右横へ出す）
+    const [hoveredSessionInfo, setHoveredSessionInfo] = useState<{ session: Session; top: number; left: number } | null>(null);
+
     // まとめて削除モード（履歴モーダル右上のボタンで切替。モーダルを閉じると解除される）
     const [isSessionSelectMode, setIsSessionSelectMode] = useState(false);
     const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
@@ -954,6 +959,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                                     <div
                                         key={session.id}
                                         className="flex items-center border-b border-gray-700/50"
+                                        onMouseEnter={(e) => {
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setHoveredSessionInfo({ session, top: rect.top, left: rect.right + 8 });
+                                        }}
+                                        onMouseLeave={() => setHoveredSessionInfo(null)}
                                     >
                                         {isSessionSelectMode ? (
                                             // 選択モード中は行クリックでチェックをトグルする（再開はしない）
@@ -990,7 +1000,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                                                     </div>
                                                 </button>
                                                 <button
-                                                    onClick={() => setDeleteConfirmSession({ id: session.id, title: session.title })}
+                                                    onClick={() => {
+                                                        setHoveredSessionInfo(null);
+                                                        setDeleteConfirmSession({ id: session.id, title: session.title });
+                                                    }}
                                                     className="p-2 mr-2 hover:bg-gray-700 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0"
                                                     title={t(CHAT_VIEW_I18N_KEYS.deleteSession)}
                                                 >
@@ -1018,6 +1031,33 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             </div>
                         )}
                     </div>
+                    {/* 履歴行ホバー時のセッション情報ツールチップ（lg以上の大画面のみ。
+                        モーダルのスクロール領域にクリップされないよう fixed で行の右横へ出す） */}
+                    {hoveredSessionInfo && (() => {
+                        const info = hoveredSessionInfo.session;
+                        const rows = [
+                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoPreset), value: info.presetName || '' },
+                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoCharacters), value: (info.characters || []).join(', ') },
+                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoSituations), value: (info.situations || []).join(', ') },
+                        ].filter((row) => row.value);
+                        if (rows.length === 0) return null;
+                        return (
+                            <div
+                                className="hidden lg:block fixed z-[60] w-64 pointer-events-none bg-gray-800 border border-gray-600 rounded-lg shadow-xl px-3 py-2 space-y-1"
+                                style={{
+                                    top: Math.min(hoveredSessionInfo.top, window.innerHeight - 160),
+                                    left: hoveredSessionInfo.left
+                                }}
+                            >
+                                {rows.map((row) => (
+                                    <div key={row.label} className="text-xs">
+                                        <span className="text-gray-500">{row.label}: </span>
+                                        <span className="text-gray-200 break-all">{row.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
 

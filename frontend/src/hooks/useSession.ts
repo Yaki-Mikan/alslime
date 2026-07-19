@@ -21,6 +21,10 @@ export interface Session {
     id: string;
     isSSRP?: boolean;
     modelType?: 'gemini' | 'claude' | 'antigravity';
+    // 一覧ホバー時のツールチップ表示用（characters / situations は表示名解決済み）
+    presetName?: string;
+    characters?: string[];
+    situations?: string[];
 }
 
 interface UseSessionProps {

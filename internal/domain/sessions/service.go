@@ -6,6 +6,7 @@
 package sessions
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -95,6 +96,17 @@ type sessionMeta struct {
 	IsSSRP        bool       `json:"isSSRP"`
 	Bindings      Bindings   `json:"bindings"`
 	Messages      []struct{} `json:"messages"`
+	// SSRPSettings は一覧ツールチップ用の抜粋（ssrpMetaInfo）を取り出すための生JSON。
+	// 直接 struct で受けると想定外の型のとき ReadJSON 全体が失敗し
+	// セッションが一覧から消えるため、二段デコードにして失敗しても一覧表示は続行する。
+	SSRPSettings json.RawMessage `json:"ssrpSettings"`
+}
+
+// ssrpMetaInfo は一覧ツールチップ表示に使う SSRP 設定の抜粋。
+type ssrpMetaInfo struct {
+	PresetName string   `json:"presetName"`
+	Characters []string `json:"characters"`
+	Situations []string `json:"situations"`
 }
 
 // validSessionMeta は validSession と同じ判定を軽量デコード結果に対して行う。
@@ -103,14 +115,19 @@ func validSessionMeta(session sessionMeta) bool {
 }
 
 // ListItem は /api/sessions が返す一覧要素。
+// PresetName / Characters / Situations は一覧ホバー時のツールチップ表示用
+// （Characters・Situations はパスから抽出した表示名）。
 type ListItem struct {
-	Index     int       `json:"index"`
-	Title     string    `json:"title"`
-	TimeAgo   string    `json:"timeAgo"`
-	ID        string    `json:"id"`
-	Timestamp int64     `json:"timestamp,omitempty"`
-	IsSSRP    bool      `json:"isSSRP,omitempty"`
-	ModelType ModelType `json:"modelType,omitempty"`
+	Index      int       `json:"index"`
+	Title      string    `json:"title"`
+	TimeAgo    string    `json:"timeAgo"`
+	ID         string    `json:"id"`
+	Timestamp  int64     `json:"timestamp,omitempty"`
+	IsSSRP     bool      `json:"isSSRP,omitempty"`
+	ModelType  ModelType `json:"modelType,omitempty"`
+	PresetName string    `json:"presetName,omitempty"`
+	Characters []string  `json:"characters,omitempty"`
+	Situations []string  `json:"situations,omitempty"`
 }
 
 // NewSessionState は /api/sessions/new で次回送信用に保持する軽い状態。
@@ -174,14 +191,22 @@ func (s *Service) List() ([]ListItem, error) {
 			continue
 		}
 		ts := parseTimeMs(session.LastUpdated)
+		var ssrp ssrpMetaInfo
+		if len(session.SSRPSettings) > 0 {
+			// 抜粋のデコード失敗はツールチップ情報なしとして一覧表示を続行する。
+			_ = json.Unmarshal(session.SSRPSettings, &ssrp)
+		}
 		items = append(items, ListItem{
-			Index:     0,
-			Title:     session.Title,
-			TimeAgo:   timeAgo(ts),
-			ID:        session.SessionID,
-			Timestamp: ts,
-			IsSSRP:    session.IsSSRP,
-			ModelType: session.Bindings.ActiveModelType,
+			Index:      0,
+			Title:      session.Title,
+			TimeAgo:    timeAgo(ts),
+			ID:         session.SessionID,
+			Timestamp:  ts,
+			IsSSRP:     session.IsSSRP,
+			ModelType:  session.Bindings.ActiveModelType,
+			PresetName: strings.TrimSpace(ssrp.PresetName),
+			Characters: characterDisplayNames(ssrp.Characters),
+			Situations: fileDisplayNames(ssrp.Situations),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Timestamp > items[j].Timestamp })
@@ -602,4 +627,45 @@ func pluralJP(n int, suffix string) string {
 		n = 1
 	}
 	return strconv.Itoa(n) + suffix
+}
+
+// characterDisplayNames はキャラクター設定ファイルのパス群から表示名を取り出す。
+// パスは <ルート>/<リスト>/<キャラクター名>/<設定>/<ファイル>.md 構造で、
+// ファイル名は「名前_v2」等の版付きがあるためディレクトリ名（後ろから3番目）を正とする。
+// 階層が浅い場合はファイル名（拡張子除去）へフォールバックする。
+func characterDisplayNames(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		parts := strings.Split(strings.ReplaceAll(p, "\\", "/"), "/")
+		name := ""
+		if len(parts) >= 3 {
+			name = strings.TrimSpace(parts[len(parts)-3])
+		}
+		if name == "" {
+			name = fileDisplayName(p)
+		}
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// fileDisplayNames はファイルパス群からファイル名（拡張子除去）を表示名として取り出す。
+func fileDisplayNames(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if name := fileDisplayName(p); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func fileDisplayName(path string) string {
+	base := filepath.Base(strings.ReplaceAll(path, "\\", "/"))
+	if base == "." || base == "/" {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSuffix(base, filepath.Ext(base)))
 }
