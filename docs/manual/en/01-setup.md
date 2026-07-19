@@ -14,12 +14,24 @@ This chapter walks you through installing AlSlime, from getting the app to seein
 
 - **OS**: Windows / Linux
 - **Browser**: Any common modern browser (Chrome, Edge, Firefox, etc.)
-- **AI CLI**: At least one of the following must be installed and authenticated
+- **AI CLI**: At least one of the following must be installed and authenticated (see the next section)
+  - Antigravity CLI
   - Gemini CLI
   - Claude Code
-  - Antigravity CLI
 
-AlSlime is a front end for AI CLIs. Install, subscribe to, and authenticate the AI CLI itself in advance, following the instructions from its provider.
+### Preparing an AI CLI (one is enough)
+
+AlSlime is a front end for AI CLIs. Depending on which AI you want to use, **subscribe with the provider, install the CLI, and sign in (authenticate)** yourself before you start using AlSlime.
+
+| AI you want to use | Required subscription | CLI to install | Where to get it |
+| --- | --- | --- | --- |
+| Gemini (Google), personal use | Google AI Pro / Ultra subscription (no extra charge for the CLI) | **Antigravity CLI** (command `agy`) | [Antigravity official site](https://antigravity.google/) |
+| Gemini (Google), business use | Business Gemini Code Assist (Standard, etc.) subscription | **Gemini CLI** (command `gemini`) | [Gemini CLI official repository](https://github.com/google-gemini/gemini-cli) |
+| Claude (Anthropic) | An eligible paid Claude plan (Max, etc.) | **Claude Code** (command `claude`) | [Claude Code official site](https://claude.com/claude-code) |
+
+- **Eligible plans and pricing are subject to change. Always check the provider's latest guidance before subscribing.**
+- After installing, **run the CLI once in a terminal and complete the sign-in (authentication)** (running `agy` / `gemini` / `claude` prompts you to sign in via your browser). AlSlime uses this authenticated CLI.
+- Note: The personal authentication paths for Gemini CLI (Google AI Pro / Ultra and Gemini Code Assist for individuals) ended on June 18, 2026. For personal use of Google's AI, use its successor, Antigravity CLI (business Gemini Code Assist subscriptions can continue to use Gemini CLI).
 
 ## 2. Getting AlSlime
 

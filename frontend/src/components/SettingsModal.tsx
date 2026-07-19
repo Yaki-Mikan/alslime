@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings as SettingsIcon, LogOut, Activity, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Server, Tag, Palette } from 'lucide-react';
+import { X, Settings as SettingsIcon, LogOut, Activity, BookOpen, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Server, Tag, Palette } from 'lucide-react';
 import type { Settings } from '../types/Settings';
 import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
 import { ChatBasicSettingsModal } from './settings/ChatBasicSettingsModal';
@@ -23,6 +23,7 @@ import { ProcessLimitsModal } from './ProcessLimitsModal';
 import { SystemDiagnosticsModal } from './SystemDiagnosticsModal';
 import { SponsorModal } from './SponsorModal';
 import { SettingsPackModal } from './settings/SettingsPackModal';
+import { ManualModal } from './ManualModal';
 import { rebuildCharacterFilters } from '../api/files';
 import { fetchI18NLanguages, resolveMessage, type I18NCatalog } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
@@ -69,6 +70,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [isSystemDiagnosticsOpen, setIsSystemDiagnosticsOpen] = useState(false);
     const [isSponsorOpen, setIsSponsorOpen] = useState(false);
     const [isSettingsPackOpen, setIsSettingsPackOpen] = useState(false);
+    const [isManualOpen, setIsManualOpen] = useState(false);
 
     // 言語設定（トップ直置き。変更時に即保存する）
     const [uiLanguageOptions, setUILanguageOptions] = useState(UI_LANGUAGE_OPTIONS);
@@ -158,6 +160,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* カテゴリボタン一覧 */}
                     <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                        {/* 操作マニュアル */}
+                        <button
+                            onClick={() => setIsManualOpen(true)}
+                            className={hubButtonClass('border-indigo-600')}
+                            title={resolveMessage(uiCatalog, 'manual.title', '操作マニュアル')}
+                        >
+                            <BookOpen size={16} className="text-indigo-400" />
+                            {resolveMessage(uiCatalog, 'manual.title', '操作マニュアル')}
+                        </button>
+
                         {/* 支援者機能 / 設定パック */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <button
@@ -381,6 +393,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 isOpen={isSponsorOpen}
                 onClose={() => setIsSponsorOpen(false)}
                 backendUrl={BACKEND_URL}
+                uiCatalog={uiCatalog}
+            />
+
+            {/* 操作マニュアルモーダル */}
+            <ManualModal
+                isOpen={isManualOpen}
+                onClose={() => setIsManualOpen(false)}
+                backendUrl={BACKEND_URL}
+                uiLanguage={settings.uiLanguage}
                 uiCatalog={uiCatalog}
             />
         </>

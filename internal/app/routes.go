@@ -16,6 +16,7 @@ import (
 	filesapi "alslime/internal/api/files"
 	i18napi "alslime/internal/api/i18n"
 	jobsapi "alslime/internal/api/jobs"
+	manualapi "alslime/internal/api/manual"
 	modelsapi "alslime/internal/api/models"
 	parametersapi "alslime/internal/api/parameters"
 	presetsapi "alslime/internal/api/presets"
@@ -116,6 +117,8 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	})
 	i18nService := i18nsvc.New(resolver, locs.MustPath(locations.I18NDir))
 	i18napi.Register(mux, i18nService)
+	// 同梱操作マニュアルの配信（アプリ内マニュアル表示の読み込み元）。
+	manualapi.Register(mux)
 
 	// ディレクトリ列挙型プリセット（統一契約）。
 	// 系統ごとに「保存先ロケーション」と「メタ付与方針」だけが異なる。

@@ -111,6 +111,8 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
     const [overrides, setOverrides] = useState<Record<string, SettingsPackPolicy>>({});
     const [isImporting, setIsImporting] = useState(false);
     const [result, setResult] = useState<SettingsPackImportResult | null>(null);
+    // D&D でのパックファイル受け付け
+    const [isDragOver, setIsDragOver] = useState(false);
 
     // 起動時取り込み（import_inbox）の結果表示
     const [inboxReport, setInboxReport] = useState<SettingsPackInboxReport | null>(null);
@@ -175,10 +177,8 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
         }
     };
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const picked = e.target.files?.[0] ?? null;
-        e.target.value = '';
-        if (!picked) return;
+    // クリック選択・D&D 共通のパックファイル受け付け処理
+    const processPickedFile = async (picked: File) => {
         setFile(picked);
         setPlan(null);
         setResult(null);
@@ -195,6 +195,22 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
         } finally {
             setIsInspecting(false);
         }
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const picked = e.target.files?.[0] ?? null;
+        e.target.value = '';
+        if (!picked) return;
+        void processPickedFile(picked);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (isInspecting || isImporting) return;
+        const dropped = e.dataTransfer.files?.[0];
+        if (!dropped) return;
+        void processPickedFile(dropped);
     };
 
     const handleImport = async () => {
@@ -366,7 +382,12 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                             <button
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isInspecting || isImporting}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-emerald-700 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-50"
+                                onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+                                onDragLeave={() => setIsDragOver(false)}
+                                onDrop={handleDrop}
+                                className={`w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed rounded-lg text-sm transition-colors disabled:opacity-50 ${isDragOver
+                                    ? 'border-emerald-400 bg-emerald-900/30 text-emerald-200'
+                                    : 'bg-gray-800 hover:bg-gray-700 border-emerald-700 text-gray-300'}`}
                             >
                                 <Upload size={16} className="text-emerald-400" />
                                 {isInspecting ? t('settingsPack.import.inspecting') : t('settingsPack.import.selectFile')}

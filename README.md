@@ -24,6 +24,7 @@ AlSlime は、ご自身で導入した AI CLI（Gemini CLI / Claude Code / Antig
 - Windows / Linux
 - 利用したい AI CLI（Gemini CLI / Claude Code / Antigravity のいずれか）が導入・認証済みであること
   - 各 AI CLI の利用には、各提供元での有料プラン等の契約が別途必要な場合があります。必要なプランは各提供元の最新の案内をご確認ください
+  - どの AI にどの契約・どの CLI が必要かの対応表は[操作マニュアル 01章](docs/manual/ja/01-setup.md)を参照してください
 - ソースからビルドする場合: Go 1.26+（UI を変更する場合はさらに Node.js）
 
 ## クイックスタート
