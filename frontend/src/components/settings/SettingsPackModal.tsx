@@ -14,6 +14,7 @@ import {
     type SettingsPackImportResult,
     type SettingsPackInboxReport,
 } from '../../api/settings-pack';
+import { invalidateSSRPOptionsCache } from '../SSRP/RolePlaySettings';
 
 // 設定パック（設定インポート・エクスポート）モーダル。
 // エクスポート: 種別選択 → zip ダウンロード。
@@ -224,6 +225,11 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
             setPlan(null);
             setFile(null);
             setOverrides({});
+            if (imported.written.length > 0) {
+                // 会話設定メニューのプルダウンは30秒TTLのキャッシュから供給されるため、
+                // 取り込んだファイルが即座に反映されるようキャッシュを破棄する
+                invalidateSSRPOptionsCache();
+            }
         } catch (err) {
             console.error('Failed to import settings pack:', err);
             setError(t('settingsPack.error.importFailed'));
@@ -241,6 +247,9 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
             const lang = uiCatalog?.lang === 'en' ? 'en' : 'ja';
             const imported = await downloadSamplePack(backendUrl, lang);
             setResult(imported);
+            if (imported.written.length > 0) {
+                invalidateSSRPOptionsCache();
+            }
         } catch (err: any) {
             console.error('Failed to download sample pack:', err);
             const messageKey = err?.response?.data?.messageKey;

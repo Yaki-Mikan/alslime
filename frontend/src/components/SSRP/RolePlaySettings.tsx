@@ -119,6 +119,12 @@ interface SSRPOptionsData {
 let ssrpOptionsCache: { data: SSRPOptionsData; fetchedAt: number } | null = null;
 const SSRP_OPTIONS_CACHE_TTL_MS = 30_000;
 
+// 設定パック取り込み等、メニュー外の操作でワークスペース内容が変わった際に呼ぶ。
+// 破棄しておくと次回メニューを開いたときに必ず再取得される。
+export function invalidateSSRPOptionsCache(): void {
+    ssrpOptionsCache = null;
+}
+
 async function fetchSSRPOptions(backendUrl: string): Promise<SSRPOptionsData> {
     // 各取得は互いに独立しているため全て並列で実行する
     const [charTagsResult, filtersResult, situations, users, worlds, stages, writingStyles, relationshipOptions] = await Promise.all([
