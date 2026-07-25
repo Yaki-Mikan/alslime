@@ -8,7 +8,7 @@ AlSlimeは、自作したキャラクターとの会話を楽しむためのAI C
 
 利用者が導入・認証したGemini CLI、Claude Code、Antigravityを、ブラウザの会話画面から利用します。会話履歴と設定は手元のPCへ保存されます。
 
-![生成した場面を背景にした会話画面](docs/manual/images/ja/08-03-chat-pocket-watch.png)
+![生成した場面を背景にした会話画面](docs/manual/images/ja/09-03-chat-pocket-watch.png)
 
 *会話から生成した画像を背景にした画面です。画像生成はGitHub Sponsors支援者向けのComfyUI連携機能です。*
 
@@ -38,7 +38,7 @@ AlSlimeのサーバーは利用者のPCで動作します。キャラクター�
 
 GitHub Sponsors支援者向けのComfyUI連携では、AIが会話の流れを読み、キャラクターや場面に合う画像を生成します。完成した画像はメッセージへ添えて残せるほか、会話画面の背景としても楽しめます。
 
-この機能には、ComfyUI本体、画像生成モデル、対応するGPU環境が別途必要です。詳しくは[ComfyUI連携マニュアル](docs/manual/ja/08-comfyui.md)をご覧ください。
+この機能には、ComfyUI本体、画像生成モデル、対応するGPU環境が別途必要です。詳しくは[ComfyUI連携マニュアル](docs/manual/ja/09-comfyui.md)をご覧ください。
 
 ## 主な機能
 
@@ -111,7 +111,7 @@ go build -tags purepublic -o alslime ./cmd/app
 
 AlSlimeは無料で利用できます。[GitHub Sponsors](https://github.com/sponsors/Yaki-Mikan)では、開発を継続するためのご支援を受け付けています。
 
-支援者向け機能と利用方法は、[支援者機能マニュアル](docs/manual/ja/07-sponsor.md)でご案内しています。
+支援者向け機能と利用方法は、[支援者機能マニュアル](docs/manual/ja/08-sponsor.md)でご案内しています。
 
 ## データとプライバシー
 
