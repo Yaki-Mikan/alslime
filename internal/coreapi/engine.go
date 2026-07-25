@@ -33,6 +33,7 @@ type Request struct {
 	UserMessage    string
 	Prompt         string
 	ModelType      sessions.ModelType
+	Locale         PromptLocale
 	IsNewSession   bool
 	MethodCContext []string
 	MethodCHistory []MethodCHistoryMessage

@@ -159,6 +159,21 @@ try {
     Pop-Location
 }
 
+# Module ldflags: modules must carry the release build mode (and the embedded
+# verification keys) or the startup entitlement check would be silently skipped.
+# Fail-close: never ship a module built without the release mode injection.
+$moduleLdflags = @(
+    "-s",
+    "-w",
+    "-X", "alslime/internal/buildinfo.buildMode=release"
+)
+if ($EntitlementKeys -ne "") {
+    $moduleLdflags += @("-X", "alslime/core/featuresimpl.embeddedPublicKeys=$EntitlementKeys")
+} elseif ($BuildModule -or $BuildActionChoiceModule) {
+    Write-Warning "[release] -EntitlementKeys not set: module binaries will have no embedded keys and reject ALL tokens at startup."
+}
+$moduleLdflagsText = $moduleLdflags -join " "
+
 if ($BuildModule) {
     # Sidecar module (lives in the core repository). Pure Go, same OS/ARCH as the app.
     $CoreRoot = Join-Path $WorkspaceRoot "alslime-core"
@@ -174,9 +189,9 @@ if ($BuildModule) {
     Push-Location $CoreRoot
     try {
         if ($useGarble) {
-            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags "-s -w" -o $modulePath ./cmd/comfymodule
+            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
         } else {
-            go build -trimpath -buildvcs=false -ldflags "-s -w" -o $modulePath ./cmd/comfymodule
+            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
         }
         if ($LASTEXITCODE -ne 0) {
             throw "module build failed (exit $LASTEXITCODE)"
@@ -203,9 +218,9 @@ if ($BuildActionChoiceModule) {
     Push-Location $CoreRoot
     try {
         if ($useGarble) {
-            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags "-s -w" -o $acModulePath ./cmd/actionchoicemodule
+            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
         } else {
-            go build -trimpath -buildvcs=false -ldflags "-s -w" -o $acModulePath ./cmd/actionchoicemodule
+            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
         }
         if ($LASTEXITCODE -ne 0) {
             throw "action-choice module build failed (exit $LASTEXITCODE)"

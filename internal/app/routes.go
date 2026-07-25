@@ -13,6 +13,7 @@ import (
 	chatapi "alslime/internal/api/chat"
 	"alslime/internal/api/comfyuigate"
 	configeditorapi "alslime/internal/api/configeditor"
+	configgenapi "alslime/internal/api/configgen"
 	filesapi "alslime/internal/api/files"
 	i18napi "alslime/internal/api/i18n"
 	jobsapi "alslime/internal/api/jobs"
@@ -62,10 +63,10 @@ import (
 	"alslime/internal/storage/workspacefs"
 	"alslime/internal/system/backup"
 	"alslime/internal/system/cache"
-	settingspacksys "alslime/internal/system/settingspack"
 	"alslime/internal/system/clistatus"
 	"alslime/internal/system/configcheck"
 	"alslime/internal/system/housekeeping"
+	settingspacksys "alslime/internal/system/settingspack"
 )
 
 // registerAPIRoutes は API ルートを mux へ登録する。
@@ -204,6 +205,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	choiceMgr := module.NewManager(module.Config{
 		ExePath:   module.ExePath(resolver.Root(), module.ModuleActionChoice),
 		Workspace: resolver.Root(),
+		Token:     entitlementSvc.Current,
 	})
 	var choiceHook *module.ChoiceHook
 	var chatHook coreapi.ChatHook
@@ -243,42 +245,76 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// system の Features は core の gate 実装（12番 3.3）。core 組み立て後に登録する。
 	systemDeps.Features = core.Features()
 	systemapi.Register(mux, systemDeps)
+	// 設定パック管理は支援者モジュール付属パックと通常インポートで共有する。
+	packManager := settingspacksys.New(resolver)
+	packInbox := settingspackapi.NewInboxState()
 	// 支援者機能（Phase D-3）: ログイン導線・状態取得・refresh。
 	// トークンの署名検証は gate（core）に閉じ、sponsor はフローと保存判断だけを持つ。
 	sponsorSvc := sponsorsvc.New(entitlementSvc, core.Features(), entitlementClock)
+	// 開発者お知らせ（作業予定14番）: ログイン完了時・refresh 時にサーバーから
+	// UI 言語に応じた文言を取得し、次に取り直すまで保持して Status で返す。
+	sponsorSvc.ConfigureNotice(entitlementstore.NewNoticeStore(resolver.Root()), func() string {
+		if settings, err := pwaSvc.Get(); err == nil {
+			if lang, _ := settings["uiLanguage"].(string); lang != "" {
+				return lang
+			}
+		}
+		return ""
+	})
 	sponsorapi.Register(mux, sponsorSvc)
 	// ComfyUI 実行モードの決定（12番 Phase B）: モジュール exe が配置されていれば
 	// サイドカーモード（プロキシ + RPC）、無ければ従来の in-process モード。
 	moduleMgr := module.NewManager(module.Config{
 		ExePath:   module.ExePath(resolver.Root(), module.ModuleComfy),
 		Workspace: resolver.Root(),
+		Token:     entitlementSvc.Current,
 	})
 	sidecarMode := moduleMgr.Available()
 	// モジュール取得（14番 6章の本体側受け口。複数モジュール対応）: レジストリの
 	// 全モジュールの配置先・起動状態と、署名検証（core に閉じた埋め込み鍵）を
 	// sponsor サービスへ注入する。
-	sponsorSvc.ConfigureModules(module.IDs(), map[string]sponsorsvc.ModuleTarget{
-		module.ModuleComfy: {
-			InstallPath: module.ExePath(resolver.Root(), module.ModuleComfy),
-			Active:      sidecarMode,
-		},
-		module.ModuleActionChoice: {
-			InstallPath: module.ExePath(resolver.Root(), module.ModuleActionChoice),
-			Active:      choiceHook != nil,
-		},
-	}, core.VerifyModuleSig)
+	moduleTargets := make(map[string]sponsorsvc.ModuleTarget)
+	for _, def := range module.Definitions() {
+		target := sponsorsvc.ModuleTarget{
+			InstallPath: module.ExePath(resolver.Root(), def.ID),
+			Active: (def.ID == module.ModuleComfy && sidecarMode) ||
+				(def.ID == module.ModuleActionChoice && choiceHook != nil),
+		}
+		if def.CompanionPack {
+			target.InstallCompanionPack = func(zipPath string) ([]string, error) {
+				result, err := packManager.Import(zipPath, settingspacksys.ImportOptions{
+					Policy:           settingspacksys.PolicySkip,
+					ImageGenAllowed:  true,
+					NoForceOverwrite: true,
+				})
+				if err != nil {
+					return nil, err
+				}
+				return settingspacksys.ComfyUIWorkflowTemplateNames(result), nil
+			}
+		}
+		moduleTargets[def.ID] = target
+	}
+	sponsorSvc.ConfigureModules(module.IDs(), moduleTargets, core.VerifyModuleSig)
 	var imageRunner jobsqueue.Runner
 	if sidecarMode {
 		imageRunner = module.ImageRunner{Manager: moduleMgr}
 	} else {
 		imageRunner = core.Comfy().ImageRunner()
 	}
+	// 設定ファイル自動作成（config-generate）: 進捗シンクは Queue 生成後に確定する
+	// クロージャで渡す（実行時には jobQueue が必ず組み立て済み）。
+	var jobQueue *jobsqueue.Queue
+	configGenRunner := core.ConfigGenRunner(func(jobID string, entry jobsqueue.ProgressEntry) {
+		jobQueue.AppendProgress(jobID, entry)
+	})
 	jobRunner := jobsqueue.CompositeRunner{
 		jobsqueue.TypeChat:       chatRunner,
 		jobsqueue.TypeRegenerate: chatRunner,
 		jobsqueue.TypeImageGen:   imageRunner,
+		jobsqueue.TypeConfigGen:  configGenRunner,
 	}
-	jobQueue := jobsqueue.NewQueue(procManager, jobRunner, newJobID)
+	jobQueue = jobsqueue.NewQueue(procManager, jobRunner, newJobID)
 	jobsapi.Register(mux, jobsapi.Deps{
 		Queue:   jobQueue,
 		Process: procManager,
@@ -286,6 +322,10 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	})
 	chatapi.Register(mux, chatapi.Deps{
 		Queue: jobQueue,
+	})
+	configgenapi.Register(mux, configgenapi.Deps{
+		Queue:    jobQueue,
+		Resolver: resolver,
 	})
 	// モデル一覧の正本まわり（一覧・ユーザー編集・疎通確認。09番）。
 	// 疎通確認の呼び出し口は chatflow.Engine（EngineRouter）そのもの。
@@ -319,8 +359,6 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// 設定パック（設定インポート・エクスポート。設定設定大設定/設定インポートエクスポート_設計.md）。
 	// 分類の正本は domain/settingspack、zip 入出力は system/settingspack。
 	// 画像生成系（D 分類）の可否は core の gate で判定する。
-	packManager := settingspacksys.New(resolver)
-	packInbox := settingspackapi.NewInboxState()
 	settingspackapi.Register(mux, settingspackapi.Deps{
 		Manager: packManager,
 		Gate:    core.Features(),

@@ -1,5 +1,7 @@
 # 01 Setup and Installation
 
+[Back to Contents](index.md)
+
 This chapter walks you through installing AlSlime, from getting the app to seeing the first screen.
 
 ## What This Chapter Covers
@@ -65,7 +67,7 @@ On first startup, the Terms of Use consent screen appears here (see the next sec
 >
 > - Open the address shown in the console (usually `http://127.0.0.1:3000`) directly in your browser.
 > - AlSlime cannot start if another application is already using port 3000. In that case, change the port as described in "6. Advanced Startup Settings" in this chapter, or close the other application.
-> - For other problems, see [09 Troubleshooting](09-troubleshooting.md).
+> - For other problems, see [10 Troubleshooting](10-troubleshooting.md).
 
 ## 4. Agreeing to the Terms of Use
 
@@ -127,4 +129,6 @@ You can also use environment variables (they take precedence over the settings f
 
 ---
 
-Contents: [index](index.md) | Next: [02 Your First Chat](02-first-chat.md)
+Next: [02 Your First Chat](02-first-chat.md)
+
+[Back to Contents](index.md)

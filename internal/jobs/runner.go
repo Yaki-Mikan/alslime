@@ -24,6 +24,7 @@ const (
 	TypeRegenerate Type = "regenerate"
 	TypeTagJudge   Type = "tag-judge"
 	TypeImageGen   Type = "image-generate"
+	TypeConfigGen  Type = "config-generate"
 )
 
 // Status はジョブの状態。

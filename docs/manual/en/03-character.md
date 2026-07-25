@@ -1,5 +1,7 @@
 # 03 Talking with Characters
 
+[Back to Contents](index.md)
+
 This chapter explains how to pick a character and start a conversation, and how to create your own characters and set their images.
 
 ## What This Chapter Covers
@@ -46,6 +48,8 @@ You can create a character just by filling in a form.
 
 Once you are comfortable, you can switch to "Standard settings mode" and write the Markdown directly (the Simple settings content is converted to Markdown).
 
+To have AI create settings from a character name and work title, see [06 Auto-generating Settings](06-config-generation.md).
+
 ## 3. Setting Character Images
 
 Registering images for a character displays them as icons next to messages during a conversation. You can register a separate image for each emotion (expression), and the expression that matches the state of the conversation is shown.
@@ -91,3 +95,5 @@ You can edit the settings Markdown directly in a text editor, or copy the whole 
 ---
 
 Previous: [02 Your First Chat](02-first-chat.md) | Next: [04 Roleplay Settings](04-roleplay.md)
+
+[Back to Contents](index.md)

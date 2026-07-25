@@ -12,6 +12,9 @@ const (
 	ModuleAuthHeader = "X-AlSlime-Module-Auth"
 	// ModuleSecretEnv はモジュール起動時に共有シークレットを渡す環境変数。
 	ModuleSecretEnv = "ALSLIME_MODULE_SECRET"
+	// ModuleTokenEnv はモジュール起動時に entitlement トークンを渡す環境変数。
+	// release ビルドのモジュールは起動時にこのトークンを検証する（流出対策）。
+	ModuleTokenEnv = "ALSLIME_MODULE_TOKEN"
 	// ModulePortPrefix はモジュールが実ポートを stdout の1行目で報告する際の接頭辞。
 	ModulePortPrefix = "MODULE_PORT="
 	// ModuleHealthzRoute はモジュールの死活確認ルート。

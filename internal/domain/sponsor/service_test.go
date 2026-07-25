@@ -172,7 +172,7 @@ func TestコールバックF_検証NGトークンは旧トークンへ巻き戻�
 	}
 }
 
-func Testコールバック_not_a_sponsorはコードを保持(t *testing.T) {
+func Testコールバック_not_a_sponsorはFreeログイン成功扱い(t *testing.T) {
 	svc, store := newTestService(t, "https://example.invalid")
 	authURL, err := svc.StartLogin()
 	if err != nil {
@@ -183,11 +183,35 @@ func Testコールバック_not_a_sponsorはコードを保持(t *testing.T) {
 		t.Fatalf("コールバック送信失敗: %v", err)
 	}
 	_ = resp.Body.Close()
-	if got := svc.Status().LastLoginError; got != LoginErrorNotASponsor {
-		t.Fatalf("LastLoginError=not_a_sponsor のはず: got=%q", got)
+	st := svc.Status()
+	if st.LastLoginError != "" {
+		t.Fatalf("not_a_sponsor は失敗コードを持たないはず: got=%q", st.LastLoginError)
+	}
+	if !st.LoginedAsFree {
+		t.Fatalf("not_a_sponsor は LoginedAsFree=true のはず")
 	}
 	if store.Current() != "" {
-		t.Fatalf("失敗時にトークンが保存されてはいけない")
+		t.Fatalf("Free ログインではトークンを保存してはいけない")
+	}
+}
+
+func Testコールバック_想定外errorはサーバーエラー(t *testing.T) {
+	svc, _ := newTestService(t, "https://example.invalid")
+	authURL, err := svc.StartLogin()
+	if err != nil {
+		t.Fatalf("StartLogin 失敗: %v", err)
+	}
+	resp, err := http.Get(callbackURL(t, authURL, "error=weird_value"))
+	if err != nil {
+		t.Fatalf("コールバック送信失敗: %v", err)
+	}
+	_ = resp.Body.Close()
+	st := svc.Status()
+	if st.LastLoginError != LoginErrorServer {
+		t.Fatalf("想定外 error は server_error のはず: got=%q", st.LastLoginError)
+	}
+	if st.LoginedAsFree {
+		t.Fatalf("失敗時に LoginedAsFree が立ってはいけない")
 	}
 }
 

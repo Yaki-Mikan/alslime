@@ -1,4 +1,6 @@
-# 07 Supporter Features
+# 08 Supporter Features
+
+[Back to Contents](index.md)
 
 AlSlime is free to use. Additional features (such as ComfyUI integration for image generation) are unlocked for those who support development through GitHub Sponsors.
 
@@ -6,7 +8,7 @@ AlSlime is free to use. Additional features (such as ComfyUI integration for ima
 
 How to open: Settings (gear) → "Supporter features".
 
-![Supporter features](../images/ja/07-01-sponsor-modal.png)
+![Supporter features](../images/ja/08-01-sponsor-modal.png)
 
 Your current sponsorship status is shown as a badge at the top.
 
@@ -32,9 +34,9 @@ After signing in, "Refresh status" rechecks your sponsorship status, and "Sign o
 
 Once your sponsorship is active, you can download the modules that contain the additional features.
 
-![Module download](../images/ja/07-02-sponsor-modules.png)
+![Module download](../images/ja/08-02-sponsor-modules.png)
 
-- **ComfyUI integration module (image generation)**: Image generation from conversations ([08 ComfyUI Integration](08-comfyui.md))
+- **ComfyUI integration module (image generation)**: Image generation from conversations ([09 ComfyUI Integration](09-comfyui.md))
 - **Action choice module**: Presents action choices along with responses
 
 Press "Download module" to fetch and install it; the status changes to "Installed (takes effect after restart)". **Restart AlSlime to activate it**, and the status changes to "Active (sidecar running)".
@@ -46,8 +48,10 @@ For the action choice module, the "Enable action choices (applies without restar
 - "No active sponsorship found": Check that the account you signed in with has an active sponsorship on GitHub Sponsors.
 - "Token verification failed": Update the app to the latest version and try again.
 - Module download fails: Check your network connection and try again.
-- For anything else, see [09 Troubleshooting](09-troubleshooting.md).
+- For anything else, see [10 Troubleshooting](10-troubleshooting.md).
 
 ---
 
-Previous: [06 Importing & Exporting Settings](06-settings-pack.md) | Next: [08 ComfyUI Integration](08-comfyui.md)
+Previous: [07 Importing & Exporting Settings](07-settings-pack.md) | Next: [09 ComfyUI Integration](09-comfyui.md)
+
+[Back to Contents](index.md)

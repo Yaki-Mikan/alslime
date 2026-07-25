@@ -1,5 +1,7 @@
 # 05 Settings Reference
 
+[Back to Contents](index.md)
+
 This chapter is a reference guide to every screen you can open from the settings menu.
 
 For startup settings (port and CLI paths), see [01 Setup and Installation](01-setup.md). For text replacement and character parameter fields, see [04 Roleplay Settings](04-roleplay.md).
@@ -12,17 +14,17 @@ This is the hub screen opened with the gear icon (Settings) in the header.
 
 | Button | What it does | Covered in |
 | --- | --- | --- |
-| Supporter features | Supporter sign-in and status check | [07](07-sponsor.md) |
-| Settings pack | Import / export settings | [06](06-settings-pack.md) |
+| Supporter features | Supporter sign-in and status check | [08](08-sponsor.md) |
+| Settings pack | Import / export settings | [07](07-settings-pack.md) |
 | AI model settings | Default conversation preset, provider, and models | Section 2 of this chapter |
-| Image generation settings | ComfyUI connection settings (**shown only when supporter features are active**) | [08](08-comfyui.md) |
+| Image generation settings | ComfyUI connection settings (**shown only when supporter features are active**) | [09](09-comfyui.md) |
 | Display language | Switch the UI language (dropdown, saved immediately) | Section 1 of this chapter |
 | Basic chat settings | Font, display, temperature, and more | Section 4 of this chapter |
 | Update character tag master | Rebuild the filter list from all characters' tag data | Section 1 of this chapter |
 | Startup settings | Port, bind address, and CLI paths | [01](01-setup.md) |
-| Concurrency limits | Maximum number of concurrent AI processes | Section 6 of this chapter |
+| Concurrency limits | Maximum number of concurrent AI processes | Section 7 of this chapter |
 | Debug settings | Developer-oriented settings such as session backups | — |
-| System diagnostics | Environment self-diagnostics (read-only) | Section 7 of this chapter |
+| System diagnostics | Environment self-diagnostics (read-only) | Section 8 of this chapter |
 
 - **Display language**: Japanese / English. Changes are saved immediately. When the language is set to anything other than Japanese, the holiday calendar feature is disabled automatically.
 - **Update character tag master**: Rebuilds the source data for the character-selection filters (work and tags) by scanning every character. Press this when the filters no longer match the actual characters.
@@ -79,7 +81,11 @@ This is the editing screen for configuration files (Markdown), opened with the n
 - You can also import `.md` files by dropping them onto the editor.
 - For the "Simple settings" mode of the Character category, see [Chapter 03](03-character.md); for "Manage templates", see [Chapter 04](04-roleplay.md).
 
-## 6. Concurrency Limits
+## 6. Auto-generate
+
+"Auto-generate" at the top of the Configuration File Editor lets AI create character settings for you. See [06 Auto-generating Settings](06-config-generation.md) for instructions.
+
+## 7. Concurrency Limits
 
 Set the maximum number of concurrent AI processes.
 
@@ -88,9 +94,9 @@ Set the maximum number of concurrent AI processes.
 
 Adjust these when you are concerned about PC load or want to run multiple generations in parallel.
 
-## 7. System Diagnostics
+## 8. System Diagnostics
 
-A read-only screen that shows the environment self-diagnostics. When something misbehaves, check here first ([09 Troubleshooting](09-troubleshooting.md)).
+A read-only screen that shows the environment self-diagnostics. When something misbehaves, check here first ([10 Troubleshooting](10-troubleshooting.md)).
 
 ![System diagnostics](../images/ja/05-06-diagnostics.png)
 
@@ -101,8 +107,10 @@ A read-only screen that shows the environment self-diagnostics. When something m
 
 ## Note: Background Image Settings
 
-The "Session background image" feature, which shows images from image-bearing responses as the background, is configured **inside Image generation settings (a supporter feature)**. See [08 ComfyUI Integration](08-comfyui.md).
+The "Session background image" feature, which shows images from image-bearing responses as the background, is configured **inside Image generation settings (a supporter feature)**. See [09 ComfyUI Integration](09-comfyui.md).
 
 ---
 
-Previous: [04 Roleplay Settings](04-roleplay.md) | Next: [06 Importing & Exporting Settings](06-settings-pack.md)
+Previous: [04 Roleplay Settings](04-roleplay.md) | Next: [06 Auto-generating Settings](06-config-generation.md)
+
+[Back to Contents](index.md)

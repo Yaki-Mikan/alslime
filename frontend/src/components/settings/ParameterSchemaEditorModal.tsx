@@ -139,6 +139,12 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
     const [expandedElementDetails, setExpandedElementDetails] = useState<Set<string>>(new Set());
     // 編集中の言語（'ja' | 'en'）
     const [editingLanguage, setEditingLanguage] = useState<'ja' | 'en'>('ja');
+    const editingText = (key: string) => {
+        const editingFallback = editingLanguage === 'en'
+            ? PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_EN
+            : PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_JA;
+        return editingFallback[key] || key;
+    };
 
     // 変更があるかどうか
     const isDirty = useCallback(() => {
@@ -913,7 +919,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                     }
                                                 })}
                                                 className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
-                                                placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaNameExample) : 'e.g. My Schema'}
+                                                placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaNameExample)}
                                             />
                                         </div>
                                     </div>
@@ -1025,7 +1031,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                             displayName: { ...group.displayName, [editingLanguage]: e.target.value }
                                                                         })}
                                                                         className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-gray-200 text-xs outline-none focus:border-purple-500 transition-colors"
-                                                                        placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupNamePlaceholder) : 'Group name'}
+                                                                        placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupNamePlaceholder)}
                                                                     />
                                                                 </div>
                                                             </div>
@@ -1173,7 +1179,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                             displayName: { ...element.displayName, [editingLanguage]: e.target.value }
                                                                                                         })}
                                                                                                         className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
-                                                                                                        placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterNamePlaceholder) : 'Parameter name'}
+                                                                                                        placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterNamePlaceholder)}
                                                                                                     />
                                                                                                 </div>
                                                                                             </div>
@@ -1207,7 +1213,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                 })}
                                                                                                                 rows={2}
                                                                                                                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors resize-none"
-                                                                                                                placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterDescriptionPlaceholder) : 'Parameter description'}
+                                                                                                                placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterDescriptionPlaceholder)}
                                                                                                             />
                                                                                                         </div>
                                                                                                         <div>
@@ -1222,7 +1228,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                 })}
                                                                                                                 rows={2}
                                                                                                                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors resize-none"
-                                                                                                                placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.promptDescriptionPlaceholder) : 'Description sent to Gemini'}
+                                                                                                                placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.promptDescriptionPlaceholder)}
                                                                                                             />
                                                                                                         </div>
 
@@ -1470,7 +1476,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                     });
                                                                                                                                 }}
                                                                                                                                 className="flex-1 bg-gray-700 border-none rounded px-1 py-0.5 text-gray-300 text-xs focus:outline-none"
-                                                                                                                                placeholder={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.optionLabel) : 'Label'}
+                                                                                                                                placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.optionLabel)}
                                                                                                                                 title={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.optionLabelJaTitle) : 'Label (English)'}
                                                                                                                             />
                                                                                                                             <button

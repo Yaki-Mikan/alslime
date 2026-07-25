@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, Save, Trash2, Plus, FilePlus, BookTemplate, FileDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { X, Save, Trash2, Plus, FilePlus, BookTemplate, FileDown, Search } from 'lucide-react';
+import { SearchPickerModal } from '../common/SearchPickerModal';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -24,6 +25,13 @@ import type { CategoryDef, ConfigFileEntry, ProviderInstruction } from '../../ap
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { COMMON_TEXT_FALLBACK_JA, CONFIG_EDITOR_I18N_KEYS, CONFIG_EDITOR_TEXT_FALLBACK_JA } from '../../constants/i18n';
 
+// OpenFileRequest は他タブ（設定自動生成）からの「このファイルを開いて」要求。
+export interface OpenFileRequest {
+    categoryId: string;
+    dirName: string;
+    fileName: string;
+}
+
 interface Props {
     isOpen: boolean;
     onClose: () => void;
@@ -32,6 +40,9 @@ interface Props {
     // タブ統合（設計 §9）: 画像生成統合設定とのタブ切り替え UI をヘッダーへ差し込む。
     // 未指定なら従来どおり単独モーダルとして表示する。
     headerTabs?: React.ReactNode;
+    // 設定自動生成タブからの「生成済みファイルを開く」要求（消費したら通知して null に戻してもらう）。
+    openFileRequest?: OpenFileRequest | null;
+    onOpenFileRequestConsumed?: () => void;
 }
 
 type ConfirmKind =
@@ -43,7 +54,7 @@ type ConfirmKind =
 // AIプロバイダ指示ファイル種別の疑似カテゴリ ID（フロント内のみ。backend カテゴリとは別系統）。
 const PROVIDER_CATEGORY_ID = '__provider__';
 
-export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, headerTabs }) => {
+export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, headerTabs, openFileRequest = null, onOpenFileRequestConsumed }) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
@@ -81,6 +92,13 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
     // D&D 個別インポート
     const [isDragOver, setIsDragOver] = useState(false);
 
+    // 既存ファイルの検索選択モーダル
+    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+
+    // カテゴリ初期化と外部からのファイル読込が競合したとき、
+    // 後から完了した古い初期化結果で本文を上書きしないための世代番号。
+    const contentLoadVersion = useRef(0);
+
     const isProviderCategory = selectedCategoryId === PROVIDER_CATEGORY_ID;
 
     const isCharacterCategory = useCallback(() => {
@@ -110,6 +128,7 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
     // 種別変更時
     useEffect(() => {
         if (!selectedCategoryId) return;
+        const loadVersion = ++contentLoadVersion.current;
         setSelectedExistingFile(null);
         setSelectedTemplate('');
         setSelectedProviderId('');
@@ -132,6 +151,7 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
             listTemplates(backendUrl, selectedCategoryId),
             getInitialContent(backendUrl, selectedCategoryId),
         ]).then(([files, tmpl, initial]) => {
+            if (loadVersion !== contentLoadVersion.current) return;
             setExistingFiles(files);
             setTemplates(tmpl);
             setContent(initial);
@@ -143,6 +163,60 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
         setToast(msg);
         setTimeout(() => setToast(''), 2500);
     };
+
+    // モーダルを開き直したとき、ファイル一覧・テンプレート一覧を最新化する
+    // （設定自動生成タブや別画面で増えたファイルを取りこぼさない。編集中の本文は保持）。
+    useEffect(() => {
+        if (!isOpen || !selectedCategoryId || selectedCategoryId === PROVIDER_CATEGORY_ID) return;
+        listConfigFiles(backendUrl, selectedCategoryId).then(setExistingFiles).catch(() => {});
+        listTemplates(backendUrl, selectedCategoryId).then(setTemplates).catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
+
+    // 設定自動生成タブからの「生成済みファイルを開く」要求（レビュー追加要望）。
+    // 種別を合わせたうえで、受け取った識別情報から該当ファイルを直接開く。
+    // 一覧の更新は行うが、生成直後の一覧反映状況をファイル読込の前提にはしない。
+    useEffect(() => {
+        if (!openFileRequest) return;
+        if (selectedCategoryId !== openFileRequest.categoryId) {
+            setSelectedCategoryId(openFileRequest.categoryId);
+            return;
+        }
+        (async () => {
+            // 先行しているカテゴリ初期化を無効化し、その完了結果による本文上書きを防ぐ。
+            const loadVersion = ++contentLoadVersion.current;
+            const entry: ConfigFileEntry = {
+                dirName: openFileRequest.dirName,
+                name: openFileRequest.fileName,
+            };
+            const filesPromise = listConfigFiles(backendUrl, selectedCategoryId).catch(() => null);
+            const templatesPromise = listTemplates(backendUrl, selectedCategoryId).catch(() => null);
+            try {
+                const c = await getConfigFile(backendUrl, selectedCategoryId, entry.dirName, entry.name);
+                if (loadVersion !== contentLoadVersion.current) return;
+                setSelectedExistingFile(entry);
+                setTitle(entry.name);
+                setContent(c);
+                setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
+                setIsSimpleMode(false);
+                setSelectedTemplate('');
+                setIsDirty(false);
+                onOpenFileRequestConsumed?.();
+            } catch {
+                showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed));
+                onOpenFileRequestConsumed?.();
+                return;
+            }
+            const [files, tmpl] = await Promise.all([filesPromise, templatesPromise]);
+            if (files && loadVersion === contentLoadVersion.current) {
+                setExistingFiles(files);
+            }
+            if (tmpl && loadVersion === contentLoadVersion.current) {
+                setTemplates(tmpl);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openFileRequest, selectedCategoryId]);
 
     // 既存ファイル選択
     const handleSelectExistingFile = async (key: string) => {
@@ -451,19 +525,18 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
 
                                 <hr className="border-gray-700" />
 
-                                {/* 既存ファイル */}
+                                {/* 既存ファイル（押下で検索・選択モーダルを開く。会話設定メニューと同調） */}
                                 <div>
                                     <label className="block text-xs text-gray-400 mb-1">{t(CONFIG_EDITOR_I18N_KEYS.openExistingFile)}</label>
-                                    <select
-                                        value={selectedExistingFile ? `${selectedExistingFile.dirName}|||${selectedExistingFile.name}` : ''}
-                                        onChange={e => handleSelectExistingFile(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                    <button
+                                        onClick={() => setIsFilePickerOpen(true)}
+                                        className="flex items-center gap-2 w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 hover:border-green-500 transition-colors text-left"
                                     >
-                                        <option value="">{t(CONFIG_EDITOR_I18N_KEYS.selectFile)}</option>
-                                        {existingFiles.map(f => (
-                                            <option key={`${f.dirName}|||${f.name}`} value={`${f.dirName}|||${f.name}`}>{f.name}</option>
-                                        ))}
-                                    </select>
+                                        <Search size={14} className="text-green-400 shrink-0" />
+                                        <span className="truncate flex-1">
+                                            {selectedExistingFile ? selectedExistingFile.name : t(CONFIG_EDITOR_I18N_KEYS.selectFile)}
+                                        </span>
+                                    </button>
                                 </div>
 
                                 {/* 削除 */}
@@ -597,6 +670,17 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
                     uiCatalog={uiCatalog}
                 />
             )}
+
+            {/* 既存ファイルの検索選択モーダル */}
+            <SearchPickerModal
+                isOpen={isFilePickerOpen}
+                onClose={() => setIsFilePickerOpen(false)}
+                title={t(CONFIG_EDITOR_I18N_KEYS.filePickerTitle)}
+                searchPlaceholder={t(CONFIG_EDITOR_I18N_KEYS.filePickerSearch)}
+                emptyText={t(CONFIG_EDITOR_I18N_KEYS.filePickerEmpty)}
+                items={existingFiles.map(f => ({ key: `${f.dirName}|||${f.name}`, label: f.name }))}
+                onSelect={key => { setIsFilePickerOpen(false); handleSelectExistingFile(key); }}
+            />
 
             {/* テンプレートエディタ */}
             <TemplateEditorModal

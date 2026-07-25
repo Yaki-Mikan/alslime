@@ -11,7 +11,7 @@ English version: [English version is here](en/index.md)
 3. [キャラクターと会話する](ja/03-character.md) — キャラクターの選択と作成
 
 ロールプレイ機能を使い込む方は、続けて [ロールプレイ設定](ja/04-roleplay.md) へ。
-支援者機能をご利用の方は [支援者機能](ja/07-sponsor.md) と [ComfyUI 連携](ja/08-comfyui.md) へ。
+支援者機能をご利用の方は [支援者機能](ja/08-sponsor.md) と [ComfyUI 連携](ja/09-comfyui.md) へ。
 
 ## 全章一覧
 
@@ -22,10 +22,11 @@ English version: [English version is here](en/index.md)
 | [03 キャラクターと会話する](ja/03-character.md) | キャラクター選択、簡易作成、キャラクター画像 |
 | [04 ロールプレイ設定](ja/04-roleplay.md) | ロールプレイ向け会話フロー、日時設定、置換設定、テンプレート |
 | [05 設定リファレンス](ja/05-settings.md) | 基本設定、AI モデル設定、モデル一覧の編集、各種詳細設定 |
-| [06 設定のインポート / エクスポート](ja/06-settings-pack.md) | 設定パックの作成・適用 |
-| [07 支援者機能](ja/07-sponsor.md) | 支援者ログイン、状態確認、モジュールの取得 |
-| [08 ComfyUI 連携](ja/08-comfyui.md) | 画像生成の接続設定と使い方（支援者向け） |
-| [09 困ったときは](ja/09-troubleshooting.md) | システム診断、よくある質問、問い合わせ先 |
+| [06 設定自動生成](ja/06-config-generation.md) | AIによるキャラクター設定の作成 |
+| [07 設定のインポート / エクスポート](ja/07-settings-pack.md) | 設定パックの作成・適用 |
+| [08 支援者機能](ja/08-sponsor.md) | 支援者ログイン、状態確認、モジュールの取得 |
+| [09 ComfyUI 連携](ja/09-comfyui.md) | 画像生成の接続設定と使い方（支援者向け） |
+| [10 困ったときは](ja/10-troubleshooting.md) | システム診断、よくある質問、問い合わせ先 |
 
 ## 本マニュアルについて
 

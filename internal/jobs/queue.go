@@ -34,9 +34,12 @@ type Job struct {
 	SessionTime   any
 	ActionChoices []string // 行動選択肢（支援者向け）。API 一覧には出さない。
 	Err           string   // 表示用の短いエラーメッセージ。
-	CreatedAt     int64    // Unix ミリ秒
-	StartedAt     int64
-	UpdatedAt     int64
+	// Progress は実行中の経過エントリ（config-generate 用。他ジョブ種別は空のまま）。
+	// 追記は AppendProgress、参照は ProgressSince を使う。API 一覧には出さない。
+	Progress  []ProgressEntry
+	CreatedAt int64 // Unix ミリ秒
+	StartedAt int64
+	UpdatedAt int64
 
 	cancel context.CancelFunc // processing 中のみ非 nil。cancel 要求に使う。
 }

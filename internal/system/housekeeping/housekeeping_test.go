@@ -33,20 +33,24 @@ func TestSweepRemovesOldFilesKeepsNew(t *testing.T) {
 	oldLog := writeFileWithMTime(t, root, config.AntigravityLogDir+"/agy-old.log", now.Add(-48*time.Hour))
 	newLog := writeFileWithMTime(t, root, config.AntigravityLogDir+"/agy-new.log", now.Add(-1*time.Hour))
 	oldOut := writeFileWithMTime(t, root, config.AntigravityTempOutputDir+"/out-old.md", now.Add(-48*time.Hour))
+	oldClaudeOut := writeFileWithMTime(t, root, config.ClaudeFileRelayOutputDir+"/out-old.md", now.Add(-48*time.Hour))
 
 	sweeper := New(paths.NewResolver(root), nil).
 		WithMaxAge(24 * time.Hour).
 		WithNow(func() time.Time { return now })
 
 	res := sweeper.Sweep()
-	if res.RemovedFiles != 2 {
-		t.Fatalf("removed files = %d, want 2", res.RemovedFiles)
+	if res.RemovedFiles != 3 {
+		t.Fatalf("removed files = %d, want 3", res.RemovedFiles)
 	}
 	if _, err := os.Stat(oldLog); !os.IsNotExist(err) {
 		t.Errorf("old log should be removed")
 	}
 	if _, err := os.Stat(oldOut); !os.IsNotExist(err) {
 		t.Errorf("old output should be removed")
+	}
+	if _, err := os.Stat(oldClaudeOut); !os.IsNotExist(err) {
+		t.Errorf("old Claude output should be removed")
 	}
 	if _, err := os.Stat(newLog); err != nil {
 		t.Errorf("new log should remain: %v", err)

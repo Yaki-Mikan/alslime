@@ -3,6 +3,7 @@
  */
 
 import axios from '../lib/axios';
+import type { ClaudeEffort } from '../constants/claude';
 
 // 型定義
 export type DirectiveMode = 'danbooru_only' | 'natural_language';
@@ -24,6 +25,7 @@ export interface ComfyUIConfig {
     tagJudgeProvider: TagJudgeProvider;
     tagJudgeGeminiModel: GeminiTagJudgeModel;
     tagJudgeClaudeModel: ClaudeTagJudgeModel;
+    tagJudgeClaudeEffort: ClaudeEffort;
     tagJudgeAntigravityModel: AntigravityTagJudgeModel;
     tagJudgeTimeoutSeconds: number;
     lightweightImageSave: LightweightImageSaveConfig;
@@ -115,6 +117,32 @@ export async function addComfyUITemplate(
 ): Promise<{ success: boolean; error?: string }> {
     const res = await axios.post(`${backendUrl}/api/comfyui/templates`, { name, workflow });
     return res.data;
+}
+
+const WORKFLOW_FILE_EXTENSION = '.json';
+
+// 保存済みテンプレートの workflow.json を認証付きで取得し、ブラウザへ保存する。
+export async function downloadComfyUITemplate(backendUrl: string, name: string): Promise<void> {
+    const templateName = name.trim();
+    if (!templateName) return;
+
+    const res = await axios.get(
+        `${backendUrl}/api/comfyui/templates/${encodeURIComponent(templateName)}`,
+        { responseType: 'blob' }
+    );
+    const objectUrl = URL.createObjectURL(res.data as Blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = templateName.toLowerCase().endsWith(WORKFLOW_FILE_EXTENSION)
+        ? templateName
+        : `${templateName}${WORKFLOW_FILE_EXTENSION}`;
+    document.body.appendChild(link);
+    try {
+        link.click();
+    } finally {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(objectUrl);
+    }
 }
 
 // テスト生成

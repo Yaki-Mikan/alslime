@@ -146,6 +146,8 @@ const (
 	AntigravityTempOutputDir = RuntimeTempDir + "/antigravity_output"
 	// GeminiTempOutputDir は Gemini 一時ファイルモードの出力先。
 	GeminiTempOutputDir = RuntimeTempDir + "/gemini_output"
+	// ClaudeFileRelayOutputDir は Claude ファイル経由モードの使い捨て出力先。
+	ClaudeFileRelayOutputDir = RuntimeTempDir + "/claude_output"
 	// AntigravityContextTempDir は Antigravity 連携が CLI に読ませる一時コンテキスト
 	// ファイルの出力先。
 	AntigravityContextTempDir = RuntimeTempDir + "/antigravity_method_c"
@@ -172,6 +174,8 @@ const (
 	ComfyUIConfigFile = ComfyUIDir + "/comfyui_config.json"
 	// ComfyUITemplateDir は ComfyUI workflow テンプレートのルート。
 	ComfyUITemplateDir = ComfyUIDir + "/templates"
+	// ComfyUIWorkflowFileName は各 ComfyUI テンプレート内の API 形式 workflow 正本。
+	ComfyUIWorkflowFileName = "workflow.json"
 	// ComfyUIProfileDir は生成プロファイル定義（プレースホルダ注入文言セット）のルート。
 	// JSON を置くだけで有効になるユーザーデータで、本体は注入文言・照合語彙を内蔵しない。
 	ComfyUIProfileDir = ComfyUIDir + "/profiles"
@@ -279,6 +283,9 @@ const (
 	EntitlementTokenFile = AuthDir + "/entitlement-token"
 	// EntitlementClockFile は時刻巻き戻し検出用の最終検証時刻の保存先（AuthDir 相対。17番）。
 	EntitlementClockFile = AuthDir + "/entitlement-clock"
+	// EntitlementNoticeFile は entitlement サーバーから受領した開発者お知らせ文言の
+	// 保存先（AuthDir 相対。作業予定14番）。次に取り直すまで再起動を跨いで保持する。
+	EntitlementNoticeFile = AuthDir + "/entitlement-notice.json"
 )
 
 // entitlement サーバー（支援状態確認・トークン発行。14番）。
@@ -286,9 +293,9 @@ const (
 	// EntitlementServerURL は entitlement サーバーのベース URL（本体埋め込み）。
 	// URL 自体は秘密ではなく、トークンの正当性は Ed25519 署名検証（公開鍵埋め込み）で
 	// 担保するため、差し替えられても偽造トークンは作れない。
-	// ※Lightsail 配備時に本番 URL へ確定する（暫定値）。
+	// Lightsail 配備先（2026-07-21 確定。将来独自ドメインへ移す場合はここを差し替え）。
 	// dev ビルドに限り環境変数 ALSLIME_ENTITLEMENT_SERVER で上書き可（ローカル検証用）。
-	EntitlementServerURL = "https://entitlement.alslime.app"
+	EntitlementServerURL = "https://yakimikan-enti.duckdns.org"
 )
 
 // ファイルシステムのパーミッション。
@@ -308,6 +315,10 @@ const (
 // 「providerInstructions」としてインポート/エクスポート対象
 // （2026-07-19 に対象外方針を改定。domain/settingspack カタログ参照）。
 const (
+	// ProviderSystemPromptClaudeJAFile / ENFile は Claude Code の既定システム
+	// プロンプトを置き換える AlSlime 専用ファイル。
+	ProviderSystemPromptClaudeJAFile = ".claude/system.ja.md"
+	ProviderSystemPromptClaudeENFile = ".claude/system.en.md"
 	// ProviderInstructionAntigravityFile は Antigravity CLI の指示ファイル。
 	// ルート直下の AGENTS.md ではなく .agents/rules/AGENTS.md が実効。
 	ProviderInstructionAntigravityFile = ".agents/rules/AGENTS.md"

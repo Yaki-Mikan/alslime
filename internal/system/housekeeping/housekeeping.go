@@ -29,6 +29,7 @@ var tempSubDirs = []string{
 	config.AntigravityLogDir,
 	config.AntigravityTempOutputDir,
 	config.AntigravityContextTempDir,
+	config.ClaudeFileRelayOutputDir,
 	config.ClaudeSystemPromptTempDir,
 }
 

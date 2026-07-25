@@ -6,6 +6,12 @@ export interface SponsorStatus {
     entitlement: EntitlementStatus;
     loginPending: boolean;
     lastLoginError?: string;
+    // loginedAsFree は直近ログインが GitHub 認証成功・有効な支援なし（Free 扱い）
+    // だったとき true。失敗ではなくログイン成功の一種。
+    loginedAsFree?: boolean;
+    // notice はサーバーから受領した開発者お知らせ文言（未受領は空・省略）。
+    // ログイン完了時・状態更新時に取り直され、それまで保持される。
+    notice?: string;
 }
 
 export const fetchSponsorStatus = async (backendUrl: string): Promise<SponsorStatus> => {
@@ -51,7 +57,15 @@ export const fetchModulesStatus = async (backendUrl: string): Promise<ModuleStat
 export const installModule = async (
     backendUrl: string,
     moduleId: string
-): Promise<{ success: boolean; version: string; restartRequired: boolean; modules: ModuleStatusEntry[] }> => {
+): Promise<{
+    success: boolean;
+    version: string;
+    restartRequired: boolean;
+    companionPackConfigured: boolean;
+    companionPackInstalled: boolean;
+    companionPackWorkflowTemplates: string[];
+    modules: ModuleStatusEntry[];
+}> => {
     const response = await axios.post(`${backendUrl}/api/sponsor/module/install`, { module: moduleId });
     return response.data;
 };

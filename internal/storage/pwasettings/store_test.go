@@ -21,6 +21,18 @@ func TestLoad_既定でUILanguageを返す(t *testing.T) {
 	}
 }
 
+func TestLoad_既定でチャット送信キーを返す(t *testing.T) {
+	store := New(paths.NewResolver(t.TempDir()), config.PWASettingsFile)
+
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got["chatSendKey"] != defaultChatSendKey {
+		t.Fatalf("chatSendKey default mismatch: %#v", got["chatSendKey"])
+	}
+}
+
 func TestMerge_UILanguageを保存できる(t *testing.T) {
 	root := t.TempDir()
 	store := New(paths.NewResolver(root), config.PWASettingsFile)

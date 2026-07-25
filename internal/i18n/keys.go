@@ -1,5 +1,11 @@
 package i18n
 
+// AIへ渡すプロンプト文言の i18n キー。
+const (
+	KeyPromptNativeHistoryContextLoadCompleteSingle   = "prompt.nativeHistory.contextLoadCompleteSingle"
+	KeyPromptNativeHistoryContextLoadCompleteMultiple = "prompt.nativeHistory.contextLoadCompleteMultiple"
+)
+
 // エラー表示用 i18n キー。
 // API は原則として表示文言を直返しせず、messageKey を返してフロントで辞書解決する。
 const (
@@ -95,6 +101,18 @@ const (
 	KeyErrorModelPingBusy             = "error.modelPingBusy"
 	KeyErrorModelPingEmptyResponse    = "error.modelPingEmptyResponse"
 	KeyJobCanceledByUser              = "job.canceledByUser"
+
+	// 設定ファイル自動作成（config-generate）。
+	KeyErrorConfigGenInvalidPayload  = "error.configgen.invalidPayload"
+	KeyErrorConfigGenUnexpectedWrite = "error.configgen.unexpectedWrite"
+	KeyErrorConfigGenOutputMissing   = "error.configgen.outputMissing"
+	KeyErrorConfigGenOutputTooLarge  = "error.configgen.outputTooLarge"
+	KeyErrorConfigGenTimeout         = "error.configgen.timeout"
+	KeyErrorConfigGenResearchMissing = "error.configgen.researchMissing"
+	KeyConfigGenProgressStarted      = "configgen.progress.started"
+	KeyConfigGenProgressToolUse      = "configgen.progress.toolUse"
+	KeyConfigGenProgressCompleted    = "configgen.progress.completed"
+	KeyConfigGenProgressClaudeStats  = "configgen.progress.claudeStats"
 )
 
 // 成功メッセージ用 i18n キー。
@@ -114,6 +132,7 @@ const (
 	KeyLabelRegenerate         = "label.regenerate"
 	KeyLabelChat               = "label.chat"
 	KeyLabelImageGeneration    = "label.imageGeneration"
+	KeyLabelConfigGen          = "label.configGenerate"
 	KeyFeatureTierUnavailable  = "feature.tierUnavailable"
 
 	// 支援者機能（sponsor API。Phase D-3）。

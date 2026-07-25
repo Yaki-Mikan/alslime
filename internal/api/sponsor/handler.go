@@ -16,6 +16,16 @@ import (
 	"alslime/internal/i18n"
 )
 
+type moduleInstallResponse struct {
+	Success                        bool                           `json:"success"`
+	Version                        string                         `json:"version"`
+	RestartRequired                bool                           `json:"restartRequired"`
+	CompanionPackConfigured        bool                           `json:"companionPackConfigured"`
+	CompanionPackInstalled         bool                           `json:"companionPackInstalled"`
+	CompanionPackWorkflowTemplates []string                       `json:"companionPackWorkflowTemplates"`
+	Modules                        []sponsorsvc.ModuleStatusEntry `json:"modules"`
+}
+
 // Register は sponsor 系ルートを mux へ登録する。
 func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 	mux.HandleFunc("GET "+config.APIPrefix+"/sponsor/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -67,7 +77,7 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
 			return
 		}
-		version, err := svc.InstallModule(r.Context(), req.Module)
+		result, err := svc.InstallModule(r.Context(), req.Module)
 		if err != nil {
 			switch {
 			case errors.Is(err, sponsorsvc.ErrModuleUnknown):
@@ -83,11 +93,14 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 			}
 			return
 		}
-		writeJSON(w, map[string]any{
-			"success":         true,
-			"version":         version,
-			"restartRequired": true,
-			"modules":         svc.ModulesStatus(),
+		writeJSON(w, moduleInstallResponse{
+			Success:                        true,
+			Version:                        result.Version,
+			RestartRequired:                true,
+			CompanionPackConfigured:        result.CompanionPackConfigured,
+			CompanionPackInstalled:         result.CompanionPackInstalled,
+			CompanionPackWorkflowTemplates: result.CompanionPackWorkflowTemplates,
+			Modules:                        svc.ModulesStatus(),
 		})
 	})
 }

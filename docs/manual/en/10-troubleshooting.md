@@ -1,4 +1,6 @@
-# 09 Troubleshooting
+# 10 Troubleshooting
+
+[Back to Contents](index.md)
 
 This chapter covers how to investigate and resolve common problems.
 
@@ -34,7 +36,7 @@ Errors are shown in the chat as "Error: ...". Here are the typical ones and how 
 
 The "Job progress" panel in the header (waveform icon, with a badge showing the number of running jobs) lists the running and pending processes.
 
-![Job progress](../images/ja/09-01-job-progress.png)
+![Job progress](../images/ja/10-01-job-progress.png)
 
 - Running jobs can be stopped with "Stop"; pending jobs can be canceled with "Cancel".
 - Recent errors are also shown at the bottom.
@@ -42,19 +44,19 @@ The "Job progress" panel in the header (waveform icon, with a badge showing the 
 
 ## 5. Image Generation Fails (for Supporters)
 
-- "This feature is for supporters and is not available with the current entitlement.": Check your sponsorship status in [Chapter 07](07-sponsor.md).
-- "Connection test failed" / "Connection URL is required.": Check that ComfyUI itself is running and that the connection URL is correct ([Chapter 08](08-comfyui.md)).
+- "This feature is for supporters and is not available with the current entitlement.": Check your sponsorship status in [Chapter 08](08-sponsor.md).
+- "Connection test failed" / "Connection URL is required.": Check that ComfyUI itself is running and that the connection URL is correct ([Chapter 09](09-comfyui.md)).
 - "Image tag judging failed.": Check that the CLI for the tag judge AI (analysis AI) is usable, from the same angles as the CLI errors in Section 3 of this chapter.
 
 ## 6. Settings Don't Take Effect
 
 - **Port, bind address, LAN access**: Changes apply on the next startup. Restart the app.
 - **Changes to conversation settings (characters, environment, etc.)**: They are not applied automatically to a conversation in progress. Press "Apply to current session" at the bottom of the sidebar ([Chapter 03](03-character.md)).
-- **A module is installed but the feature does not appear**: Modules take effect after **restarting the app** once installed ([Chapter 07](07-sponsor.md)).
+- **A module is installed but the feature does not appear**: Modules take effect after **restarting the app** once installed ([Chapter 08](08-sponsor.md)).
 
 ## 7. Data Location and Backups
 
-Conversation history, settings, and characters all live under `roleplay/` in the startup folder. Copying the whole folder makes a backup. To carry only your settings around, the [settings pack](06-settings-pack.md) is convenient.
+Conversation history, settings, and characters all live under `roleplay/` in the startup folder. Copying the whole folder makes a backup. To carry only your settings around, the [settings pack](07-settings-pack.md) is convenient.
 
 ## 8. Still Stuck?
 
@@ -62,4 +64,6 @@ Let us know via a [GitHub Issue](https://github.com/Yaki-Mikan/alslime/issues). 
 
 ---
 
-Previous: [08 ComfyUI Integration](08-comfyui.md) | Back to index: [index](index.md)
+Previous: [09 ComfyUI Integration](09-comfyui.md)
+
+[Back to Contents](index.md)

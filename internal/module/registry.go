@@ -20,13 +20,32 @@ const (
 	ModuleActionChoice = "actionchoice"
 )
 
+// Definition は配布モジュールと付属物の宣言。
+type Definition struct {
+	ID            string
+	CompanionPack bool
+}
+
+// Definitions は配布対応モジュールの正本（表示順）。
+func Definitions() []Definition {
+	return []Definition{
+		{ID: ModuleComfy, CompanionPack: true},
+		{ID: ModuleActionChoice},
+	}
+}
+
 // IDs は配布対応モジュールの一覧（表示順）。
 func IDs() []string {
-	return []string{ModuleComfy, ModuleActionChoice}
+	defs := Definitions()
+	out := make([]string, 0, len(defs))
+	for _, def := range defs {
+		out = append(out, def.ID)
+	}
+	return out
 }
 
 // ExePath はモジュールの本体側配置パスを返す
-//（<WORKSPACE_ROOT>/modules/alslime-<id>。Windows は .exe 付き）。
+// （<WORKSPACE_ROOT>/modules/alslime-<id>。Windows は .exe 付き）。
 func ExePath(workspaceRoot, moduleID string) string {
 	name := "alslime-" + moduleID
 	if runtime.GOOS == "windows" {

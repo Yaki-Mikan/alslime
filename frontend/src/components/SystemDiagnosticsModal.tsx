@@ -117,7 +117,7 @@ export const SystemDiagnosticsModal: React.FC<Props> = ({ isOpen, onClose, backe
     const entitlementValue = useCallback((ent: EntitlementStatus | undefined) => {
         const state = ent?.state ?? 'none';
         const fallback: Record<string, string> = {
-            none: '未認証（free）',
+            none: '未ログイン',
             valid: '有効',
             grace: '更新待ち（猶予期間中）',
             expired: '失効',

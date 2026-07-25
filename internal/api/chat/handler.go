@@ -39,6 +39,7 @@ type submitRequest struct {
 	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
 	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
 }
 
 type regenerateRequest struct {
@@ -48,6 +49,7 @@ type regenerateRequest struct {
 	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
 	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
 }
 
 type submitResponse struct {
@@ -96,6 +98,7 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 			SSRPSettings:            req.SSRPSettings,
 			AntigravityTempFileMode: req.AntigravityTempFileMode,
 			GeminiTempFileMode:      req.GeminiTempFileMode,
+			ClaudeEffort:            req.ClaudeEffort,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{
 			Type:      jobsvc.TypeChat,
@@ -132,6 +135,7 @@ func handleRegenerate(deps Deps) http.HandlerFunc {
 			SSRPSettings:            req.SSRPSettings,
 			AntigravityTempFileMode: req.AntigravityTempFileMode,
 			GeminiTempFileMode:      req.GeminiTempFileMode,
+			ClaudeEffort:            req.ClaudeEffort,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{
 			Type:      jobsvc.TypeRegenerate,

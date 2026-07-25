@@ -47,6 +47,8 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 	}
 
 	wantFiles := []string{
+		".claude/system.ja.md",
+		".claude/system.en.md",
 		"CLAUDE.md",
 		"GEMINI.md",
 		".agents/rules/AGENTS.md",

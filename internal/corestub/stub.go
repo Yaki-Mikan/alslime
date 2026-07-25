@@ -22,7 +22,10 @@ type stub struct{}
 // New は corestub 実装を返す。
 func New() coreapi.Core { return stub{} }
 
-func (stub) ChatRunner() jobs.Runner                { return jobs.NotImplementedRunner{} }
+func (stub) ChatRunner() jobs.Runner { return jobs.NotImplementedRunner{} }
+func (stub) ConfigGenRunner(coreapi.ConfigGenProgressSink) jobs.Runner {
+	return jobs.NotImplementedRunner{}
+}
 func (stub) EngineRouter() coreapi.Engine           { return stubEngine{} }
 func (stub) NativeSweeper() coreapi.NativeSweeper   { return noopSweeper{} }
 func (stub) SidecarRemover() coreapi.SidecarRemover { return noopSidecar{} }

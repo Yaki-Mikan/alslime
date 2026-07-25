@@ -8,6 +8,7 @@
  */
 
 import axios from '../lib/axios';
+import type { ClaudeEffort } from '../constants/claude';
 
 // グローバル設定の型定義
 export interface GlobalSettings {
@@ -19,6 +20,7 @@ export interface GlobalSettings {
     antigravityStreamOutput?: boolean;     // Antigravityストリーム出力（stream vs non-stream）
     defaultModels?: Record<string, string>; // プロバイダ別デフォルトモデル（gemini/claude/antigravity → モデルID）
     defaultProvider?: string;          // チャット欄の初期プロバイダ（空 = antigravity）
+    claudeChatEffort?: ClaudeEffort;   // 通常チャットでClaudeへ渡すeffort（空 = CLI既定）
     [key: string]: any;                // その他の設定
 }
 

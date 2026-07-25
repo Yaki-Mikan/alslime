@@ -3,17 +3,19 @@
  *
  * テスト生成セクションから独立させたワークフロー（テンプレート）選択。
  * - 選択中ワークフローをデフォルトとして保存するボタン
+ * - 選択中ワークフローのダウンロードボタン
  * - 選択中ワークフローの削除ボタン
  * - ワークフローJSONのインポート領域（開閉・デフォルト閉）
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Workflow, Save, Trash2, Upload, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { Workflow, Save, Trash2, Upload, Download, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import {
     getComfyUIConfig,
     saveComfyUIConfig,
     addComfyUITemplate,
     deleteComfyUITemplate,
+    downloadComfyUITemplate,
 } from '../../../api/comfyui';
 import type { TemplateInfo } from '../../../api/comfyui';
 import { createComfyUIText, formatComfyText } from '../i18n';
@@ -44,6 +46,8 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
     const [isSavingDefault, setIsSavingDefault] = useState(false);
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
 
     // インポート
     const [isDragOver, setIsDragOver] = useState(false);
@@ -84,6 +88,21 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
             console.error('[IntegratedWorkflowSection] template delete failed:', error);
         }
     }, [backendUrl, selectedTemplate, onTemplatesReload, COMMON.MESSAGES.DELETE_TEMPLATE_CONFIRM]);
+
+    // 選択中ワークフローをブラウザへダウンロード
+    const handleDownload = useCallback(async () => {
+        if (!selectedTemplate || isDownloading) return;
+        setIsDownloading(true);
+        setDownloadError(null);
+        try {
+            await downloadComfyUITemplate(backendUrl, selectedTemplate);
+        } catch (error) {
+            console.error('[IntegratedWorkflowSection] template download failed:', error);
+            setDownloadError(COMMON.MESSAGES.DOWNLOAD_WORKFLOW_FAILED);
+        } finally {
+            setIsDownloading(false);
+        }
+    }, [backendUrl, selectedTemplate, isDownloading, COMMON.MESSAGES.DOWNLOAD_WORKFLOW_FAILED]);
 
     // ファイル処理（JSON読込 → 名前入力へ）
     const processFile = useCallback(async (file: File) => {
@@ -152,6 +171,10 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
         e.target.value = '';
     };
 
+    const selectedTemplateHasWorkflow = templates.some(
+        template => template.name === selectedTemplate && template.hasWorkflow
+    );
+
     return (
         <div className="border border-green-600/40 rounded-lg p-4 bg-gray-800/30 space-y-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-green-300">
@@ -178,6 +201,15 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                         title={COMMON.MESSAGES.SAVE_DEFAULT_TEMPLATE_TOOLTIP}
                     >
                         {isSavingDefault ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    </button>
+                    <button
+                        onClick={handleDownload}
+                        disabled={!selectedTemplateHasWorkflow || isDownloading}
+                        className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30"
+                        title={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                        aria-label={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                    >
+                        {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                     </button>
                     <button
                         onClick={handleDelete}
@@ -208,6 +240,12 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
                     <AlertCircle size={14} />
                     {saveError}
+                </div>
+            )}
+            {downloadError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                    <AlertCircle size={14} />
+                    {downloadError}
                 </div>
             )}
 

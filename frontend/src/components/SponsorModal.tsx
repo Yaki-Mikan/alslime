@@ -8,8 +8,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, ExternalLink, Heart, LogOut, RefreshCw, X } from 'lucide-react';
+import { downloadComfyUITemplate } from '../api/comfyui';
 import {
     MODULE_ACTION_CHOICE,
+    MODULE_COMFY,
     fetchModulesStatus,
     fetchSponsorStatus,
     installModule,
@@ -40,7 +42,7 @@ const STATE_CLASSES: Record<EntitlementState, string> = {
 };
 
 const STATE_FALLBACK_JA: Record<EntitlementState, string> = {
-    none: '未認証（free）',
+    none: '未ログイン',
     valid: '有効',
     grace: '更新待ち（猶予期間中）',
     expired: '失効',
@@ -50,6 +52,9 @@ const STATE_FALLBACK_JA: Record<EntitlementState, string> = {
 // ログイン完了待ちポーリングの間隔と上限（backend 側リスナーは 5 分でタイムアウト）。
 const LOGIN_POLL_INTERVAL_MS = 2000;
 const LOGIN_POLL_LIMIT_MS = 5 * 60 * 1000;
+
+// GitHub Sponsors の支援ページ（「支援者になる」ボタンの飛び先）。
+const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
 
 // モジュールID → 表示名（i18nキーとJAフォールバック）。
 const MODULE_LABELS: Record<string, { key: string; fallback: string }> = {
@@ -126,7 +131,57 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         try {
             const result = await installModule(backendUrl, moduleId);
             setModules(result.modules ?? []);
-            setInstallNotice(t('sponsor.module.installedNotice', 'モジュールを配置しました。AlSlime を再起動すると有効になります。'));
+            if (result.companionPackConfigured && !result.companionPackInstalled) {
+                setError(t(
+                    'sponsor.module.companionPackFailed',
+                    'モジュールは配置しましたが、付属ファイルの取得・配置に失敗しました。再度ダウンロードしてください。'
+                ));
+            } else {
+                const restartNotice = t(
+                    'sponsor.module.installedNotice',
+                    'モジュールを配置しました。AlSlime を再起動すると有効になります。'
+                );
+                const workflowTemplates = moduleId === MODULE_COMFY && result.companionPackInstalled
+                    ? (result.companionPackWorkflowTemplates ?? []).filter((name) => name.trim() !== '')
+                    : [];
+
+                if (workflowTemplates.length === 0) {
+                    setInstallNotice(restartNotice);
+                } else {
+                    const failedTemplates: string[] = [];
+                    for (const templateName of workflowTemplates) {
+                        try {
+                            await downloadComfyUITemplate(backendUrl, templateName);
+                        } catch {
+                            // 1件の失敗で残りの自動保存を中断しない。
+                            failedTemplates.push(templateName);
+                        }
+                    }
+
+                    const successCount = workflowTemplates.length - failedTemplates.length;
+                    const formatResult = (message: string) => message
+                        .replace('{success}', String(successCount))
+                        .replace('{total}', String(workflowTemplates.length))
+                        .replace('{names}', failedTemplates.join(', '));
+
+                    if (failedTemplates.length === 0) {
+                        const downloadNotice = formatResult(t(
+                            'sponsor.module.workflowDownloadAllSucceeded',
+                            '付属ワークフローをブラウザへ保存しました（{success}/{total}件）。'
+                        ));
+                        setInstallNotice(`${restartNotice} ${downloadNotice}`);
+                    } else {
+                        setInstallNotice(restartNotice);
+                        const resultKey = successCount > 0
+                            ? 'sponsor.module.workflowDownloadPartiallyFailed'
+                            : 'sponsor.module.workflowDownloadAllFailed';
+                        const fallback = successCount > 0
+                            ? '付属ワークフローのブラウザ保存は一部失敗しました（成功 {success}/{total}件）。失敗: {names}。画像生成設定のダウンロードアイコンから再取得できます。'
+                            : '付属ワークフローをブラウザへ保存できませんでした（{total}件）。失敗: {names}。画像生成設定のダウンロードアイコンから再取得してください。';
+                        setError(formatResult(t(resultKey, fallback)));
+                    }
+                }
+            }
         } catch (err: unknown) {
             const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
             setError(t(key || 'error.sponsorModuleInstallFailed', 'モジュールの取得・配置に失敗しました。接続を確認して再試行してください。'));
@@ -210,7 +265,16 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
     if (!isOpen) return null;
 
     const state: EntitlementState = status?.entitlement.state ?? 'none';
-    const stateLabel = t(`entitlement.state.${state}`, STATE_FALLBACK_JA[state] ?? state);
+    // GitHub 認証成功・有効な支援なし（Free ログイン成功）。失敗ではないので肯定的に見せる。
+    const loginedAsFree = status?.loginedAsFree ?? false;
+    // state=none は「トークン無し＝free 動作」。Free ログイン済みなら未ログインと区別して見せる。
+    const badgeIsFreePlan = state === 'none' && loginedAsFree;
+    const stateLabel = badgeIsFreePlan
+        ? t('entitlement.badge.freePlan', 'Free プラン')
+        : t(`entitlement.state.${state}`, STATE_FALLBACK_JA[state] ?? state);
+    const badgeClass = badgeIsFreePlan
+        ? 'border-sky-800 bg-sky-950/30 text-sky-300'
+        : STATE_CLASSES[state];
     const tier = status?.entitlement.tier;
     const hasToken = state === 'valid' || state === 'grace' || state === 'expired' || state === 'invalid';
     const expiresAt = status?.entitlement.expiresAt;
@@ -250,8 +314,17 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                         {t('sponsor.description', 'GitHub Sponsors で支援中のアカウントでログインすると、支援者向け機能が有効になります。')}
                     </p>
 
+                    {status?.notice && (
+                        <div className="rounded border border-cyan-900/50 bg-cyan-950/30 px-3 py-2">
+                            <p className="text-xs text-cyan-400 mb-1">
+                                {t('sponsor.notice.title', '開発者からのお知らせ')}
+                            </p>
+                            <p className="text-sm text-cyan-100 whitespace-pre-wrap">{status.notice}</p>
+                        </div>
+                    )}
+
                     <div className="flex items-center gap-3 rounded border border-gray-700 bg-gray-800/60 px-3 py-3">
-                        <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${STATE_CLASSES[state]}`}>
+                        <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${badgeClass}`}>
                             {stateLabel}
                         </span>
                         {tier && <span className="text-sm text-gray-200">{tier}</span>}
@@ -308,6 +381,11 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                             {t(`sponsor.error.${lastLoginError}`, 'ログインに失敗しました。')}
                         </p>
                     )}
+                    {!error && !lastLoginError && loginedAsFree && !loginPending && (
+                        <p className="text-sm text-sky-300 bg-sky-950/30 border border-sky-900/50 rounded px-3 py-2">
+                            {t('sponsor.loginedAsFree', 'GitHub ログインに成功しました。支援すると支援者向け機能が有効になります。')}
+                        </p>
+                    )}
 
                     {loginPending && (
                         <div className="text-sm text-cyan-300">
@@ -327,6 +405,13 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                     )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                            onClick={() => window.open(SPONSOR_URL, '_blank', 'noopener')}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-pink-900/30 hover:bg-pink-900/50 border border-pink-600 rounded-lg text-sm text-pink-300 hover:text-pink-200 transition-colors"
+                        >
+                            <Heart size={16} />
+                            {t('sponsor.becomeSponsor', '支援者になる')}
+                        </button>
                         <button
                             onClick={handleLogin}
                             disabled={isBusy && !loginPending}

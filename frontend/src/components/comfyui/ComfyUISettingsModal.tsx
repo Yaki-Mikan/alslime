@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from '../../lib/axios';
-import { X, Wifi, WifiOff, Upload, Trash2, CheckCircle, AlertCircle, Loader2, Users, FolderOpen, Tag, Palette, FileText, Save, Workflow } from 'lucide-react';
+import { X, Wifi, WifiOff, Upload, Download, Trash2, CheckCircle, AlertCircle, Loader2, Users, FolderOpen, Tag, Palette, FileText, Save, Workflow } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { CollapsibleSection } from '../settings/CollapsibleSection';
 import { BackgroundImageSettings } from '../settings/BackgroundImageSettings';
@@ -21,6 +21,7 @@ import { ComfyUIGenerateTestModal } from './ComfyUIGenerateTestModal';
 import { ComfyUIIntegratedSettingsModal } from './ComfyUIIntegratedSettingsModal';
 import { createComfyUIText, formatComfyText } from './i18n';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { CLAUDE_EFFORT_VALUES, normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
 import {
     getComfyUIConfig,
     saveComfyUIConfig,
@@ -28,6 +29,7 @@ import {
     listComfyUITemplates,
     addComfyUITemplate,
     deleteComfyUITemplate,
+    downloadComfyUITemplate,
     testGenerateComfyUI,
 } from '../../api/comfyui';
 import type {
@@ -66,6 +68,14 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     onAppSettingsSave,
 }) => {
     const { COMMON, DIRECTIVE_MODE_OPTIONS, GENERATE_TEST, INTEGRATED, SECTION_NAMES } = createComfyUIText(uiCatalog);
+    const claudeEffortLabels: Record<ClaudeEffort, string> = {
+        '': COMMON.BUTTONS.CLAUDE_EFFORT_DEFAULT,
+        low: COMMON.BUTTONS.CLAUDE_EFFORT_LOW,
+        medium: COMMON.BUTTONS.CLAUDE_EFFORT_MEDIUM,
+        high: COMMON.BUTTONS.CLAUDE_EFFORT_HIGH,
+        xhigh: COMMON.BUTTONS.CLAUDE_EFFORT_XHIGH,
+        max: COMMON.BUTTONS.CLAUDE_EFFORT_MAX,
+    };
     // 接続設定
     const [connectionUrl, setConnectionUrl] = useState('http://127.0.0.1:8188');
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
@@ -80,6 +90,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [tagJudgeProvider, setTagJudgeProvider] = useState<TagJudgeProvider>('gemini');
     const [tagJudgeGeminiModel, setTagJudgeGeminiModel] = useState<GeminiTagJudgeModel>('gemini-3-flash-preview');
     const [tagJudgeClaudeModel, setTagJudgeClaudeModel] = useState<ClaudeTagJudgeModel>('claude-sonnet-4-6');
+    const [tagJudgeClaudeEffort, setTagJudgeClaudeEffort] = useState<ClaudeEffort>('');
     const [tagJudgeAntigravityModel, setTagJudgeAntigravityModel] = useState<AntigravityTagJudgeModel>('antigravity');
     const [tagJudgeTimeoutSeconds, setTagJudgeTimeoutSeconds] = useState(180);
 
@@ -102,6 +113,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [showNameInput, setShowNameInput] = useState(false);
     const [pendingWorkflow, setPendingWorkflow] = useState<any>(null);
     const [newTemplateName, setNewTemplateName] = useState('');
+    const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
 
     // テスト生成
     const [isGenerating, setIsGenerating] = useState(false);
@@ -184,6 +197,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             setTagJudgeProvider(config.tagJudgeProvider || 'gemini');
             setTagJudgeGeminiModel(config.tagJudgeGeminiModel || 'gemini-3-flash-preview');
             setTagJudgeClaudeModel(config.tagJudgeClaudeModel || 'claude-sonnet-4-6');
+            setTagJudgeClaudeEffort(normalizeClaudeEffort(config.tagJudgeClaudeEffort));
             setTagJudgeAntigravityModel(config.tagJudgeAntigravityModel || 'antigravity');
             setTagJudgeTimeoutSeconds(config.tagJudgeTimeoutSeconds ?? 180);
             setLightweightImageSaveEnabled(config.lightweightImageSave?.enabled || false);
@@ -211,6 +225,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             loadData();
             setTestResult(null);
             setUploadError(null);
+            setDownloadError(null);
             setShowNameInput(false);
             setPendingWorkflow(null);
             setGeneratedImage(null);
@@ -325,6 +340,21 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
         }
     };
 
+    // 選択中ワークフローをブラウザへダウンロード
+    const handleDownloadTemplate = async () => {
+        if (!defaultTemplateId || isDownloadingTemplate) return;
+        setIsDownloadingTemplate(true);
+        setDownloadError(null);
+        try {
+            await downloadComfyUITemplate(backendUrl, defaultTemplateId);
+        } catch (error) {
+            console.error('[ComfyUISettingsModal] template download failed:', error);
+            setDownloadError(COMMON.MESSAGES.DOWNLOAD_WORKFLOW_FAILED);
+        } finally {
+            setIsDownloadingTemplate(false);
+        }
+    };
+
     // テスト生成
     const handleTestGenerate = async () => {
         if (!defaultTemplateId || !connectionUrl) return;
@@ -366,6 +396,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 tagJudgeProvider,
                 tagJudgeGeminiModel,
                 tagJudgeClaudeModel,
+                tagJudgeClaudeEffort,
                 tagJudgeAntigravityModel,
                 tagJudgeTimeoutSeconds,
                 lightweightImageSave: {
@@ -503,34 +534,50 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 <option value="antigravity">Antigravity CLI</option>
                             </select>
                         </label>
-                        <label className="space-y-1 block">
-                            <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
-                            <select
-                                value={
-                                    tagJudgeProvider === 'claude' ? tagJudgeClaudeModel
-                                        : tagJudgeProvider === 'antigravity' ? tagJudgeAntigravityModel
-                                            : tagJudgeGeminiModel
-                                }
-                                onChange={(e) => {
-                                    if (tagJudgeProvider === 'claude') {
-                                        setTagJudgeClaudeModel(e.target.value as ClaudeTagJudgeModel);
-                                    } else if (tagJudgeProvider === 'antigravity') {
-                                        setTagJudgeAntigravityModel(e.target.value as AntigravityTagJudgeModel);
-                                    } else {
-                                        setTagJudgeGeminiModel(e.target.value as GeminiTagJudgeModel);
+                        <div className={`grid grid-cols-1 gap-3 ${tagJudgeProvider === 'claude' ? 'sm:grid-cols-2' : ''}`}>
+                            <label className="space-y-1 block">
+                                <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
+                                <select
+                                    value={
+                                        tagJudgeProvider === 'claude' ? tagJudgeClaudeModel
+                                            : tagJudgeProvider === 'antigravity' ? tagJudgeAntigravityModel
+                                                : tagJudgeGeminiModel
                                     }
-                                }}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                            >
-                                {(
-                                    tagJudgeProvider === 'claude' ? claudeModelOptions
-                                        : tagJudgeProvider === 'antigravity' ? antigravityModelOptions
-                                            : geminiModelOptions
-                                ).map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                            </select>
-                        </label>
+                                    onChange={(e) => {
+                                        if (tagJudgeProvider === 'claude') {
+                                            setTagJudgeClaudeModel(e.target.value as ClaudeTagJudgeModel);
+                                        } else if (tagJudgeProvider === 'antigravity') {
+                                            setTagJudgeAntigravityModel(e.target.value as AntigravityTagJudgeModel);
+                                        } else {
+                                            setTagJudgeGeminiModel(e.target.value as GeminiTagJudgeModel);
+                                        }
+                                    }}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                >
+                                    {(
+                                        tagJudgeProvider === 'claude' ? claudeModelOptions
+                                            : tagJudgeProvider === 'antigravity' ? antigravityModelOptions
+                                                : geminiModelOptions
+                                    ).map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            {tagJudgeProvider === 'claude' && (
+                                <label className="space-y-1 block">
+                                    <span className="text-xs text-gray-500">{COMMON.BUTTONS.CLAUDE_EFFORT}</span>
+                                    <select
+                                        value={tagJudgeClaudeEffort}
+                                        onChange={(e) => setTagJudgeClaudeEffort(e.target.value as ClaudeEffort)}
+                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                    >
+                                        {CLAUDE_EFFORT_VALUES.map((effort) => (
+                                            <option key={effort || 'default'} value={effort}>{claudeEffortLabels[effort]}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                        </div>
                         <p className="text-xs text-gray-500">
                             {COMMON.MESSAGES.TAG_JUDGE_DESC}
                         </p>
@@ -656,6 +703,21 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                         ))}
                                     </select>
                                     <button
+                                        onClick={handleDownloadTemplate}
+                                        disabled={
+                                            !defaultTemplateId
+                                            || isDownloadingTemplate
+                                            || !templates.some(t => t.name === defaultTemplateId && t.hasWorkflow)
+                                        }
+                                        className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30"
+                                        title={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                                        aria-label={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                                    >
+                                        {isDownloadingTemplate
+                                            ? <Loader2 size={16} className="animate-spin" />
+                                            : <Download size={16} />}
+                                    </button>
+                                    <button
                                         onClick={() => defaultTemplateId && handleDeleteTemplate(defaultTemplateId)}
                                         disabled={!defaultTemplateId}
                                         className="p-2 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30"
@@ -667,6 +729,12 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 <p className="text-xs text-gray-500">
                                     {COMMON.MESSAGES.TEMPLATE_SELECT_DESC}
                                 </p>
+                                {downloadError && (
+                                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                                        <span>{downloadError}</span>
+                                    </div>
+                                )}
 
                                 {/* テスト生成ボタン */}
                                 <button
