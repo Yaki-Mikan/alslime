@@ -8,7 +8,7 @@ AlSlime is an AI CLI frontend for conversations with characters you create. Beyo
 
 It brings Gemini CLI, Claude Code, and Antigravity—installed and authenticated by you—into a browser-based conversation screen. Conversation history and settings are stored on your own PC.
 
-![A conversation using a generated scene as its background](docs/manual/images/ja/08-03-chat-pocket-watch.png)
+![A conversation using a generated scene as its background](docs/manual/images/ja/09-03-chat-pocket-watch.png)
 
 *This screen uses a generated image as the conversation background. Image generation is part of the supporter-only ComfyUI integration.*
 
@@ -38,7 +38,7 @@ Settings can be exported as packs for backup or transfer to another PC. Conversa
 
 The supporter-only ComfyUI integration lets an AI read the conversation and generate an image suited to the character and scene. The completed image can remain attached to a message or become the background of the conversation screen.
 
-This feature requires a separate ComfyUI installation, an image-generation model, and suitable GPU hardware. See the [ComfyUI integration manual](docs/manual/en/08-comfyui.md) for details.
+This feature requires a separate ComfyUI installation, an image-generation model, and suitable GPU hardware. See the [ComfyUI integration manual](docs/manual/en/09-comfyui.md) for details.
 
 ## Main Features
 
@@ -111,7 +111,7 @@ It covers installation, your first conversation, character creation, roleplay se
 
 AlSlime is free to use. You can support its continued development through [GitHub Sponsors](https://github.com/sponsors/Yaki-Mikan).
 
-Supporter features and their setup are described in the [Supporter Features manual](docs/manual/en/07-sponsor.md).
+Supporter features and their setup are described in the [Supporter Features manual](docs/manual/en/08-sponsor.md).
 
 ## Data and Privacy
 
