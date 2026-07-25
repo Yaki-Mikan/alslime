@@ -11,4 +11,5 @@ type Payload struct {
 	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
 	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
 }

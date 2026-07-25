@@ -10,12 +10,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, MessageSquare, CalendarDays, FileText, RefreshCw, User } from 'lucide-react';
+import { X, MessageSquare, CalendarDays, FileText, RefreshCw, User, Keyboard } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { BasicSettings } from './BasicSettings';
 import { ParameterSchemaEditorModal } from './ParameterSchemaEditorModal';
 import { ReplacementConfigModal } from '../SSRP/ReplacementConfigModal';
-import type { Settings } from '../../types/Settings';
+import { CHAT_SEND_KEYS, DEFAULT_CHAT_SEND_KEY, type ChatSendKey, type Settings } from '../../types/Settings';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { DEFAULT_UI_LANGUAGE, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { BACKEND_URL } from '../../api/base-url';
@@ -125,6 +125,29 @@ export const ChatBasicSettingsModal: React.FC<ChatBasicSettingsModalProps> = ({
                             onChange={setLocalSettings}
                             uiCatalog={uiCatalog}
                         />
+
+                        {/* チャット送信キー */}
+                        <div className="pt-4 border-t border-gray-700">
+                            <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                                <Keyboard size={16} className="text-blue-400" />
+                                {t(SETTINGS_I18N_KEYS.chatSendKeyLabel)}
+                            </label>
+                            <select
+                                value={localSettings.chatSendKey ?? DEFAULT_CHAT_SEND_KEY}
+                                onChange={(e) => setLocalSettings(prev => ({
+                                    ...prev,
+                                    chatSendKey: e.target.value as ChatSendKey,
+                                }))}
+                                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-gray-200 outline-none focus:border-blue-500"
+                            >
+                                <option value={CHAT_SEND_KEYS.enter}>{t(SETTINGS_I18N_KEYS.chatSendKeyEnter)}</option>
+                                <option value={CHAT_SEND_KEYS.shiftEnter}>{t(SETTINGS_I18N_KEYS.chatSendKeyShiftEnter)}</option>
+                                <option value={CHAT_SEND_KEYS.ctrlEnter}>{t(SETTINGS_I18N_KEYS.chatSendKeyCtrlEnter)}</option>
+                            </select>
+                            <p className="text-xs text-gray-500 mt-2 px-1">
+                                {t(SETTINGS_I18N_KEYS.chatSendKeyDescription)}
+                            </p>
+                        </div>
 
                         {/* 祝日情報を反映（日本語UIのみ） */}
                         {localSettings.uiLanguage === DEFAULT_UI_LANGUAGE && (

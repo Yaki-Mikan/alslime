@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -40,16 +41,26 @@ type ClockResetter interface {
 	Reset(now int64)
 }
 
+// NoticeStore は開発者お知らせ文言の保存境界（storage/entitlement.NoticeStore。
+// 作業予定14番）。受領文言は次に取り直すまで再起動を跨いで保持される。
+type NoticeStore interface {
+	Current() string
+	Save(lang, text string) error
+	Clear() error
+}
+
 // ログイン結果コード（フロントは sponsor.error.<code> の i18n キーで表示する）。
 const (
-	// LoginErrorNotASponsor はサーバー台帳に有効な支援が見つからない。
-	LoginErrorNotASponsor = "not_a_sponsor"
 	// LoginErrorInvalidToken は受領トークンが署名検証を通らない
 	//（サーバー・本体の鍵不一致、または core 未結合ビルド）。
 	LoginErrorInvalidToken = "invalid_token"
 	// LoginErrorServer はサーバー側が明示エラーを返した（コールバックの error クエリ）。
 	LoginErrorServer = "server_error"
 )
+
+// serverNotASponsor は entitlement サーバーが「認証成功だが有効な支援なし」を
+// 示すために error クエリで返す値。これは失敗ではなく Free ログイン成功として扱う。
+const serverNotASponsor = "not_a_sponsor"
 
 // loginTimeout はコールバック待ち受けの上限。過ぎたらリスナーを閉じる。
 const loginTimeout = 5 * time.Minute
@@ -62,6 +73,12 @@ type Status struct {
 	LoginPending bool `json:"loginPending"`
 	// LastLoginError は直近ログイン試行の失敗コード（成功・未試行は空）。
 	LastLoginError string `json:"lastLoginError,omitempty"`
+	// LoginedAsFree は直近ログインが GitHub 認証成功・有効な支援なし（Free 扱い）
+	// だったとき true。これは失敗ではなくログイン成功の一種。
+	LoginedAsFree bool `json:"loginedAsFree,omitempty"`
+	// Notice は entitlement サーバーから受領した開発者お知らせ文言（未受領は空。
+	// 作業予定14番）。ログイン完了時と refresh 時に取り直され、それまで保持される。
+	Notice string `json:"notice,omitempty"`
 }
 
 // Service は支援者機能のログイン・トークン管理。並行アクセス安全。
@@ -78,9 +95,15 @@ type Service struct {
 	moduleIDs []string
 	verifySig func(payload []byte, sigB64 string) error
 
-	mu        sync.Mutex
-	login     *loginSession
-	lastError string
+	// notices / uiLang は開発者お知らせの依存（ConfigureNotice で注入。
+	// 未設定の間はお知らせの取得・表示を行わない）。
+	notices NoticeStore
+	uiLang  func() string
+
+	mu            sync.Mutex
+	login         *loginSession
+	lastError     string
+	loginedAsFree bool
 }
 
 // ModuleTarget は 1 モジュールの取得・配置依存。
@@ -89,6 +112,10 @@ type ModuleTarget struct {
 	InstallPath string
 	// Active は現在プロセスで当該サイドカーが起動しているか。
 	Active bool
+	// InstallCompanionPack は署名・ハッシュ検証済み付属パックの適用口。
+	// 戻り値は付属パックによって利用可能になった ComfyUI workflow
+	// テンプレート名。nil のモジュールは付属パックを取得しない。
+	InstallCompanionPack func(zipPath string) ([]string, error)
 }
 
 // ConfigureModules はサイドカーモジュール取得・配置の依存を注入する（複数対応）。
@@ -99,6 +126,13 @@ func (s *Service) ConfigureModules(ids []string, targets map[string]ModuleTarget
 	s.moduleIDs = ids
 	s.modules = targets
 	s.verifySig = verifySig
+}
+
+// ConfigureNotice は開発者お知らせの保存先と表示言語の解決口を注入する（14番）。
+// uiLang は現在の UI 言語（pwa 設定 uiLanguage）を返す。空はサーバー側既定（ja）。
+func (s *Service) ConfigureNotice(notices NoticeStore, uiLang func() string) {
+	s.notices = notices
+	s.uiLang = uiLang
 }
 
 // loginSession は進行中のコールバック待ち受け。
@@ -133,10 +167,16 @@ func New(store TokenStore, gate coreapi.FeatureGate, clock ClockResetter) *Servi
 func (s *Service) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	notice := ""
+	if s.notices != nil {
+		notice = s.notices.Current()
+	}
 	return Status{
 		Entitlement:    s.gate.Entitlement(),
 		LoginPending:   s.login != nil,
 		LastLoginError: s.lastError,
+		LoginedAsFree:  s.loginedAsFree,
+		Notice:         notice,
 	}
 }
 
@@ -150,6 +190,7 @@ func (s *Service) StartLogin() (authURL string, err error) {
 	defer s.mu.Unlock()
 	s.closeLoginLocked()
 	s.lastError = ""
+	s.loginedAsFree = false
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -183,13 +224,14 @@ func (s *Service) handleOAuthDone(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	code := ""
+	free := false
 	switch {
+	case q.Get("error") == serverNotASponsor:
+		// GitHub 認証は成功したが有効な支援なし。失敗ではなく Free ログイン成功扱い。
+		free = true
 	case q.Get("error") != "":
-		// サーバーが明示コードで返す失敗（not_a_sponsor 等）。想定外の値は丸める。
-		code = q.Get("error")
-		if code != LoginErrorNotASponsor {
-			code = LoginErrorServer
-		}
+		// 想定外の error 値はサーバー異常として丸める。
+		code = LoginErrorServer
 	case q.Get("token") != "":
 		code = s.acceptToken(q.Get("token"))
 	default:
@@ -198,12 +240,19 @@ func (s *Service) handleOAuthDone(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	s.lastError = code
+	s.loginedAsFree = free
 	s.mu.Unlock()
 
-	writeLoginResultPage(w, code == "")
+	writeLoginResultPage(w, code == "", free)
 
 	// ハンドラ内から自分のサーバーを閉じるためデッドロック回避で遅延させる。
 	go func() {
+		// ログイン成功（Free 含む）ならお知らせを取得してから待ち受けを閉じる。
+		// loginPending 解除を検知したフロントのポーリングが拾う Status に
+		// 文言が載っている順序を保証する（ブラウザへの応答は既に返済み）。
+		if code == "" {
+			s.fetchNotice(context.Background())
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.closeLoginLocked()
@@ -240,11 +289,18 @@ func (s *Service) acceptToken(token string) string {
 	return LoginErrorInvalidToken
 }
 
-// Logout は保存済みトークンを破棄する。
+// Logout は保存済みトークンを破棄する。受領済みお知らせも一緒に破棄する
+// （お知らせはログイン時に取得するものなので、ログイン状態と寿命を揃える）。
 func (s *Service) Logout() error {
 	s.mu.Lock()
 	s.lastError = ""
+	s.loginedAsFree = false
 	s.mu.Unlock()
+	if s.notices != nil {
+		if err := s.notices.Clear(); err != nil {
+			logging.Warn("sponsor: notice clear failed: %v", err)
+		}
+	}
 	return s.store.Clear()
 }
 
@@ -289,7 +345,55 @@ func (s *Service) Refresh(ctx context.Context) error {
 	if code := s.acceptToken(body.Token); code != "" {
 		return errors.New("sponsor: refreshed token failed verification")
 	}
+	// 「状態を更新」でお知らせも取り直す（14番）。手動更新ではこの後の
+	// Status 返却に文言が反映されるよう同期で取得する。失敗しても refresh
+	// 自体は成功として扱う（fetchNotice 内でログのみ）。
+	s.fetchNotice(ctx)
 	return nil
+}
+
+// fetchNotice は entitlement サーバーから開発者お知らせを取得して保存する（14番）。
+//
+// 認証不要の公開エンドポイントのためトークンは送らない（Free ログインでも受け取れる）。
+// 空文字の受領はお知らせ取り下げとして保持中の文言を消す。失敗はログのみに留め、
+// 保持中の文言はそのまま残す（ログイン・refresh の成否へ影響させない）。
+func (s *Service) fetchNotice(ctx context.Context) {
+	if s.notices == nil {
+		return
+	}
+	lang := ""
+	if s.uiLang != nil {
+		lang = strings.TrimSpace(s.uiLang())
+	}
+	reqURL := s.serverURL + "/notice"
+	if lang != "" {
+		reqURL += "?lang=" + url.QueryEscape(lang)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		logging.Warn("sponsor: notice request build failed: %v", err)
+		return
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		logging.Warn("sponsor: notice fetch failed: %v", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		logging.Warn("sponsor: notice fetch status %d", resp.StatusCode)
+		return
+	}
+	var body struct {
+		Notice string `json:"notice"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		logging.Warn("sponsor: notice decode failed: %v", err)
+		return
+	}
+	if err := s.notices.Save(lang, strings.TrimSpace(body.Notice)); err != nil {
+		logging.Warn("sponsor: notice save failed: %v", err)
+	}
 }
 
 // autoRefreshInterval は定期確認の間隔。refreshLeadTime は exp 前の前倒し再取得幅。
@@ -352,11 +456,20 @@ func (s *Service) closeLoginLocked() {
 
 // writeLoginResultPage はブラウザ側へ完了ページを返す（このタブは閉じてよい旨）。
 // アプリ本体の状態はフロントが /api/sponsor/status のポーリングで拾う。
-func writeLoginResultPage(w http.ResponseWriter, ok bool) {
+//
+// ok=true かつ free=false: 支援者としてログイン成功。
+// ok=true かつ free=true : GitHub 認証成功・有効な支援なし（Free ログイン成功）。
+// ok=false               : ログイン失敗（トークン検証失敗・サーバー異常）。
+func writeLoginResultPage(w http.ResponseWriter, ok bool, free bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	title, body := "ログイン完了 / Sign-in complete", "AlSlime へ戻ってください。このタブは閉じて構いません。<br>Return to AlSlime. You can close this tab."
-	if !ok {
-		title, body = "ログイン失敗 / Sign-in failed", "AlSlime に戻り、表示されたエラーを確認してください。<br>Return to AlSlime and check the error shown there."
+	switch {
+	case ok && free:
+		title = "ログイン完了（Free） / Signed in (Free)"
+		body = "GitHub 認証に成功しました。Free プランで利用できます。AlSlime へ戻ってください。<br>Signed in with GitHub. You can use the Free plan. Return to AlSlime."
+	case !ok:
+		title = "ログイン失敗 / Sign-in failed"
+		body = "AlSlime に戻り、表示されたエラーを確認してください。<br>Return to AlSlime and check the error shown there."
 	}
 	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>%s</title></head><body style="font-family:sans-serif;text-align:center;margin-top:4rem"><h2>%s</h2><p>%s</p></body></html>`, title, title, body)
 }

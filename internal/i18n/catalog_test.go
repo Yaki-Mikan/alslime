@@ -92,6 +92,9 @@ func TestServiceLoadPrompt_fallback補完を行わない(t *testing.T) {
 	if catalog.Messages["prompt.fileType.world"] != "世界観設定" {
 		t.Fatalf("builtin ja key unexpected: %#v", catalog.Messages["prompt.fileType.world"])
 	}
+	if catalog.Messages[KeyPromptNativeHistoryContextLoadCompleteSingle] == "" || catalog.Messages[KeyPromptNativeHistoryContextLoadCompleteMultiple] == "" {
+		t.Fatal("ネイティブ履歴の読み込み完了文言が ja カタログに必要")
+	}
 
 	// en では英語版の出力契約が取得できる（英語UIは "" 区切りが正式仕様）。
 	enCatalog, err := svc.LoadPrompt("en")
@@ -100,6 +103,9 @@ func TestServiceLoadPrompt_fallback補完を行わない(t *testing.T) {
 	}
 	if v := enCatalog.Messages["prompt.emotion.instruction"]; !strings.Contains(v, `CharacterName: "Dialogue"`) {
 		t.Fatalf("en の出力契約が取得できるべき: %q", v)
+	}
+	if enCatalog.Messages[KeyPromptNativeHistoryContextLoadCompleteSingle] == "" || enCatalog.Messages[KeyPromptNativeHistoryContextLoadCompleteMultiple] == "" {
+		t.Fatal("ネイティブ履歴の読み込み完了文言が en カタログに必要")
 	}
 }
 

@@ -3,8 +3,6 @@ package process
 import (
 	"context"
 	"os/exec"
-	"runtime"
-	"strconv"
 	"time"
 )
 
@@ -14,7 +12,10 @@ const killWaitTimeout = 2 * time.Second
 //
 // Windows の .cmd ランチャーは子プロセスが標準入出力を握ったまま残りやすい。
 // そのため Windows では taskkill /T でプロセスツリーごと止める。
+// Linux 等ではプロセスグループを作って起動し、kill 時はグループごと止める
+// （CLI ランチャーの孫プロセス残留対策。レビュー002対応 6.5）。
 func RunCommandContext(ctx context.Context, command *exec.Cmd) error {
+	setupProcessGroup(command)
 	if err := command.Start(); err != nil {
 		return err
 	}
@@ -39,14 +40,5 @@ func RunCommandContext(ctx context.Context, command *exec.Cmd) error {
 	}
 }
 
-func killProcessTree(command *exec.Cmd) {
-	if command == nil || command.Process == nil {
-		return
-	}
-	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(command.Process.Pid)).Run()
-		_ = command.Process.Kill()
-		return
-	}
-	_ = command.Process.Kill()
-}
+// setupProcessGroup / killProcessTree は OS 依存の実装
+// （command_windows.go / command_unix.go）。

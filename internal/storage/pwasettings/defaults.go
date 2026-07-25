@@ -2,6 +2,8 @@ package pwasettings
 
 import "alslime/internal/config"
 
+const defaultChatSendKey = "shiftEnter"
+
 // defaultSettings は PWA（アプリ表示）設定の既定値。
 //
 // 現行 Node 版 settings.ts の DEFAULT_SETTINGS を移植する。
@@ -27,5 +29,6 @@ func defaultSettings() map[string]any {
 		"uiLanguage":                               config.I18NDefaultLang,
 		"holidayCalendarEnabled":                   false,
 		"defaultUserName":                          "",
+		"chatSendKey":                              defaultChatSendKey,
 	}
 }

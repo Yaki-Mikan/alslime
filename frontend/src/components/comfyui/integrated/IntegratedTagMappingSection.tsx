@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Search, Save, ArrowUpDown, ArrowUp, ArrowDown, Layers, List, Pencil } from 'lucide-react';
+import { Plus, Trash2, Search, Save, ArrowUpDown, ArrowUp, ArrowDown, Layers, List, Pencil, RefreshCw } from 'lucide-react';
 import {
     getTagCategories,
     getTagMapping,
@@ -17,6 +17,7 @@ import {
     saveLoraDirConfig,
     getLoraTriggerWords,
     searchDanbooruTags,
+    refreshComfyUILoras,
 } from '../../../api/comfyui';
 import type {
     DanbooruTagResult,
@@ -123,20 +124,26 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                     }
                 }
                 setMappingData(data);
-
-                const cat = categories.find(c => c.id === selectedCategoryId);
-                if (cat && cat.loraPrefixes.length > 0) {
-                    const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
-                    setLoraList(loras);
-                } else {
-                    setLoraList([]);
-                }
             } catch (e) {
                 console.error('[IntegratedTagMappingSection] tag mapping load failed:', e);
                 setMappingData({ categoryId: selectedCategoryId, tags: [] });
-            } finally {
-                setIsLoading(false);
             }
+
+            const cat = categories.find(c => c.id === selectedCategoryId);
+            if (cat && cat.loraPrefixes.length > 0) {
+                try {
+                    const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
+                    setLoraList(loras);
+                } catch (e) {
+                    // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
+                    // 読み込み済みのタグマッピングを破棄しない。
+                    setLoraList([]);
+                    console.error('[IntegratedTagMappingSection] lora list load failed:', e);
+                }
+            } else {
+                setLoraList([]);
+            }
+            setIsLoading(false);
         })();
     }, [selectedCategoryId, categories, backendUrl]);
 
@@ -242,6 +249,19 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         } catch { /* 無視 */ }
         setTriggerWordsLoading(prev => ({ ...prev, [loraIdx]: false }));
     }, [backendUrl, triggerWords]);
+
+    // 現在カテゴリの LoRA 一覧を再取得する。
+    // 失敗時は既存一覧とタグマッピングを維持する。
+    const handleRefreshLoras = useCallback(async () => {
+        if (!selectedCategoryId) return;
+        try {
+            await refreshComfyUILoras(backendUrl);
+            const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
+            setLoraList(loras);
+        } catch (e) {
+            console.error('[IntegratedTagMappingSection] lora refresh failed:', e);
+        }
+    }, [backendUrl, selectedCategoryId]);
 
     // LoRA選択
     const selectLora = useCallback((loraIndex: number, loraName: string) => {
@@ -518,7 +538,18 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                             {/* LoRA */}
                             {hasLoraPrefixes && (
                                 <div className="space-y-1" ref={loraDropdownRef}>
-                                    <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.LORA}</label>
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.LORA}</label>
+                                        <button
+                                            type="button"
+                                            onClick={handleRefreshLoras}
+                                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-green-400 transition-colors"
+                                            title={COMMON.MESSAGES.REFRESH_TOOLTIP}
+                                        >
+                                            <RefreshCw size={12} />
+                                            {COMMON.BUTTONS.REFRESH_LORA}
+                                        </button>
+                                    </div>
                                     {selectedTag.lora.map((lora, loraIdx) => {
                                         const isDetail = loraDetailMode[loraIdx] || false;
                                         return (

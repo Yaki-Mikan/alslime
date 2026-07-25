@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 
+	"alslime/internal/config"
 	"alslime/internal/logging"
 )
 
@@ -49,6 +50,22 @@ type moduleManifest struct {
 	Sig           string `json:"sig"`
 }
 
+type companionPackManifest struct {
+	Module    string `json:"module"`
+	Version   string `json:"version"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int64  `json:"sizeBytes"`
+	Sig       string `json:"sig"`
+}
+
+// ModuleInstallResult はバイナリと付属パックそれぞれの配置結果。
+type ModuleInstallResult struct {
+	Version                        string
+	CompanionPackConfigured        bool
+	CompanionPackInstalled         bool
+	CompanionPackWorkflowTemplates []string
+}
+
 // ModuleStatusEntry は 1 モジュールの配置状態（GET /api/sponsor/modules の要素）。
 type ModuleStatusEntry struct {
 	// ID はモジュールID（module レジストリの定数）。
@@ -79,17 +96,17 @@ func (s *Service) ModulesStatus() []ModuleStatusEntry {
 
 // InstallModule は entitlement サーバーから指定モジュールを取得・検証して配置する。
 // 成功時はマニフェストのバージョンを返す。配置の有効化には本体の再起動が必要。
-func (s *Service) InstallModule(ctx context.Context, moduleID string) (version string, err error) {
+func (s *Service) InstallModule(ctx context.Context, moduleID string) (ModuleInstallResult, error) {
 	if len(s.modules) == 0 || s.verifySig == nil {
-		return "", errors.New("sponsor: module install is not configured")
+		return ModuleInstallResult{}, errors.New("sponsor: module install is not configured")
 	}
 	target, ok := s.modules[moduleID]
 	if !ok {
-		return "", ErrModuleUnknown
+		return ModuleInstallResult{}, ErrModuleUnknown
 	}
 	tok := s.store.Current()
 	if tok == "" {
-		return "", ErrModuleNoToken
+		return ModuleInstallResult{}, ErrModuleNoToken
 	}
 
 	query := fmt.Sprintf("?os=%s&arch=%s", runtime.GOOS, runtime.GOARCH)
@@ -97,7 +114,7 @@ func (s *Service) InstallModule(ctx context.Context, moduleID string) (version s
 	// 1. 署名付きマニフェスト取得
 	manifest, err := s.fetchModuleManifest(ctx, tok, moduleID, query)
 	if err != nil {
-		return "", err
+		return ModuleInstallResult{}, err
 	}
 
 	// 2. 署名検証（Sig を除いた正規化 JSON への Ed25519 署名）
@@ -105,10 +122,10 @@ func (s *Service) InstallModule(ctx context.Context, moduleID string) (version s
 	payload.Sig = ""
 	canonical, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return ModuleInstallResult{}, err
 	}
 	if err := s.verifySig(canonical, manifest.Sig); err != nil {
-		return "", fmt.Errorf("sponsor: module manifest verification failed: %w", err)
+		return ModuleInstallResult{}, fmt.Errorf("sponsor: module manifest verification failed: %w", err)
 	}
 
 	// 3. バイナリ取得（一時ファイルへ書きつつ SHA-256 を計算）
@@ -116,24 +133,152 @@ func (s *Service) InstallModule(ctx context.Context, moduleID string) (version s
 	sum, err := s.downloadModuleBinary(ctx, tok, moduleID, query, tmpPath)
 	if err != nil {
 		_ = os.Remove(tmpPath)
-		return "", err
+		return ModuleInstallResult{}, err
 	}
 
 	// 4. ハッシュ照合 → 配置（atomic rename）
 	if !strings.EqualFold(sum, manifest.SHA256) {
 		_ = os.Remove(tmpPath)
-		return "", errors.New("sponsor: module binary hash mismatch")
+		return ModuleInstallResult{}, errors.New("sponsor: module binary hash mismatch")
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", err
+		return ModuleInstallResult{}, err
 	}
 	if err := os.Rename(tmpPath, target.InstallPath); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", err
+		return ModuleInstallResult{}, err
 	}
 	logging.Info("sponsor: module %s installed (version %s)", moduleID, manifest.Version)
-	return manifest.Version, nil
+	result := ModuleInstallResult{
+		Version:                        manifest.Version,
+		CompanionPackConfigured:        target.InstallCompanionPack != nil,
+		CompanionPackWorkflowTemplates: []string{},
+	}
+	if target.InstallCompanionPack != nil {
+		workflowTemplates, err := s.installCompanionPack(ctx, tok, moduleID, target.InstallCompanionPack)
+		if err != nil {
+			logging.Error("sponsor: module %s companion pack install failed: %v", moduleID, err)
+			return result, nil
+		}
+		result.CompanionPackInstalled = true
+		if workflowTemplates != nil {
+			result.CompanionPackWorkflowTemplates = append([]string{}, workflowTemplates...)
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) installCompanionPack(
+	ctx context.Context,
+	tok string,
+	moduleID string,
+	install func(zipPath string) ([]string, error),
+) ([]string, error) {
+	manifest, err := s.fetchCompanionPackManifest(ctx, tok, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	payload := manifest
+	payload.Sig = ""
+	canonical, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.verifySig(canonical, manifest.Sig); err != nil {
+		return nil, fmt.Errorf("sponsor: companion pack manifest verification failed: %w", err)
+	}
+	if manifest.Module != moduleID || manifest.SHA256 == "" || manifest.SizeBytes <= 0 ||
+		manifest.SizeBytes > config.SettingsPackMaxUploadBytes {
+		return nil, errors.New("sponsor: incomplete companion pack manifest")
+	}
+	tmp, err := os.CreateTemp("", "alslime-companion-pack-*.zip")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	defer func() { _ = os.Remove(tmpPath) }()
+	sum, size, err := s.downloadCompanionPack(ctx, tok, moduleID, tmpPath, manifest.SizeBytes)
+	if err != nil {
+		return nil, err
+	}
+	if size != manifest.SizeBytes || !strings.EqualFold(sum, manifest.SHA256) {
+		return nil, errors.New("sponsor: companion pack hash or size mismatch")
+	}
+	return install(tmpPath)
+}
+
+func (s *Service) fetchCompanionPackManifest(
+	ctx context.Context,
+	tok string,
+	moduleID string,
+) (companionPackManifest, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		s.serverURL+"/modules/"+moduleID+"/companion-pack", nil)
+	if err != nil {
+		return companionPackManifest{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return companionPackManifest{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := moduleResponseError(resp.StatusCode); err != nil {
+		return companionPackManifest{}, err
+	}
+	var manifest companionPackManifest
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&manifest); err != nil {
+		return companionPackManifest{}, err
+	}
+	return manifest, nil
+}
+
+func (s *Service) downloadCompanionPack(
+	ctx context.Context,
+	tok string,
+	moduleID string,
+	dst string,
+	expectedSize int64,
+) (string, int64, error) {
+	if expectedSize <= 0 {
+		return "", 0, errors.New("sponsor: invalid companion pack size")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		s.serverURL+"/modules/"+moduleID+"/companion-pack/download", nil)
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := moduleResponseError(resp.StatusCode); err != nil {
+		return "", 0, err
+	}
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", 0, err
+	}
+	h := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, expectedSize+1))
+	closeErr := f.Close()
+	if copyErr != nil {
+		return "", written, copyErr
+	}
+	if closeErr != nil {
+		return "", written, closeErr
+	}
+	if written > expectedSize {
+		return "", written, errors.New("sponsor: companion pack exceeds signed size")
+	}
+	return hex.EncodeToString(h.Sum(nil)), written, nil
 }
 
 // fetchModuleManifest はマニフェスト API を叩いて検証前のマニフェストを返す。

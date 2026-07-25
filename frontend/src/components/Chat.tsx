@@ -356,6 +356,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         setSelectedModelProvider,
         geminiTempFileMode,
         setGeminiTempFileMode,
+        claudeEffort,
+        selectClaudeEffort,
         actionChoices,
         selectedChoice,
         setSelectedChoice,
@@ -1359,12 +1361,15 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             selectedModelProvider={selectedModelProvider}
                             onSelectModelProvider={setSelectedModelProvider}
                             onOpenModelSettings={() => setIsModelSettingsOpen(true)}
+                            claudeEffort={claudeEffort}
+                            onSelectClaudeEffort={selectClaudeEffort}
                             geminiTempFileMode={geminiTempFileMode}
                             onToggleGeminiTempFileMode={setGeminiTempFileMode}
                             showBackgroundThrough={useChatAreaBackground && !!chatBackgroundUrl}
                             backgroundAreaOpacity={chatInputAreaOpacity}
                             uiCatalog={uiCatalog}
                             allowEmptySend={!!selectedChoice}
+                            chatSendKey={settings.chatSendKey}
                         />
                     </div>
                 </main>

@@ -1,5 +1,7 @@
 # 04 Roleplay Settings
 
+[Back to Contents](index.md)
+
 This chapter covers the roleplay settings other than characters — worlds, stages, situations, date and time, presets, and advanced settings such as text replacement and parameter fields.
 
 For the basics of selecting characters and starting a conversation, see [03 Talking with Characters](03-character.md) first.
@@ -33,7 +35,7 @@ The choices in each field are the Markdown files in the following locations in t
 ## 2. Writing Style and Overall Additional Settings
 
 - **Writing style**: Choose the writing style for responses (files in `roleplay/global/writing_styles/`). "Additional writing style settings" also accepts free-text notes.
-- **Image-generation notes**: If you use the image generation feature ([08 ComfyUI Integration](08-comfyui.md)), write notes here to pass to the analysis at generation time.
+- **Image-generation notes**: If you use the image generation feature ([09 ComfyUI Integration](09-comfyui.md)), write notes here to pass to the analysis at generation time.
 - **Overall additional settings**: A free-text settings slot that belongs to no category. Switch the toggle ON and write in it, and the content is treated as instructions for the conversation as a whole.
 
 ## 3. Date and Time Settings
@@ -96,3 +98,5 @@ You can edit the boilerplate (templates) used when creating new files in the con
 ---
 
 Previous: [03 Talking with Characters](03-character.md) | Next: [05 Settings Reference](05-settings.md)
+
+[Back to Contents](index.md)

@@ -1,5 +1,7 @@
 # 02 Your First Chat
 
+[Back to Contents](index.md)
+
 This chapter explains the layout of the main screen and how to send a message and receive a response.
 
 ## What This Chapter Covers
@@ -76,3 +78,5 @@ Conversations are saved automatically in units called "sessions".
 ---
 
 Previous: [01 Setup and Installation](01-setup.md) | Next: [03 Talking with Characters](03-character.md)
+
+[Back to Contents](index.md)

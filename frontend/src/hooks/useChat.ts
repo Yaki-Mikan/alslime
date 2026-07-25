@@ -11,7 +11,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from '../lib/axios';
-import { getGlobalSettings } from '../api/global-settings';
+import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings';
+import { normalizeClaudeEffort, type ClaudeEffort } from '../constants/claude';
 import type { Settings as SettingsType } from '../types/Settings';
 import { CHAT_VIEW_I18N_KEYS, CHAT_VIEW_LOCALIZED_TEXT, CHAT_VIEW_TEXT_FALLBACK_JA } from '../constants/i18n';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
@@ -117,6 +118,7 @@ interface ChatSubmitPayload {
     ssrpSettings: SSRPSettings | null | undefined;
     antigravityTempFileMode: boolean;
     geminiTempFileMode: boolean;
+    claudeEffort: ClaudeEffort;
 }
 
 interface LastSubmitAttempt {
@@ -154,6 +156,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     const [defaultModels, setDefaultModels] = useState<Record<string, string>>({});
     const [antigravityTempFileMode, setAntigravityTempFileMode] = useState(false);
     const [geminiTempFileMode, setGeminiTempFileMode] = useState(false);
+    const [claudeEffort, setClaudeEffort] = useState<ClaudeEffort>('');
 
     // ファイル添付
     const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
@@ -203,6 +206,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             if (cancelled || disposedRef.current) return;
             const dm = (settings.defaultModels || {}) as Record<string, string>;
             setDefaultModels(dm);
+            setClaudeEffort(normalizeClaudeEffort(settings.claudeChatEffort));
             const dp = settings.defaultProvider as ModelProvider | undefined;
             if (dp === 'gemini' || dp === 'claude' || dp === 'antigravity') {
                 setSelectedModelProvider(dp);
@@ -216,6 +220,12 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             }
         })();
         return () => { cancelled = true; };
+    }, [backendUrl]);
+
+    const selectClaudeEffort = useCallback((effort: ClaudeEffort) => {
+        const normalized = normalizeClaudeEffort(effort);
+        setClaudeEffort(normalized);
+        void updateGlobalSettings(backendUrl, { claudeChatEffort: normalized });
     }, [backendUrl]);
 
     useEffect(() => {
@@ -456,7 +466,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 directiveMode: activeSsrpSettings?.directiveMode || 'C',
                 ssrpSettings: activeSsrpSettings,
                 antigravityTempFileMode,
-                geminiTempFileMode
+                geminiTempFileMode,
+                claudeEffort,
             };
             lastSubmitAttemptRef.current = { payload: submitPayload, displayMessage: displayMsg };
 
@@ -538,7 +549,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 temperature: settings.temperature,
                 ssrpSettings: ssrpSettings || undefined,
                 antigravityTempFileMode,
-                geminiTempFileMode
+                geminiTempFileMode,
+                claudeEffort,
             });
 
             const { jobId } = res.data;
@@ -607,6 +619,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         setAntigravityTempFileMode,
         geminiTempFileMode,
         setGeminiTempFileMode,
+        claudeEffort,
+        selectClaudeEffort,
         attachedFiles,
         setAttachedFiles,
         actionChoices,

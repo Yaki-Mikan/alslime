@@ -156,16 +156,24 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
         if (!isOpen) return;
         (async () => {
             try {
-                const [charResult, loras, outfitLoras] = await Promise.all([
-                    getCharacterTags(),
+                const charResult = await getCharacterTags();
+                setCharacters(charResult.characters);
+            } catch (error) {
+                console.error('[ComfyUIIntegratedSettingsModal] character list load failed:', error);
+            }
+            try {
+                const [loras, outfitLoras] = await Promise.all([
                     getLorasByCategory(backendUrl, 'character'),
                     getLorasByCategory(backendUrl, 'outfit'),
                 ]);
-                setCharacters(charResult.characters);
                 setAvailableLoras(loras);
                 setAvailableOutfitLoras(outfitLoras);
             } catch (error) {
-                console.error('[ComfyUIIntegratedSettingsModal] initialization failed:', error);
+                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
+                // 取得済みのキャラクター一覧には影響させない。
+                setAvailableLoras([]);
+                setAvailableOutfitLoras([]);
+                console.error('[ComfyUIIntegratedSettingsModal] lora list load failed:', error);
             }
         })();
         void reloadTemplates();

@@ -4,6 +4,16 @@
 
 import { DEFAULT_UI_LANGUAGE } from '../constants/i18n';
 
+export const CHAT_SEND_KEYS = {
+    enter: 'enter',
+    shiftEnter: 'shiftEnter',
+    ctrlEnter: 'ctrlEnter',
+} as const;
+
+export type ChatSendKey = typeof CHAT_SEND_KEYS[keyof typeof CHAT_SEND_KEYS];
+
+export const DEFAULT_CHAT_SEND_KEY: ChatSendKey = CHAT_SEND_KEYS.shiftEnter;
+
 export interface Settings {
     fontFamily: string;
     fontSize: number;  // px単位
@@ -15,6 +25,7 @@ export interface Settings {
     uiLanguage: string; // UI表示言語
     holidayCalendarEnabled: boolean; // 日本語UI専用: 祝日情報の自動取得とプロンプト反映
     defaultUserName: string; // 会話でのユーザー名の既定値（空なら言語別デフォルト名）
+    chatSendKey: ChatSendKey; // チャット入力欄で送信に使うキー
 
     // デバッグ用：セッション初回応答のみバックアップ
     enableFirstResponseBackup: boolean;
@@ -48,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
     uiLanguage: DEFAULT_UI_LANGUAGE,
     holidayCalendarEnabled: false,
     defaultUserName: '',
+    chatSendKey: DEFAULT_CHAT_SEND_KEY,
     enableFirstResponseBackup: false,
     enableResponseBackup: false,
     characterIconSize: 40,

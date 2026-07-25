@@ -12,7 +12,11 @@ import { Send, ChevronUp, Square, Settings } from 'lucide-react';
 import type { Model, ModelProvider } from '../../hooks/useChat';
 import { modelProviderOf } from '../../hooks/useChat';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { CHAT_INPUT_I18N_KEYS, CHAT_INPUT_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { CHAT_INPUT_I18N_KEYS, CHAT_INPUT_TEXT_FALLBACK_JA, CLAUDE_EFFORT_I18N_KEY_BY_VALUE } from '../../constants/i18n';
+import { CLAUDE_EFFORT_VALUES, type ClaudeEffort } from '../../constants/claude';
+import { CHAT_SEND_KEYS, DEFAULT_CHAT_SEND_KEY, type ChatSendKey } from '../../types/Settings';
+
+const COARSE_POINTER_MEDIA_QUERY = '(pointer: coarse)';
 
 interface MessageInputProps {
     input: string;
@@ -31,6 +35,8 @@ interface MessageInputProps {
     onSelectModelProvider: (provider: ModelProvider) => void;
     /** モデル選択右のアイコンボタン押下でAIモデル設定モーダルを開く */
     onOpenModelSettings: () => void;
+    claudeEffort: ClaudeEffort;
+    onSelectClaudeEffort: (effort: ClaudeEffort) => void;
     geminiTempFileMode: boolean;
     onToggleGeminiTempFileMode: (enabled: boolean) => void;
     showBackgroundThrough?: boolean;
@@ -38,6 +44,8 @@ interface MessageInputProps {
     uiCatalog: I18NCatalog | null;
     /** 入力が空でも送信を許可する（行動選択肢を選択済みのとき。支援者向け） */
     allowEmptySend?: boolean;
+    /** チャット入力欄で送信に使うキー */
+    chatSendKey?: ChatSendKey;
 
 }
 
@@ -54,12 +62,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     selectedModelProvider,
     onSelectModelProvider,
     onOpenModelSettings,
+    claudeEffort,
+    onSelectClaudeEffort,
     geminiTempFileMode,
     onToggleGeminiTempFileMode,
     showBackgroundThrough = false,
     backgroundAreaOpacity = 0.95,
     uiCatalog,
     allowEmptySend = false,
+    chatSendKey = DEFAULT_CHAT_SEND_KEY,
 }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const visibleModels = models.filter(m => modelProviderOf(m) === selectedModelProvider);
@@ -77,14 +88,23 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         if (e.nativeEvent.isComposing) return;
 
         if (e.key === 'Enter') {
-            // Shift + Enter で送信
-            if (e.shiftKey) {
+            // スマートフォン等のソフトウェアキーボードでは、Enterを常に改行として扱う。
+            if (window.matchMedia(COARSE_POINTER_MEDIA_QUERY).matches) return;
+
+            const hasOtherModifier = e.altKey || e.metaKey;
+            const shouldSend = !hasOtherModifier && (
+                (chatSendKey === CHAT_SEND_KEYS.enter && !e.shiftKey && !e.ctrlKey)
+                || (chatSendKey === CHAT_SEND_KEYS.shiftEnter && e.shiftKey && !e.ctrlKey)
+                || (chatSendKey === CHAT_SEND_KEYS.ctrlEnter && e.ctrlKey && !e.shiftKey)
+            );
+
+            if (shouldSend) {
                 e.preventDefault();
                 if (!disabled) {
                     onSend();
                 }
             }
-            // Enterのみの場合は改行（デフォルト挙動）
+            // 選択した送信操作以外の Enter は改行（デフォルト挙動）
         }
     };
 
@@ -101,6 +121,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         value={input}
                         onChange={onInputChange}
                         onKeyDown={handleKeyDown}
+                        enterKeyHint="enter"
                         placeholder={t(CHAT_INPUT_I18N_KEYS.placeholder)}
                         className="w-full bg-transparent text-gray-100 placeholder-gray-500 outline-none resize-none py-3 min-h-[44px] max-h-[200px] font-sans"
                         rows={1}
@@ -157,6 +178,25 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                             <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         </div>
 
+                        {selectedModelProvider === 'claude' && (
+                            <div className="relative">
+                                <select
+                                    value={claudeEffort}
+                                    onChange={(e) => onSelectClaudeEffort(e.target.value as ClaudeEffort)}
+                                    title={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                    aria-label={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[104px]"
+                                >
+                                    {CLAUDE_EFFORT_VALUES.map((effort) => (
+                                        <option key={effort || 'default'} value={effort}>
+                                            {t(CLAUDE_EFFORT_I18N_KEY_BY_VALUE[effort])}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            </div>
+                        )}
+
                         {/* モデル設定モーダルを開くアイコンボタン */}
                         <button
                             onClick={onOpenModelSettings}
@@ -166,10 +206,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                             <Settings size={14} />
                         </button>
 
-                        {/* Antigravity は一時ファイル方式へ一本化済みのためトグルなし
+                        {/* Antigravity はファイル経由方式へ一本化済みのためトグルなし
                             （24_Antigravity一時ファイル一本化と暴走対策設計.md）。
-                            Gemini は stdout 主経路を残しつつ一時ファイル方式を選べる
-                            （25_Gemini一時ファイル方式導入検討設計.md）。 */}
+                            Gemini は stdout 主経路を残しつつファイル経由方式を選べる。
+                            Claude はファイル経由方式へ一本化済みのためトグルなし。 */}
                         {selectedModelProvider === 'gemini' && (
                             <label
                                 className={`flex items-center gap-2 text-xs cursor-pointer ${geminiTempFileMode ? 'text-purple-300' : 'text-gray-400'}`}
@@ -181,7 +221,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                                     onChange={(e) => onToggleGeminiTempFileMode(e.target.checked)}
                                     className="accent-purple-500"
                                 />
-                                <span>{t(CHAT_INPUT_I18N_KEYS.tempFile)}</span>
+                                <span>{t(CHAT_INPUT_I18N_KEYS.fileRelay)}</span>
                             </label>
                         )}
                     </div>

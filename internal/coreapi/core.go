@@ -84,10 +84,17 @@ type ComfyProvider interface {
 	TagJudgeKind() models.Kind
 }
 
+// ConfigGenProgressSink は config-generate ジョブの経過追記口。
+// 公開側が jobs.Queue.AppendProgress を包んで渡す（Queue 生成順の都合で
+// クロージャ注入にする。Queue 完成前に呼ばれることはない）。
+type ConfigGenProgressSink = func(jobID string, entry jobs.ProgressEntry)
+
 // Core は core 側ファクトリが公開側へ返す実装束（12番 3.2）。
 type Core interface {
 	// ChatRunner は chat / regenerate ジョブの実行本体。
 	ChatRunner() jobs.Runner
+	// ConfigGenRunner は設定ファイル自動作成（config-generate）ジョブの実行本体。
+	ConfigGenRunner(progress ConfigGenProgressSink) jobs.Runner
 	// EngineRouter は modelType で provider を振り分ける Engine（疎通確認にも使う）。
 	EngineRouter() Engine
 	// NativeSweeper はネイティブ履歴掃除の実装。

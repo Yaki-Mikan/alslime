@@ -33,6 +33,9 @@ type Config struct {
 	ExePath string
 	// Workspace は WORKSPACE_ROOT（モジュールへ --workspace で渡す）。
 	Workspace string
+	// Token は entitlement トークンの読み出し（TokenStore。nil 可）。
+	// release ビルドのモジュールは起動時にこのトークンを検証する（流出対策）。
+	Token func() string
 }
 
 // Manager はモジュールプロセスの起動・接続先解決・停止を担う。
@@ -87,6 +90,11 @@ func (m *Manager) start(ctx context.Context) error {
 		"--port", "0",
 	)
 	cmd.Env = append(os.Environ(), coreapi.ModuleSecretEnv+"="+m.secret)
+	if m.cfg.Token != nil {
+		if tok := m.cfg.Token(); tok != "" {
+			cmd.Env = append(cmd.Env, coreapi.ModuleTokenEnv+"="+tok)
+		}
+	}
 	// stdin をパイプで繋ぐ。本体が死ぬとパイプが閉じ、モジュール側は
 	// stdin EOF を検知して自主終了する（孤児プロセス防止）。
 	stdin, err := cmd.StdinPipe()

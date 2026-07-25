@@ -22,7 +22,7 @@ func TestKindOfUserOverride(t *testing.T) {
 	SetUserKinds(map[string]Kind{
 		"opus-latest":     KindClaude,
 		"my-agent":        KindAntigravity,
-		"":                KindClaude,       // ID 空は登録されない
+		"":                KindClaude,      // ID 空は登録されない
 		"broken-provider": Kind("invalid"), // 未知の Kind は登録されない
 	})
 	defer SetUserKinds(nil)
@@ -118,5 +118,31 @@ func TestBuiltInReturnsCopy(t *testing.T) {
 	got[0].ID = "mutated"
 	if available[0].ID == "mutated" {
 		t.Error("BuiltIn() の返り値変更が正本へ波及している")
+	}
+}
+
+func TestBuiltInContainsCurrentClaudeModels(t *testing.T) {
+	want := map[string]bool{
+		"claude-fable-5":             false,
+		"claude-opus-5":              false,
+		"claude-opus-4-8":            false,
+		"claude-opus-4-7":            false,
+		"claude-opus-4-6":            false,
+		"claude-opus-4-5-20251101":   false,
+		"claude-sonnet-5":            false,
+		"claude-sonnet-4-6":          false,
+		"claude-sonnet-4-5-20250929": false,
+		"claude-haiku-4-5-20251001":  false,
+	}
+
+	for _, model := range BuiltIn() {
+		if _, ok := want[model.ID]; ok {
+			want[model.ID] = true
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Errorf("Claude の内蔵モデルに %q がありません", id)
+		}
 	}
 }

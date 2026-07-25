@@ -1,4 +1,6 @@
-# 06 Importing & Exporting Settings
+# 07 Importing & Exporting Settings
+
+[Back to Contents](index.md)
 
 You can export your carefully crafted settings as a zip "settings pack" and import them again later. This is useful for backups, moving to another PC, and distributing or sharing settings.
 
@@ -6,7 +8,7 @@ How to open: Settings (gear) → "Settings pack". There are two tabs: "Export" a
 
 ## 1. Export
 
-![Settings pack export](../images/ja/06-01-settings-pack-export.png)
+![Settings pack export](../images/ja/07-01-settings-pack-export.png)
 
 1. Select the kinds of settings to export. They are listed by group (everything is selected initially).
    - **Roleplay settings**: Characters, situations, worlds, stages, and so on
@@ -20,7 +22,7 @@ How to open: Settings (gear) → "Settings pack". There are two tabs: "Export" a
 
 ## 2. Import
 
-![Settings pack import](../images/ja/06-02-settings-pack-import.png)
+![Settings pack import](../images/ja/07-02-settings-pack-import.png)
 
 1. Choose a settings pack with "Select a pack file (zip)".
 2. The contents are inspected automatically and an "Import plan" is shown. Each file is color-coded as "New", "Conflict", or "Skip".
@@ -48,4 +50,6 @@ There is also a way to import without touching the UI. Place pack zips in `rolep
 
 ---
 
-Previous: [05 Settings Reference](05-settings.md) | Next: [07 Supporter Features](07-sponsor.md)
+Previous: [06 Auto-generating Settings](06-config-generation.md) | Next: [08 Supporter Features](08-sponsor.md)
+
+[Back to Contents](index.md)
