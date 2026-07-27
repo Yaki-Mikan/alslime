@@ -18,6 +18,8 @@ param(
     # the binary as plaintext and can be extracted with a single `strings` pass.
     # Pass -NoGarble ONLY for local diagnostics; never ship a -NoGarble build.
     [switch]$NoGarble,
+    # Keep garble obfuscation but retain panic/trace metadata for comparison builds.
+    [switch]$NoTiny,
     [switch]$KeepCache,
     # Also build the ComfyUI sidecar module (alslime-core/cmd/comfymodule).
     # Deploy it as <WORKSPACE_ROOT>/modules/alslime-comfy(.exe).
@@ -128,6 +130,7 @@ $ldflagsText = $ldflags -join " "
 $outputPath = Get-OutputPath
 
 $useGarble = -not $NoGarble
+$useTiny = -not $NoTiny
 if ($useGarble -and -not (Get-Command garble -ErrorAction SilentlyContinue)) {
     # Do NOT silently fall back to a plaintext build. A release binary built
     # without garble leaks core analysis-derived literals. Fail loudly instead.
@@ -142,11 +145,16 @@ if ($Public) {
     $buildTags = "release,public"
 }
 
-Write-Host "[release] backend build: $TargetOS/$TargetArch (garble=$useGarble, public=$([bool]$Public))"
+Write-Host "[release] backend build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny, public=$([bool]$Public))"
 Push-Location $AlslimeRoot
 try {
     if ($useGarble) {
-        garble -literals -tiny -seed=random build -tags $buildTags -trimpath -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
+        $garbleArgs = @("-literals")
+        if ($useTiny) {
+            $garbleArgs += "-tiny"
+        }
+        $garbleArgs += @("-seed=random", "build")
+        & garble @garbleArgs -tags $buildTags -trimpath -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
     } else {
         go build -tags $buildTags -trimpath -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
     }
@@ -185,11 +193,16 @@ if ($BuildModule) {
         $moduleName = "$moduleName.exe"
     }
     $modulePath = Join-Path $OutputDir $moduleName
-    Write-Host "[release] module build: $TargetOS/$TargetArch (garble=$useGarble)"
+    Write-Host "[release] module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
     Push-Location $CoreRoot
     try {
         if ($useGarble) {
-            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
+            $garbleArgs = @("-literals")
+            if ($useTiny) {
+                $garbleArgs += "-tiny"
+            }
+            $garbleArgs += @("-seed=random", "build")
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
         } else {
             go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
         }
@@ -214,11 +227,16 @@ if ($BuildActionChoiceModule) {
         $acModuleName = "$acModuleName.exe"
     }
     $acModulePath = Join-Path $OutputDir $acModuleName
-    Write-Host "[release] action-choice module build: $TargetOS/$TargetArch (garble=$useGarble)"
+    Write-Host "[release] action-choice module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
     Push-Location $CoreRoot
     try {
         if ($useGarble) {
-            garble -literals -tiny -seed=random build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
+            $garbleArgs = @("-literals")
+            if ($useTiny) {
+                $garbleArgs += "-tiny"
+            }
+            $garbleArgs += @("-seed=random", "build")
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
         } else {
             go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
         }

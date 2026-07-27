@@ -113,6 +113,10 @@ const (
 	KeyConfigGenProgressToolUse      = "configgen.progress.toolUse"
 	KeyConfigGenProgressCompleted    = "configgen.progress.completed"
 	KeyConfigGenProgressClaudeStats  = "configgen.progress.claudeStats"
+
+	// Antigravity Method C テンプレートの自動復旧。
+	KeyErrorAntigravityTemplateExplicitInvalid = "error.antigravity.templateExplicitInvalid"
+	KeyErrorAntigravityTemplateUnavailable     = "error.antigravity.templateUnavailable"
 )
 
 // 成功メッセージ用 i18n キー。
