@@ -29,7 +29,7 @@ export interface Settings {
 
     // デバッグ用：セッション初回応答のみバックアップ
     enableFirstResponseBackup: boolean;
-    // デバッグ用：レスポンス受信直後のセッションファイルバックアップ（全量）
+    // デバッグ用：CLI呼び出しごとの未加工stdoutバックアップ（全量）
     enableResponseBackup: boolean;
 
     // キャラクターアイコン表示サイズ（px）

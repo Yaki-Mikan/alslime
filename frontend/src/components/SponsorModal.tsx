@@ -7,23 +7,28 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, ExternalLink, Heart, LogOut, RefreshCw, X } from 'lucide-react';
+import { Download, ExternalLink, Heart, LogOut, RefreshCw, Trash2, X } from 'lucide-react';
 import { downloadComfyUITemplate } from '../api/comfyui';
 import {
     MODULE_ACTION_CHOICE,
     MODULE_COMFY,
+    cleanModule,
+    fetchCleanPreview,
     fetchModulesStatus,
     fetchSponsorStatus,
     installModule,
     refreshSponsorToken,
     sponsorLogout,
     startSponsorLogin,
+    type CleanPreview,
     type ModuleStatusEntry,
     type SponsorStatus,
 } from '../api/sponsor';
+import { ConfirmDialog } from './ConfirmDialog';
 import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings';
 import type { EntitlementState } from '../api/system';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
+import { fetchUpdateCheck, type ModuleUpdateEntry } from '../api/update';
 
 interface Props {
     isOpen: boolean;
@@ -68,8 +73,12 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
     const [isBusy, setIsBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [modules, setModules] = useState<ModuleStatusEntry[]>([]);
+    // モジュールの更新有無（/api/update/check の modules 部。ID 引き。01番 9章）
+    const [moduleUpdates, setModuleUpdates] = useState<Record<string, ModuleUpdateEntry>>({});
     const [installingId, setInstallingId] = useState<string | null>(null);
     const [installNotice, setInstallNotice] = useState<string | null>(null);
+    // クリーン再導入の確認対象（null 以外で ConfirmDialog を表示。01番 7章）
+    const [cleanTarget, setCleanTarget] = useState<CleanPreview | null>(null);
     // 行動選択肢の機能ON/OFF（globalsettings featureToggles.actionChoice。既定 true）。
     const [actionChoiceEnabled, setActionChoiceEnabled] = useState(true);
     const [isTogglingChoice, setIsTogglingChoice] = useState(false);
@@ -95,6 +104,16 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                 setModules(await fetchModulesStatus(backendUrl));
             } catch {
                 setModules([]);
+            }
+            try {
+                const check = await fetchUpdateCheck(backendUrl);
+                const byId: Record<string, ModuleUpdateEntry> = {};
+                for (const entry of check.modules) {
+                    byId[entry.id] = entry;
+                }
+                setModuleUpdates(byId);
+            } catch {
+                setModuleUpdates({});
             }
             try {
                 const settings = await getGlobalSettings(backendUrl);
@@ -188,6 +207,59 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         } finally {
             setInstallingId(null);
         }
+    };
+
+    // クリーン再導入（01番 7章）: 削除対象のプレビューを取ってから確認モーダルを出す。
+    const handleRequestClean = async (moduleId: string) => {
+        setError(null);
+        setInstallNotice(null);
+        try {
+            setCleanTarget(await fetchCleanPreview(backendUrl, moduleId));
+        } catch (err: unknown) {
+            const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
+            setError(t(key || 'error.sponsorModuleCleanFailed', 'クリーン再導入に失敗しました。'));
+        }
+    };
+
+    const handleCleanConfirm = async () => {
+        if (!cleanTarget) return;
+        const moduleId = cleanTarget.id;
+        setCleanTarget(null);
+        setInstallingId(moduleId);
+        try {
+            await cleanModule(backendUrl, moduleId, true);
+            setInstallNotice(t(
+                'sponsor.module.clean.done',
+                'クリーン再導入が完了しました。反映には AlSlime の再起動が必要です。'
+            ));
+            void load();
+        } catch (err: unknown) {
+            const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
+            setError(t(key || 'error.sponsorModuleCleanFailed', 'クリーン再導入に失敗しました。'));
+        } finally {
+            setInstallingId(null);
+        }
+    };
+
+    // 確認モーダルの本文（削除対象を「、」区切りで埋め込む。ConfirmDialog は単一文字列のみ）。
+    const cleanConfirmMessage = (): string => {
+        if (!cleanTarget) return '';
+        const targets: string[] = [];
+        if (cleanTarget.exeInstalled) {
+            targets.push(t('sponsor.module.clean.targetExe', 'モジュール本体'));
+        }
+        if (cleanTarget.workflowTemplates.length > 0) {
+            targets.push(t('sponsor.module.clean.targetTemplates', 'サンプルワークフロー（{{names}}）')
+                .split('{{names}}').join(cleanTarget.workflowTemplates.join(', ')));
+        }
+        let message = t(
+            'sponsor.module.clean.message',
+            '配布物を削除して最新版を入れ直します。対象: {{targets}}。同名テンプレートを編集していた場合、その内容も削除されます。よろしいですか？'
+        ).split('{{targets}}').join(targets.join('、'));
+        if (!cleanTarget.receiptFound) {
+            message += ` ${t('sponsor.module.clean.noReceipt', '配置記録が無いため、テンプレートは削除されません。')}`;
+        }
+        return message;
     };
 
     // 行動選択肢の機能ON/OFF切替（featureToggles へマージ保存。再起動不要で即反映）。
@@ -341,16 +413,64 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                                 <span className="text-sm text-gray-200">{moduleLabel(entry.id)}</span>
                                 <span className="ml-auto text-xs text-gray-400">{moduleStateLabel(entry)}</span>
                             </div>
-                            {!entry.active && (
+                            {moduleUpdates[entry.id]?.hasUpdate && (
+                                <p className="text-xs text-amber-300">
+                                    {t('update.module.updateAvailable', '更新あり（{{version}}）')
+                                        .split('{{version}}').join(moduleUpdates[entry.id].latestVersion)}
+                                </p>
+                            )}
+                            {!moduleUpdates[entry.id]?.hasUpdate && moduleUpdates[entry.id]?.companionPackUpdate && (
+                                <p className="text-xs text-amber-300">
+                                    {t('update.module.companionPackUpdate', 'サンプルワークフローに更新があります')}
+                                </p>
+                            )}
+                            {moduleUpdates[entry.id]?.needsAppUpdate && (
+                                <p className="text-xs text-red-300">
+                                    {t('update.module.needsAppUpdate', '先に AlSlime 本体の更新が必要です')}
+                                </p>
+                            )}
+                            {moduleUpdates[entry.id]?.incompatible && (
+                                <p className="text-xs text-red-300">
+                                    {t('update.module.incompatible', 'このモジュールは現在の AlSlime 本体・環境に対応していません')}
+                                </p>
+                            )}
+                            {entry.active && !moduleUpdates[entry.id]?.needsAppUpdate && !moduleUpdates[entry.id]?.incompatible &&
+                                (moduleUpdates[entry.id]?.hasUpdate || moduleUpdates[entry.id]?.companionPackUpdate) && (
                                 <button
                                     onClick={() => handleInstallModule(entry.id)}
                                     disabled={installingId !== null}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-amber-700 rounded-lg text-sm text-gray-300 hover:text-amber-300 transition-colors disabled:opacity-50"
+                                >
+                                    <Download size={16} />
+                                    {installingId === entry.id
+                                        ? t('sponsor.module.downloading', 'ダウンロード中...')
+                                        : t('update.module.updateButton', '更新')}
+                                </button>
+                            )}
+                            {!entry.active && (
+                                <button
+                                    onClick={() => handleInstallModule(entry.id)}
+                                    disabled={installingId !== null
+                                        || moduleUpdates[entry.id]?.needsAppUpdate
+                                        || moduleUpdates[entry.id]?.incompatible}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-emerald-700 rounded-lg text-sm text-gray-300 hover:text-emerald-300 transition-colors disabled:opacity-50"
                                 >
                                     <Download size={16} />
                                     {installingId === entry.id
                                         ? t('sponsor.module.downloading', 'ダウンロード中...')
                                         : t('sponsor.module.download', 'モジュールをダウンロード')}
+                                </button>
+                            )}
+                            {entry.installed && (
+                                <button
+                                    onClick={() => handleRequestClean(entry.id)}
+                                    disabled={installingId !== null
+                                        || moduleUpdates[entry.id]?.needsAppUpdate
+                                        || moduleUpdates[entry.id]?.incompatible}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-red-900/30 border border-gray-600 hover:border-red-800 rounded-lg text-xs text-gray-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                                >
+                                    <Trash2 size={14} />
+                                    {t('sponsor.module.cleanButton', 'クリーン再導入')}
                                 </button>
                             )}
                             {entry.id === MODULE_ACTION_CHOICE && entry.installed && (
@@ -443,6 +563,17 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                     </div>
                 </div>
             </div>
+
+            {/* クリーン再導入の確認（削除対象を明示してから実行。01番 7章） */}
+            <ConfirmDialog
+                isOpen={cleanTarget !== null}
+                title={t('sponsor.module.clean.title', 'クリーン再導入の確認')}
+                message={cleanConfirmMessage()}
+                onYes={handleCleanConfirm}
+                onNo={() => setCleanTarget(null)}
+                onCancel={() => setCleanTarget(null)}
+                uiCatalog={uiCatalog}
+            />
         </div>
     );
 };

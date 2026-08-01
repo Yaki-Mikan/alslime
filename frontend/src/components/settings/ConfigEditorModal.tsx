@@ -22,8 +22,21 @@ import {
     saveProviderInstruction,
 } from '../../api/config-editor';
 import type { CategoryDef, ConfigFileEntry, ProviderInstruction } from '../../api/config-editor';
+import {
+    fetchApiProviders,
+    fetchApiProviderSystemPrompt,
+    saveApiProviderSystemPrompt,
+    type ApiProviderInstructionTarget,
+    type ApiProviderInstructionLocale,
+} from '../../api/api-providers';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { COMMON_TEXT_FALLBACK_JA, CONFIG_EDITOR_I18N_KEYS, CONFIG_EDITOR_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import {
+    API_PROVIDERS_I18N_KEYS,
+    API_PROVIDERS_TEXT_FALLBACK_JA,
+    COMMON_TEXT_FALLBACK_JA,
+    CONFIG_EDITOR_I18N_KEYS,
+    CONFIG_EDITOR_TEXT_FALLBACK_JA,
+} from '../../constants/i18n';
 
 // OpenFileRequest は他タブ（設定自動生成）からの「このファイルを開いて」要求。
 export interface OpenFileRequest {
@@ -43,6 +56,8 @@ interface Props {
     // 設定自動生成タブからの「生成済みファイルを開く」要求（消費したら通知して null に戻してもらう）。
     openFileRequest?: OpenFileRequest | null;
     onOpenFileRequestConsumed?: () => void;
+    openApiProviderInstruction?: ApiProviderInstructionTarget | null;
+    onOpenApiProviderInstructionConsumed?: () => void;
 }
 
 type ConfirmKind =
@@ -53,8 +68,32 @@ type ConfirmKind =
 
 // AIプロバイダ指示ファイル種別の疑似カテゴリ ID（フロント内のみ。backend カテゴリとは別系統）。
 const PROVIDER_CATEGORY_ID = '__provider__';
+const API_CONNECTION_INSTRUCTION_PREFIX = 'openai-compat-connection:';
 
-export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, headerTabs, openFileRequest = null, onOpenFileRequestConsumed }) => {
+interface EditableProviderInstruction extends ProviderInstruction {
+    connectionId?: string;
+    locale?: ApiProviderInstructionLocale;
+}
+
+const apiConnectionInstructionID = (connectionId: string, locale: ApiProviderInstructionLocale) => (
+    `${API_CONNECTION_INSTRUCTION_PREFIX}${connectionId}:${locale}`
+);
+
+const apiPresetInstructionID = (preset: string, locale: ApiProviderInstructionLocale) => (
+    `openai-compat-${preset}-${locale}`
+);
+
+export const ConfigEditorModal: React.FC<Props> = ({
+    isOpen,
+    onClose,
+    backendUrl,
+    uiCatalog = null,
+    headerTabs,
+    openFileRequest = null,
+    onOpenFileRequestConsumed,
+    openApiProviderInstruction = null,
+    onOpenApiProviderInstructionConsumed,
+}) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
@@ -65,6 +104,11 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
             return text.split(`{{${key}}}`).join(String(value));
         }, template);
     };
+    const ta = (key: string) => resolveMessage(
+        uiCatalog,
+        key,
+        API_PROVIDERS_TEXT_FALLBACK_JA[key] || key
+    );
     const [categories, setCategories] = useState<CategoryDef[]>([]);
     const [selectedCategoryId, setSelectedCategoryId] = useState('');
     const [existingFiles, setExistingFiles] = useState<ConfigFileEntry[]>([]);
@@ -85,8 +129,8 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
     const [isDeleting, setIsDeleting] = useState(false);
     const [toast, setToast] = useState('');
 
-    // AIプロバイダ指示ファイル種別（固定ファイル・編集のみ）
-    const [providerFiles, setProviderFiles] = useState<ProviderInstruction[]>([]);
+    // AIプロバイダ指示ファイル種別（固定ファイル＋API接続別ファイル。編集のみ）
+    const [providerFiles, setProviderFiles] = useState<EditableProviderInstruction[]>([]);
     const [selectedProviderId, setSelectedProviderId] = useState('');
 
     // D&D 個別インポート
@@ -98,8 +142,44 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
     // カテゴリ初期化と外部からのファイル読込が競合したとき、
     // 後から完了した古い初期化結果で本文を上書きしないための世代番号。
     const contentLoadVersion = useRef(0);
+    const consumedApiProviderInstructionRef = useRef('');
 
     const isProviderCategory = selectedCategoryId === PROVIDER_CATEGORY_ID;
+
+    const loadProviderFiles = useCallback(async () => {
+        const [fixedFiles, connections] = await Promise.all([
+            listProviderInstructions(backendUrl),
+            fetchApiProviders(backendUrl),
+        ]);
+        const connectionFiles: EditableProviderInstruction[] = connections.flatMap(connection => (
+            (['ja', 'en'] as const).flatMap(locale => {
+                // 固定3プリセットは共有の基本指示ファイルを使う。接続別ファイルを
+                // 一覧へ重複表示するのは openai / custom の空ファイルだけにする。
+                if (fixedFiles.some(file => file.id === apiPresetInstructionID(connection.preset, locale))) {
+                    return [];
+                }
+                return [{
+                id: apiConnectionInstructionID(connection.id, locale),
+                label: formatText(ta(API_PROVIDERS_I18N_KEYS.systemPromptFileLabel), {
+                    label: connection.label,
+                    locale: locale === 'ja'
+                        ? ta(API_PROVIDERS_I18N_KEYS.systemPromptJa)
+                        : ta(API_PROVIDERS_I18N_KEYS.systemPromptEn),
+                }),
+                file: '',
+                exists: true,
+                connectionId: connection.id,
+                locale,
+                }];
+            })
+        ));
+        const merged = [...fixedFiles, ...connectionFiles];
+        setProviderFiles(previous => merged.map(file => {
+            const loadedFile = previous.find(existing => existing.id === file.id)?.file;
+            return loadedFile ? { ...file, file: loadedFile } : file;
+        }));
+        return merged;
+    }, [backendUrl, uiCatalog]);
 
     const isCharacterCategory = useCallback(() => {
         return categories.find(c => c.id === selectedCategoryId)?.isCharacter ?? false;
@@ -135,14 +215,15 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
         setTitle('');
         setIsDirty(false);
 
-        // AIプロバイダ指示種別: 固定ファイル一覧のみ取得（テンプレート・既存ファイル系は使わない）。
+        // AIプロバイダ指示種別: 固定ファイルとAPI接続別ファイルを取得する。
+        // テンプレート・通常の既存ファイル系は使わない。
         if (selectedCategoryId === PROVIDER_CATEGORY_ID) {
             setExistingFiles([]);
             setTemplates([]);
             setContent('');
             setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
             setIsSimpleMode(false);
-            listProviderInstructions(backendUrl).then(setProviderFiles).catch(() => {});
+            loadProviderFiles().catch(() => {});
             return;
         }
 
@@ -157,7 +238,7 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
             setContent(initial);
             setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
         }).catch(() => {});
-    }, [selectedCategoryId, backendUrl]);
+    }, [selectedCategoryId, backendUrl, loadProviderFiles]);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -258,21 +339,69 @@ export const ConfigEditorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl
         setSelectedProviderId(id);
         if (!id) { setContent(''); setIsDirty(false); return; }
         try {
-            const c = await getProviderInstruction(backendUrl, id);
-            setContent(c);
+            const selected = providerFiles.find(file => file.id === id);
+            if (selected?.connectionId && selected.locale) {
+                const response = await fetchApiProviderSystemPrompt(backendUrl, selected.connectionId, selected.locale);
+                setProviderFiles(previous => previous.map(file => (
+                    file.id === id ? { ...file, file: response.file } : file
+                )));
+                setContent(response.content);
+            } else {
+                setContent(await getProviderInstruction(backendUrl, id));
+            }
             setIsDirty(false);
         } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.providerLoadFailed)); }
     };
+
+    // API接続先管理から指定された接続・言語の指示ファイルを直接開く。
+    useEffect(() => {
+        if (!openApiProviderInstruction) {
+            consumedApiProviderInstructionRef.current = '';
+            return;
+        }
+        if (!isOpen) return;
+        const presetKey = apiPresetInstructionID(
+            openApiProviderInstruction.preset,
+            openApiProviderInstruction.locale
+        );
+        const requestKey = providerFiles.some(file => file.id === presetKey)
+            ? presetKey
+            : apiConnectionInstructionID(
+                openApiProviderInstruction.connectionId,
+                openApiProviderInstruction.locale
+            );
+        if (consumedApiProviderInstructionRef.current === requestKey) return;
+        if (selectedCategoryId !== PROVIDER_CATEGORY_ID) {
+            setSelectedCategoryId(PROVIDER_CATEGORY_ID);
+            return;
+        }
+        if (!providerFiles.some(file => file.id === requestKey)) {
+            loadProviderFiles().catch(() => {
+                showToast(t(CONFIG_EDITOR_I18N_KEYS.providerLoadFailed));
+                onOpenApiProviderInstructionConsumed?.();
+            });
+            return;
+        }
+        consumedApiProviderInstructionRef.current = requestKey;
+        void handleSelectProvider(requestKey);
+        onOpenApiProviderInstructionConsumed?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, openApiProviderInstruction, selectedCategoryId, providerFiles]);
 
     // AIプロバイダ指示ファイル保存（上書きのみ）
     const handleSaveProvider = async () => {
         if (!selectedProviderId) return;
         setIsSaving(true);
         try {
-            await saveProviderInstruction(backendUrl, selectedProviderId, content);
+            const selected = providerFiles.find(file => file.id === selectedProviderId);
+            if (selected?.connectionId && selected.locale) {
+                await saveApiProviderSystemPrompt(backendUrl, selected.connectionId, selected.locale, content);
+            } else {
+                await saveProviderInstruction(backendUrl, selectedProviderId, content);
+            }
             setIsDirty(false);
             // exists 表示の更新（初回保存後にファイルが生まれる）。
-            listProviderInstructions(backendUrl).then(setProviderFiles).catch(() => {});
+            loadProviderFiles().catch(() => {});
             showToast(t(CONFIG_EDITOR_I18N_KEYS.saved));
         } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.saveFailed)); }
         finally { setIsSaving(false); }

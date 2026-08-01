@@ -151,6 +151,10 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 				SelectedKeys:  req.SelectedKeys,
 			},
 		})
+		if added.MaintenanceRejected {
+			apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorUpdateMaintenance))
+			return
+		}
 		if added.Duplicate {
 			_ = apiresponse.WriteJSON(w, http.StatusConflict, duplicateResponse{
 				Success:       false,

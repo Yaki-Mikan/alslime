@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
+	apiprovidersapi "alslime/internal/api/apiproviders"
 	"alslime/internal/api/apiresponse"
 	charactersapi "alslime/internal/api/characters"
 	chatapi "alslime/internal/api/chat"
@@ -26,14 +28,17 @@ import (
 	settingspackapi "alslime/internal/api/settingspack"
 	sponsorapi "alslime/internal/api/sponsor"
 	systemapi "alslime/internal/api/system"
+	updateapi "alslime/internal/api/update"
 	"alslime/internal/config"
 	"alslime/internal/coreapi"
+	apiproviderssvc "alslime/internal/domain/apiproviders"
 	calendarsvc "alslime/internal/domain/calendar"
 	characterssvc "alslime/internal/domain/characters"
 	configeditorsvc "alslime/internal/domain/configeditor"
 	datetimepresetssvc "alslime/internal/domain/datetimepresets"
 	filessvc "alslime/internal/domain/files"
 	globalsettingssvc "alslime/internal/domain/globalsettings"
+	"alslime/internal/domain/models"
 	parameterssvc "alslime/internal/domain/parameters"
 	presetssvc "alslime/internal/domain/presets"
 	pwasettingssvc "alslime/internal/domain/pwasettings"
@@ -41,11 +46,13 @@ import (
 	sessionssvc "alslime/internal/domain/sessions"
 	sponsorsvc "alslime/internal/domain/sponsor"
 	ssrpsettingssvc "alslime/internal/domain/ssrpsettings"
+	updatesvc "alslime/internal/domain/update"
 	usermodelssvc "alslime/internal/domain/usermodels"
 	i18nsvc "alslime/internal/i18n"
 	jobsqueue "alslime/internal/jobs"
 	"alslime/internal/module"
 	"alslime/internal/process"
+	apiprovidersstore "alslime/internal/storage/apiproviders"
 	calendarstore "alslime/internal/storage/calendar"
 	charfiltersstore "alslime/internal/storage/charfilters"
 	configeditorstore "alslime/internal/storage/configeditor"
@@ -59,6 +66,7 @@ import (
 	pwasettingsstore "alslime/internal/storage/pwasettings"
 	serversettingsstore "alslime/internal/storage/serversettings"
 	ssrpsettingsstore "alslime/internal/storage/ssrpsettings"
+	updatesettingsstore "alslime/internal/storage/updatesettings"
 	usermodelsstore "alslime/internal/storage/usermodels"
 	"alslime/internal/storage/workspacefs"
 	"alslime/internal/system/backup"
@@ -80,7 +88,7 @@ import (
 // 各ハンドラへ渡すために保持する。
 // 戻り値はサーバーライフサイクルに紐づくバックグラウンドタスクの起動関数
 // （Run が別 goroutine で呼び、ctx キャンセルで停止する）。
-func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.Resolver) (background func(ctx context.Context)) {
+func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.Resolver, requestRestart func(exePath string)) (background func(ctx context.Context)) {
 	// 疎通確認用の簡易 health（deprecated）。
 	// 正式な診断用 health は GET /api/system/health に統一する（交換日記 25）。
 	// この簡易版は配布前まで疎通確認の互換として残すが、フロント・診断画面は
@@ -106,9 +114,38 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	)
 	pwaSvc := pwasettingssvc.New(pwaStore).WithCalendarUpdater(calendarSvc)
 	serverSettingsSvc := serversettingssvc.New(serversettingsstore.New(resolver, locs.MustPath(locations.ServerSettingsFile)))
+	// openai_compat 接続先。カスケード先（usermodels / globalsettings）は
+	// 生成順の都合でクロージャ経由の遅延参照にする（実行時には代入済み）。
+	var userModelsSvc *usermodelssvc.Service
+	apiProvidersSvc := apiproviderssvc.New(
+		apiprovidersstore.NewMetaStore(resolver),
+		apiprovidersstore.NewSecretStore(resolver),
+		resolver,
+		newConnectionIDPart,
+		apiproviderssvc.CascadeDeps{
+			ListUserModelIDsByConnection: func(connectionID string) ([]string, error) {
+				return userModelIDsByConnection(userModelsSvc, connectionID)
+			},
+			RemoveUserModelsByConnection: func(connectionID string) ([]string, error) {
+				return removeUserModelsByConnection(userModelsSvc, connectionID)
+			},
+			DefaultOpenAICompatModel: func() (string, error) {
+				return defaultOpenAICompatModel(globalSvc)
+			},
+			ClearDefaultOpenAICompatModel: func() error {
+				return clearDefaultOpenAICompatModel(globalSvc)
+			},
+			ListUserModelConnectionIDs: func() ([]string, error) {
+				return userModelConnectionIDs(userModelsSvc)
+			},
+		},
+	)
 	// ユーザー編集のモデル一覧設定（09番）。モデル一覧 API 本体（modelsapi.Register）は
 	// 疎通確認が EngineRouter を要するため、チャット実行系の組み立て後にマウントする。
-	userModelsSvc := usermodelssvc.New(usermodelsstore.New(resolver))
+	userModelsSvc = usermodelssvc.New(usermodelsstore.New(resolver), apiProvidersSvc.ConnectionExists)
+	// 起動時整合性チェック（孤児 secret／孤児接続別指示の回収）。
+	apiProvidersSvc.StartupCheck()
+	apiprovidersapi.Register(mux, apiProvidersSvc)
 	settings.Register(mux, settings.Deps{
 		WorkspaceRoot:  resolver.Root(),
 		GlobalSettings: globalSvc,
@@ -178,7 +215,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Port:                  cfg.Port,
 		ChatCLITimeoutSeconds: cfg.ChatCLITimeoutSeconds,
 		ConfigCheck:           configcheck.New(resolver),
-		CLIStatus:             clistatus.New(workspaceAuthPaths(resolver)),
+		CLIStatus:             clistatus.New(workspaceAuthPaths(resolver), apiProvidersSvc.HasEnabledConnection),
 		Cache:                 cache.New(resolver),
 		Backup:                backup.New(resolver),
 	}
@@ -236,6 +273,12 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		EntitlementToken:      entitlementSvc.Current,
 		EntitlementClock:      entitlementClock,
 		ChatHook:              chatHook,
+		// openai_compat の解決 2 口。Target は chatflow が
+		// Request 構築直前に、Connection（キー含む）は Engine が実行直前に呼ぶ。
+		ResolveAPIRequestTarget: func(modelID string) (coreapi.APIRequestTarget, error) {
+			return resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+		},
+		ResolveAPIConnection: apiProvidersSvc.ResolveConnectionInfo,
 	})
 	// フックのゲートは core の gate 実装を注入する（ゲート先評価。設計 3.4）。
 	if choiceHook != nil {
@@ -277,10 +320,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	for _, def := range module.Definitions() {
 		target := sponsorsvc.ModuleTarget{
 			InstallPath: module.ExePath(resolver.Root(), def.ID),
+			ReceiptPath: module.ReceiptPath(resolver.Root(), def.ID),
 			Active: (def.ID == module.ModuleComfy && sidecarMode) ||
 				(def.ID == module.ModuleActionChoice && choiceHook != nil),
 		}
 		if def.CompanionPack {
+			// クリーン再導入がレシートのテンプレート名から削除先を組み立てる（01番 7章）。
+			target.WorkflowTemplateDir = filepath.Join(resolver.Root(), filepath.FromSlash(config.ComfyUITemplateDir))
 			target.InstallCompanionPack = func(zipPath string) ([]string, error) {
 				result, err := packManager.Import(zipPath, settingspacksys.ImportOptions{
 					Policy:           settingspacksys.PolicySkip,
@@ -296,6 +342,10 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		moduleTargets[def.ID] = target
 	}
 	sponsorSvc.ConfigureModules(module.IDs(), moduleTargets, core.VerifyModuleSig)
+	// アップデート確認 API（ファイル自動更新、確認 01番）: 本体は GitHub Releases、
+	// モジュールは entitlement サーバーの一括インデックスで更新有無を返す。
+	updateSvc := updatesvc.New(updatesettingsstore.New(resolver, locs.MustPath(locations.UpdateSettingsFile)))
+	updateapi.Register(mux, updateapi.Deps{Update: updateSvc, Sponsor: sponsorSvc})
 	var imageRunner jobsqueue.Runner
 	if sidecarMode {
 		imageRunner = module.ImageRunner{Manager: moduleMgr}
@@ -315,6 +365,15 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		jobsqueue.TypeConfigGen:  configGenRunner,
 	}
 	jobQueue = jobsqueue.NewQueue(procManager, jobRunner, newJobID)
+	// 本体の直接アップデート（01番 5章）: 適用開始と同時にジョブ投入を停止し
+	//（実行中ジョブがあれば開始を拒否）、入れ替え完了後の再起動は Server
+	//（requestRestart）へ依頼する（交換日記 005-2）。
+	updateSvc.ConfigureApply(updatesvc.ApplyDeps{
+		Resolver:         resolver,
+		BeginMaintenance: jobQueue.BeginMaintenance,
+		EndMaintenance:   jobQueue.EndMaintenance,
+		RequestRestart:   requestRestart,
+	})
 	jobsapi.Register(mux, jobsapi.Deps{
 		Queue:   jobQueue,
 		Process: procManager,
@@ -334,6 +393,15 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Checker:          core.EngineRouter(),
 		Timeout:          time.Duration(cfg.ChatCLITimeoutSeconds) * time.Second,
 		NewPingSessionID: newJobID,
+		// openai_compat の疎通確認は保存を伴わない最小チャット要求で
+		// 選択モデルの生成可否を確認する。Target 解決はチャット本体と同じ実体。
+		ResolveAPITarget: func(modelID string) (coreapi.APIRequestTarget, error) {
+			return resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+		},
+		APIConnectionLabel: func(connectionID string) (string, bool, error) {
+			connection, ok, err := apiProvidersSvc.Get(connectionID)
+			return connection.Label, ok, err
+		},
 	})
 	sessionapi.Register(mux, sessionapi.Deps{
 		Sessions:      sessionSvc,
@@ -395,6 +463,10 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		go settingspackapi.RunInbox(packInbox, packManager, core.Features())
 		// entitlement トークンの定期 refresh（exp 前の前倒し再取得・grace 復帰）。
 		go sponsorSvc.RunAutoRefresh(ctx)
+		// サイドカー更新の待避残骸（modules/*.old）の起動時掃除（01番 6.3）。
+		go module.CleanupStaleFiles(resolver.Root())
+		// 本体更新の入れ替え残骸（alslime.exe.old / .new）の起動時掃除（01番 5.1）。
+		go updateSvc.CleanupStagedBinaries()
 		if sidecarMode {
 			go moduleMgr.Run(ctx)
 		}
@@ -446,10 +518,11 @@ func loadAIProcessLimits(svc *globalsettingssvc.Service) (process.Limits, bool) 
 	}
 	def := process.DefaultLimits()
 	return process.Limits{
-		Global:      num("global", def.Global),
-		Gemini:      num("gemini", def.Gemini),
-		Claude:      num("claude", def.Claude),
-		Antigravity: num("antigravity", def.Antigravity),
+		Global:       num("global", def.Global),
+		Gemini:       num("gemini", def.Gemini),
+		Claude:       num("claude", def.Claude),
+		Antigravity:  num("antigravity", def.Antigravity),
+		OpenAICompat: num("openai_compat", def.OpenAICompat),
 	}, true
 }
 
@@ -515,4 +588,155 @@ func newJobID() string {
 		return "job_" + hex.EncodeToString([]byte(time.Now().Format("150405.000000")))
 	}
 	return "job_" + hex.EncodeToString(b[:])
+}
+
+// newConnectionIDPart は openai_compat 接続先 ID の識別子片を生成する
+// （newJobID と同系の暗号学的生成器。hex のため文字集合は [0-9a-f]。
+// "conn-" 前置は domain/apiproviders 側が行う）。
+func newConnectionIDPart() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return hex.EncodeToString([]byte(time.Now().Format("150405.000000")))
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// userModelIDsByConnection は接続先を参照するユーザーモデル ID を列挙する
+// （削除カスケードの dryRun 用）。
+func userModelIDsByConnection(svc *usermodelssvc.Service, connectionID string) ([]string, error) {
+	data, err := svc.Get()
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, m := range data.Added {
+		if m.ConnectionID == connectionID {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
+// removeUserModelsByConnection は該当接続先のユーザーモデル行を削除する
+// （usermodels.Update 経由で SetUserKinds 同期を維持。冪等）。
+func removeUserModelsByConnection(svc *usermodelssvc.Service, connectionID string) ([]string, error) {
+	data, err := svc.Get()
+	if err != nil {
+		return nil, err
+	}
+	removed := []string{}
+	kept := data.Added[:0:0]
+	for _, m := range data.Added {
+		if m.ConnectionID == connectionID {
+			removed = append(removed, m.ID)
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(removed) == 0 {
+		return removed, nil
+	}
+	data.Added = kept
+	if _, err := svc.Update(data); err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
+// userModelConnectionIDs はユーザーモデルが参照する全接続先 ID を返す
+// （起動時整合性チェックの宙吊り検出用）。
+func userModelConnectionIDs(svc *usermodelssvc.Service) ([]string, error) {
+	data, err := svc.Get()
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, m := range data.Added {
+		if m.ConnectionID != "" {
+			ids = append(ids, m.ConnectionID)
+		}
+	}
+	return ids, nil
+}
+
+// resolveAPIRequestTarget は openai_compat モデル ID から送信先を解決する
+// （CoreDeps.ResolveAPIRequestTarget の実体）。
+//
+// UserModel の公開側正本（usermodels）と接続先メタデータを参照し、
+// 不存在・接続先無効は *coreapi.ProviderFailure で返す（普通の error だと
+// chatflow で一律 provider_execution_error に潰れるため）。
+func resolveAPIRequestTarget(userModelsSvc *usermodelssvc.Service, apiProvidersSvc *apiproviderssvc.Service, modelID string) (coreapi.APIRequestTarget, error) {
+	unavailable := func() error {
+		return &coreapi.ProviderFailure{
+			Type:       coreapi.APIErrorConnectionUnavailable,
+			MessageKey: i18nsvc.KeyChatErrorAPIConnectionUnavailable,
+		}
+	}
+	connectionID, remoteModelID, ok := models.ParseOpenAICompatID(strings.TrimSpace(modelID))
+	if !ok {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	data, err := userModelsSvc.Get()
+	if err != nil {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	found := false
+	for _, m := range data.Added {
+		if m.ID == strings.TrimSpace(modelID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	conn, ok, err := apiProvidersSvc.Get(connectionID)
+	if err != nil || !ok || !conn.Enabled {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	// Preset は保存正本の値をカタログで再検証してから返す。破損・手編集等で
+	// 不正値が正本へ入っていた場合、固定プリセット指示を黙って省略せず、
+	// 構成不備として送信前に明示エラーで止める。
+	if _, ok := apiproviderssvc.PresetByID(conn.Preset); !ok {
+		return coreapi.APIRequestTarget{}, &coreapi.ProviderFailure{
+			Type:       coreapi.APIErrorInternalError,
+			MessageKey: i18nsvc.KeyChatErrorAPIInternalError,
+		}
+	}
+	return coreapi.APIRequestTarget{
+		ConnectionID:  connectionID,
+		RemoteModelID: remoteModelID,
+		Preset:        conn.Preset,
+	}, nil
+}
+
+// defaultOpenAICompatModel は defaultModels["openai_compat"] の現在値を返す。
+func defaultOpenAICompatModel(svc *globalsettingssvc.Service) (string, error) {
+	settings, err := svc.Get()
+	if err != nil {
+		return "", err
+	}
+	dm, ok := settings["defaultModels"].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	v, _ := dm["openai_compat"].(string)
+	return v, nil
+}
+
+// clearDefaultOpenAICompatModel は defaultModels["openai_compat"] を空にする。
+// Merge は浅いマージのため、defaultModels マップ全体を読み替えて書き戻す
+// （他 provider の既定値を消さない）。
+func clearDefaultOpenAICompatModel(svc *globalsettingssvc.Service) error {
+	settings, err := svc.Get()
+	if err != nil {
+		return err
+	}
+	dm, ok := settings["defaultModels"].(map[string]any)
+	if !ok {
+		dm = map[string]any{}
+	}
+	dm["openai_compat"] = ""
+	_, err = svc.Update(map[string]any{"defaultModels": dm})
+	return err
 }

@@ -1,14 +1,50 @@
 package sessions
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"alslime/internal/config"
 	"alslime/internal/storage/jsonstore"
 	"alslime/internal/storage/paths"
 )
+
+func TestMessage_旧セッションJSONとの後方互換(t *testing.T) {
+	t.Parallel()
+	// EffectiveContent / Usage は omitempty のため、未使用の旧形式メッセージを
+	// 読み書きしても JSON へフィールドが出現しない（既存セッション無差分）。
+	raw := `{"id":"user-1","role":"user","content":"こんにちは"}`
+	var msg Message
+	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		t.Fatalf("旧形式の読み込みに失敗: %v", err)
+	}
+	out, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("書き出しに失敗: %v", err)
+	}
+	for _, forbidden := range []string{"effectiveContent", "usage"} {
+		if strings.Contains(string(out), forbidden) {
+			t.Fatalf("旧形式の書き出しへ %s が出現: %s", forbidden, out)
+		}
+	}
+	// 保存済みの場合は往復で値が保持される。
+	msg.EffectiveContent = "sent-body"
+	msg.Usage = &Usage{InputTokens: 10, OutputTokens: 2}
+	out, err = json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("書き出しに失敗: %v", err)
+	}
+	var restored Message
+	if err := json.Unmarshal(out, &restored); err != nil {
+		t.Fatalf("再読込に失敗: %v", err)
+	}
+	if restored.EffectiveContent != "sent-body" || restored.Usage == nil || restored.Usage.InputTokens != 10 {
+		t.Fatalf("往復で値が失われた: %+v", restored)
+	}
+}
 
 func TestSaveWritesUnifiedSessionToHistoryDir(t *testing.T) {
 	t.Parallel()

@@ -69,6 +69,7 @@ type resumeResponse struct {
 	UIState     map[string]any       `json:"uiState,omitempty"`
 	IsSSRP      bool                 `json:"isSSRP"`
 	ModelType   sessiondom.ModelType `json:"modelType"`
+	LastModel   string               `json:"lastModel,omitempty"`
 	ActiveJobID string               `json:"activeJobId,omitempty"`
 }
 
@@ -170,6 +171,10 @@ func handleResume(deps Deps) http.HandlerFunc {
 			UIState:    session.UIState,
 			IsSSRP:     isSSRP,
 			ModelType:  modelType,
+			LastModel:  session.LastModel,
+		}
+		if res.LastModel == "" && session.SSRPSettings != nil {
+			res.LastModel, _ = session.SSRPSettings["lastModel"].(string)
 		}
 		if active, ok := deps.Queue.ActiveBySessionID(req.SessionID); ok {
 			res.ActiveJobID = active.JobID

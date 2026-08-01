@@ -258,13 +258,14 @@ func TestWriteFileUnique_重複時リネーム(t *testing.T) {
 func TestProviderInstructions_一覧と読み書き(t *testing.T) {
 	svc, root := newService(t)
 
-	// 定義は 3 件（antigravity / claude / gemini）。
+	// 定義は 11 件（antigravity / claude / gemini ＋ openai_compat の
+	// API共通基本指示 ja/en・固定3プリセット基本指示 ja/en）。
 	list, err := svc.ListProviderInstructions()
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 3 {
-		t.Fatalf("3 件のはず: %d", len(list))
+	if len(list) != 11 {
+		t.Fatalf("11 件のはず: %d", len(list))
 	}
 	for _, p := range list {
 		if p.Exists {

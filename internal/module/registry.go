@@ -53,3 +53,10 @@ func ExePath(workspaceRoot, moduleID string) string {
 	}
 	return filepath.Join(workspaceRoot, "modules", name)
 }
+
+// ReceiptPath はモジュール配置レシートのパスを返す
+// （<WORKSPACE_ROOT>/modules/alslime-<id>.receipt.json。ファイル自動更新、確認 01番 6.1）。
+// 配置済みバージョンの正本で、更新有無の判定とクリーン再導入の対象限定に使う。
+func ReceiptPath(workspaceRoot, moduleID string) string {
+	return filepath.Join(workspaceRoot, "modules", "alslime-"+moduleID+".receipt.json")
+}

@@ -20,7 +20,7 @@ export interface Session {
     timeAgo: string;
     id: string;
     isSSRP?: boolean;
-    modelType?: 'gemini' | 'claude' | 'antigravity';
+    modelType?: 'gemini' | 'claude' | 'antigravity' | 'openai_compat';
     // 一覧ホバー時のツールチップ表示用（characters / situations は表示名解決済み）
     presetName?: string;
     characters?: string[];
@@ -111,6 +111,8 @@ export const useSession = ({ backendUrl, onSessionChange, onHistoryLoaded, catal
                 config: res.data.config,
                 uiState: res.data.uiState || null,
                 isSSRP: res.data.isSSRP,
+                modelType: res.data.modelType || null,
+                lastModel: res.data.lastModel || null,
                 activeJobId: res.data.activeJobId || null
             };
         } catch (error) {

@@ -15,12 +15,14 @@ const KIND_LABEL: Record<string, string> = {
     gemini: 'Gemini',
     claude: 'Claude',
     antigravity: 'Antigravity',
+    openai_compat: 'API (OpenAI-compatible)',
 };
 
 const KIND_COLOR: Record<string, string> = {
     gemini: 'text-blue-400 bg-blue-900/40 border-blue-700',
     claude: 'text-orange-400 bg-orange-900/40 border-orange-700',
     antigravity: 'text-purple-400 bg-purple-900/40 border-purple-700',
+    openai_compat: 'text-emerald-400 bg-emerald-900/40 border-emerald-700',
 };
 
 function elapsed(job: Job): string {

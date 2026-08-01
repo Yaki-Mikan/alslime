@@ -69,6 +69,9 @@ type Result struct {
 	Model string
 	// SessionTime は完了直後の表示に使う応答時刻メタデータ。
 	SessionTime any
+	// ErrorType は統一セッションへ保存済みのエラー応答種別。
+	// 非空なら、ジョブが error 状態でも FinalSessionID の履歴にエラーターンが存在する。
+	ErrorType string
 	// ActionChoices は行動選択肢（支援者向け。選択肢フック無効時は nil）。
 	ActionChoices []string
 }

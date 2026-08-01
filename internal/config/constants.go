@@ -27,6 +27,9 @@ const (
 	EnvAllowedUIDs = "ALLOWED_UIDS"
 	// EnvNoBrowser は起動時のブラウザ自動起動を抑止する環境変数（値があれば抑止）。
 	EnvNoBrowser = "ALSLIME_NO_BROWSER"
+	// EnvReleaseAPIURL は本体リリース照会先の上書き（dev ビルド限定。ローカル検証用。
+	// release ビルドは見ない。ファイル自動更新、確認 01番）。
+	EnvReleaseAPIURL = "ALSLIME_RELEASE_API"
 	// EnvDisplay は X11 のディスプレイ環境変数。Linux での GUI セッション判定に使う。
 	EnvDisplay = "DISPLAY"
 	// EnvWaylandDisplay は Wayland のディスプレイ環境変数。Linux での GUI セッション判定に使う。
@@ -128,6 +131,9 @@ const (
 	// ヘッドレス環境では画面から変更できないため、WORKSPACE_ROOT 配下の設定ファイルで
 	// port / bindAddress / lanPublic を指定できるようにする。
 	ServerSettingsFile = "roleplay/global/settings/server-settings.json"
+	// UpdateSettingsFile はアップデート確認設定（自動確認・スキップ版数）の正本
+	//（ファイル自動更新、確認 01番 3章。/api/update/settings）。
+	UpdateSettingsFile = "roleplay/global/settings/update-settings.json"
 	// LegacyServerSettingsFile は移行専用の旧サーバー設定保存先。
 	LegacyServerSettingsFile = "roleplay/global/settings/app/server-settings.json"
 	// UserModelsFile はユーザー編集のモデル一覧設定（/api/models/user）。
@@ -164,6 +170,9 @@ const (
 	// AppBackupDir は配布版が作成するバックアップ保存先。
 	// restore は別フェーズ。初期実装ではここに zip を作成し、認証情報や cache は含めない。
 	AppBackupDir = "roleplay/backups"
+	// ResponseBackupDir はデバッグ設定「レスポンスバックアップ（全量）」が
+	// CLI 呼び出しごとの未加工 stdout を保存する専用ディレクトリ。
+	ResponseBackupDir = AppBackupDir + "/responses"
 	// AuthDir は WORKSPACE_ROOT 配下の認証ファイル配置場所（配置運用）。
 	// 利用者がローカルの認証ファイルをここへ置くと、OS デフォルトより優先して探索する。
 	// 秘匿情報のため cache 削除・backup・全文走査の対象から必ず除外する（安全要件§8-2）。
@@ -293,9 +302,28 @@ const (
 	// EntitlementServerURL は entitlement サーバーのベース URL（本体埋め込み）。
 	// URL 自体は秘密ではなく、トークンの正当性は Ed25519 署名検証（公開鍵埋め込み）で
 	// 担保するため、差し替えられても偽造トークンは作れない。
-	// Lightsail 配備先（2026-07-21 確定。将来独自ドメインへ移す場合はここを差し替え）。
+	// Lightsail 配備先（2026-08-01 独自ドメインへ切替。旧 Duck DNS は互換用に併存）。
 	// dev ビルドに限り環境変数 ALSLIME_ENTITLEMENT_SERVER で上書き可（ローカル検証用）。
-	EntitlementServerURL = "https://yakimikan-enti.duckdns.org"
+	EntitlementServerURL = "https://enti.alslime.com"
+)
+
+// 本体アップデート確認・直接アップデート（ファイル自動更新、確認 01番 4章・5章）。
+const (
+	// AppReleaseAPIURL は本体の最新リリース照会先（GitHub Releases API。認証不要）。
+	AppReleaseAPIURL = "https://api.github.com/repos/Yaki-Mikan/alslime/releases/latest"
+	// AppReleaseCheckTimeoutSeconds はリリース照会の HTTP タイムアウト（秒）。
+	AppReleaseCheckTimeoutSeconds = 15
+	// AppReleaseDownloadTimeoutSeconds は本体 zip ダウンロードの HTTP タイムアウト（秒）。
+	AppReleaseDownloadTimeoutSeconds = 600
+	// AppReleaseSumsAssetName はリリースアセットのハッシュ一覧ファイル名。
+	// このアセットが存在するリリースだけが直接アップデート対象（固定名 exe の
+	// 新形式 zip である印を兼ねる。01番 5.1）。
+	AppReleaseSumsAssetName = "SHA256SUMS.txt"
+	// AppFixedExeBase は配布 zip 内の実行ファイルの固定名（拡張子抜き。
+	// Windows は .exe を付ける。ショートカット導線を壊さないための固定名。01番 10章）。
+	AppFixedExeBase = "alslime"
+	// UpdateTempDir は本体更新のダウンロード一時置き場（housekeeping の掃除対象）。
+	UpdateTempDir = RuntimeTempDir + "/updates"
 )
 
 // ファイルシステムのパーミッション。
@@ -304,7 +332,68 @@ const (
 	DirPerm = 0o755
 	// FilePerm は WORKSPACE_ROOT 配下に作成するファイルのパーミッション。
 	FilePerm = 0o644
+	// SecretFilePerm は秘密情報ファイル（APIキー等）のパーミッション（所有者限定。
+	// Windows では無視されるが本番 Linux で意味を持つ）。
+	SecretFilePerm = 0o600
+	// SecretDirPerm は秘密情報ディレクトリのパーミッション（所有者限定）。
+	SecretDirPerm = 0o700
 )
+
+// openai_compat プロバイダの保存先・上限。
+const (
+	// APIProvidersFile は openai_compat 接続先メタデータの正本（通常設定領域）。
+	// 秘密値は一切含まない（キーは APIProviderSecretsFile へ分離）。
+	APIProvidersFile = "roleplay/global/settings/api-providers.json"
+	// APIProviderSecretsFile は接続先の秘密情報（APIキー等）の保存先（AuthDir 相対）。
+	// AuthDir 配下のためバックアップ・設定パック・キャッシュ削除・全文走査の
+	// 対象から自動的に除外される。
+	APIProviderSecretsFile = AuthDir + "/api-providers/secrets.json"
+	// OpenAICompatPromptsDir は API 指示ファイル群（秘密なしの通常設定）のルート。
+	OpenAICompatPromptsDir = "roleplay/global/prompts/openai-compat"
+	// OpenAICompatPresetPromptsDir は固定プリセット基本指示
+	// （openrouter / deepseek / opencode-go の3種）のルート。
+	OpenAICompatPresetPromptsDir = OpenAICompatPromptsDir + "/presets"
+	// OpenAICompatConnectionPromptsDir は接続別追加指示のルート。
+	// 配下のディレクトリ名はサーバー生成の Connection ID（Label は使わない）。
+	OpenAICompatConnectionPromptsDir = OpenAICompatPromptsDir + "/connections"
+	// OpenAICompatInstructionMaxBytes は API 指示本文（共通・プリセット・接続別）
+	// 1 ファイルのサイズ上限。上限超過は書き込み前に拒否する。
+	OpenAICompatInstructionMaxBytes = 1 << 20
+	// APIProviderTestTimeoutSeconds は接続テスト（GET models）の HTTP タイムアウト（秒）。
+	APIProviderTestTimeoutSeconds = 30
+	// APIProviderTestMaxErrorBodyBytes は接続テストのエラーボディ読み取り上限。
+	APIProviderTestMaxErrorBodyBytes = 256 << 10
+	// APIProviderTestMaxModelsBodyBytes は接続テストのモデル一覧応答（成功時
+	// GET models）の読み取り上限。エラーボディ上限とは用途が異なるため分離する。
+	APIProviderTestMaxModelsBodyBytes = 4 << 20
+	// APIProviderTestMaxDetailChars は接続テスト details（サニタイズ済み可変詳細）
+	// の表示文字数上限。
+	APIProviderTestMaxDetailChars = 500
+	// APIProviderTestMaxRedirects は接続テストの同一 origin リダイレクト最大追従回数。
+	APIProviderTestMaxRedirects = 3
+)
+
+// OpenAICompatSystemPromptFile は API 共通基本指示ファイルの論理パスを返す
+// （locale は "ja"｜"en"）。
+func OpenAICompatSystemPromptFile(locale string) string {
+	return OpenAICompatPromptsDir + "/system." + locale + ".md"
+}
+
+// OpenAICompatPresetPromptFile は固定プリセット基本指示ファイルの論理パスを返す。
+func OpenAICompatPresetPromptFile(preset, locale string) string {
+	return OpenAICompatPresetPromptsDir + "/" + preset + "/system." + locale + ".md"
+}
+
+// OpenAICompatConnectionPromptDir は接続別追加指示ディレクトリの論理パスを返す。
+// connectionID はサーバー生成済み ID のみを渡すこと（表示名は物理パスに使わない）。
+func OpenAICompatConnectionPromptDir(connectionID string) string {
+	return OpenAICompatConnectionPromptsDir + "/" + connectionID
+}
+
+// OpenAICompatConnectionPromptFile は接続別追加指示ファイルの論理パスを返す。
+func OpenAICompatConnectionPromptFile(connectionID, locale string) string {
+	return OpenAICompatConnectionPromptDir(connectionID) + "/system." + locale + ".md"
+}
 
 // AIプロバイダ指示ファイル（設定設定大設定/設定インポートエクスポート_設計.md §8）。
 //

@@ -22,6 +22,7 @@ type fakeRunner struct {
 
 type runResult struct {
 	output string
+	result Result
 	err    error
 }
 
@@ -47,7 +48,10 @@ func (f *fakeRunner) Run(ctx context.Context, job Job) (Result, error) {
 	f.started <- job.JobID
 	select {
 	case r := <-f.gate(job.JobID):
-		return Result{Output: r.output}, r.err
+		if r.result.Output == "" {
+			r.result.Output = r.output
+		}
+		return r.result, r.err
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
 	}
@@ -61,6 +65,10 @@ func (f *fakeRunner) complete(jobID, output string) {
 // fail はジョブを通常エラーで終わらせる。
 func (f *fakeRunner) fail(jobID string, err error) {
 	f.gate(jobID) <- runResult{err: err}
+}
+
+func (f *fakeRunner) failWithResult(jobID string, result Result, err error) {
+	f.gate(jobID) <- runResult{result: result, err: err}
 }
 
 // seqID は連番 ID 生成。
@@ -252,6 +260,29 @@ func TestRun_errorでerror状態(t *testing.T) {
 	waitStatus(t, q, a.JobID, StatusError)
 	if j, _ := q.Get(a.JobID); j.Err != "boom" {
 		t.Fatalf("エラーメッセージ想定外: %q", j.Err)
+	}
+}
+
+func TestRun_errorでも保存済みSession情報を保持する(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(f)
+
+	a := q.Add(Spec{Type: TypeChat, Kind: models.KindAntigravity})
+	<-f.started
+	f.failWithResult(a.JobID, Result{
+		FinalSessionID: "saved-session",
+		Output:         "temp output missing",
+		Model:          "antigravity",
+		ErrorType:      "provider_execution_error",
+	}, errors.New("temp output missing"))
+	waitStatus(t, q, a.JobID, StatusError)
+
+	j, _ := q.Get(a.JobID)
+	if j.SessionID != "saved-session" ||
+		j.Result != "temp output missing" ||
+		j.Model != "antigravity" ||
+		j.ErrorType != "provider_execution_error" {
+		t.Fatalf("保存済みerror結果がjobへ反映されていない: %#v", j)
 	}
 }
 

@@ -6,6 +6,7 @@
 package firstrun
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"os"
@@ -74,6 +75,10 @@ func workspaceDirs() []string {
 }
 
 // writeDefaults は同梱デフォルトを、書き出し先に存在しない場合のみ書き出す。
+//
+// 固定 API プリセット指示だけは、旧版が配布した「短い追加指示」と完全一致する
+// 場合に限り、Claude 相当の API 基本指示を含む全文へ安全に更新する。利用者が
+// 1 文字でも編集したファイルは従来どおり上書きしない。
 func writeDefaults(workspaceRoot string) error {
 	return fs.WalkDir(defaultsFS, defaultsRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -84,18 +89,52 @@ func writeDefaults(workspaceRoot string) error {
 		}
 		rel := strings.TrimPrefix(p, defaultsRoot+"/")
 		dest := filepath.Join(workspaceRoot, filepath.FromSlash(rel))
-		if _, statErr := os.Stat(dest); statErr == nil {
-			return nil
-		} else if !os.IsNotExist(statErr) {
-			return statErr
+		data, legacyData, err := materializeDefault(p, rel)
+		if err != nil {
+			return err
+		}
+		if existing, readErr := os.ReadFile(dest); readErr == nil {
+			if legacyData == nil || !bytes.Equal(existing, legacyData) {
+				return nil
+			}
+			return os.WriteFile(dest, data, config.FilePerm)
+		} else if !os.IsNotExist(readErr) {
+			return readErr
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), config.DirPerm); err != nil {
 			return err
 		}
-		data, err := defaultsFS.ReadFile(p)
-		if err != nil {
-			return err
-		}
 		return os.WriteFile(dest, data, config.FilePerm)
 	})
+}
+
+// materializeDefault は埋め込みデフォルトの書き出し内容を返す。
+// 固定3プリセットは、埋め込み側に保持する旧「追加指示」を API 共通基本指示の
+// 後ろへ結合し、各ファイル単体で基本指示として成立させる。
+func materializeDefault(embeddedPath, rel string) (data, legacyData []byte, err error) {
+	data, err = defaultsFS.ReadFile(embeddedPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	presetPrefix := config.OpenAICompatPresetPromptsDir + "/"
+	if !strings.HasPrefix(rel, presetPrefix) {
+		return data, nil, nil
+	}
+	locale := strings.TrimSuffix(path.Base(rel), ".md")
+	locale = strings.TrimPrefix(locale, "system.")
+	if locale != "ja" && locale != "en" {
+		return data, nil, nil
+	}
+	basePath := defaultsRoot + "/" + config.OpenAICompatSystemPromptFile(locale)
+	base, readErr := defaultsFS.ReadFile(basePath)
+	if readErr != nil {
+		return nil, nil, readErr
+	}
+	legacyData = data
+	joined := make([]byte, 0, len(base)+len(data)+2)
+	joined = append(joined, bytes.TrimSpace(base)...)
+	joined = append(joined, '\n', '\n')
+	joined = append(joined, bytes.TrimSpace(data)...)
+	joined = append(joined, '\n')
+	return joined, legacyData, nil
 }

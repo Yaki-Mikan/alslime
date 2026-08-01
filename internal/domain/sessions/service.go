@@ -32,6 +32,9 @@ const (
 	ModelGemini      ModelType = "gemini"
 	ModelClaude      ModelType = "claude"
 	ModelAntigravity ModelType = "antigravity"
+	// ModelOpenAICompat は OpenAI 互換 API 経路。
+	// ネイティブ履歴・Binding を持たないステートレス方式（Method D）。
+	ModelOpenAICompat ModelType = "openai_compat"
 )
 
 var (
@@ -51,6 +54,22 @@ type Message struct {
 	SessionTime any    `json:"sessionTime,omitempty"`
 	TurnTimes   any    `json:"turnTimes,omitempty"`
 	ErrorType   string `json:"errorType,omitempty"`
+	// EffectiveContent は openai_compat で実際に API へ送った user 本文
+	//（ターン可変部＋raw 本文）。旧セッション・CLI 経路は空。UI 表示には使わない
+	//（表示正本は Content のまま）。
+	EffectiveContent string `json:"effectiveContent,omitempty"`
+	// Usage は openai_compat の使用量正本（agent メッセージのみ）。
+	Usage *Usage `json:"usage,omitempty"`
+}
+
+// Usage は openai_compat 使用量の保存 DTO。
+// coreapi.Usage（境界 DTO）からの変換は chatflow の usageToSession だけが行う。
+type Usage struct {
+	InputTokens       int64            `json:"inputTokens"`
+	OutputTokens      int64            `json:"outputTokens"`
+	CachedInputTokens int64            `json:"cachedInputTokens,omitempty"`
+	CacheWriteTokens  int64            `json:"cacheWriteTokens,omitempty"`
+	Extra             map[string]int64 `json:"extra,omitempty"`
 }
 
 // Binding は provider ごとのネイティブ sessionId を保持する。
@@ -75,6 +94,7 @@ type UnifiedSession struct {
 	LastUpdated    string         `json:"lastUpdated"`
 	IsSSRP         bool           `json:"isSSRP"`
 	SSRPSettings   map[string]any `json:"ssrpSettings,omitempty"`
+	LastModel      string         `json:"lastModel,omitempty"`
 	UIState        map[string]any `json:"uiState,omitempty"`
 	Bindings       Bindings       `json:"bindings"`
 	ContextEntries []any          `json:"contextEntries"`
@@ -583,6 +603,8 @@ func modelTypeFromKind(kind models.Kind) ModelType {
 		return ModelClaude
 	case models.KindAntigravity:
 		return ModelAntigravity
+	case models.KindOpenAICompat:
+		return ModelOpenAICompat
 	default:
 		return ModelGemini
 	}

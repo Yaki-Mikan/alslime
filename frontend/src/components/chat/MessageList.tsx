@@ -19,7 +19,13 @@ import type { ImageAttachment } from '../../api/comfyui';
 import { FEATURE_ACTION_CHOICE, FEATURE_COMFYUI, isFeatureEnabled } from '../../constants/features';
 import { Toast, useToast } from '../common/Toast';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, MESSAGE_LIST_I18N_KEYS, MESSAGE_LIST_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import {
+    COMMON_I18N_KEYS,
+    COMMON_TEXT_FALLBACK_JA,
+    MESSAGE_LIST_I18N_KEYS,
+    MESSAGE_LIST_TEXT_FALLBACK_JA,
+} from '../../constants/i18n';
+import { resolvePersistedChatMessage } from './messageError';
 
 interface MessageListProps {
     messages: Message[];
@@ -298,8 +304,13 @@ const MessageItem = React.memo<MessageItemProps>(({
         key,
         MESSAGE_LIST_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
-    // パース結果をメモ化: contentが変わらない限り再計算しない
-    const { files, text } = React.useMemo(() => parseMessage(msg.content), [msg.content]);
+    const displayContent = React.useMemo(
+        () => resolvePersistedChatMessage(msg, uiCatalog),
+        [msg, uiCatalog]
+    );
+
+    // パース結果をメモ化: 表示本文が変わらない限り再計算しない
+    const { files, text } = React.useMemo(() => parseMessage(displayContent), [displayContent]);
 
     // agentメッセージのTURN分割と行処理（連続空行まとめ）もメモ化
     const processedTurns = React.useMemo(() => {

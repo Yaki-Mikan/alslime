@@ -149,6 +149,19 @@ func kinds() []Kind {
 			},
 			ForceOverwrite: true,
 		},
+		// openai_compat の API 指示ルート（共通基本指示・プリセット基本指示・
+		// 接続別追加指示）と接続先メタデータ。いずれも秘密を含まない通常設定。
+		// 接続別追加指示は Connection ID 基準の物理パスのため、メタデータを
+		// 同じ種別で持ち運ばないとインポート先で孤児として回収されてしまう。
+		// 秘密ストアは AuthDir 配下のため forbiddenRoots の既存除外が効く。
+		Kind{
+			ID:             "apiInstructions",
+			Label:          "API接続設定・指示ファイル（OpenAI互換）",
+			Class:          ClassConfig,
+			Roots:          []string{config.OpenAICompatPromptsDir},
+			Files:          []string{config.APIProvidersFile},
+			ForceOverwrite: true,
+		},
 		// D: 画像生成系（tier ゲート対象）。
 		Kind{
 			ID:    "comfyDirectives",

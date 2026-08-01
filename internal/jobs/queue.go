@@ -32,6 +32,7 @@ type Job struct {
 	Result        string // 実行結果本文。API 一覧には出さない。
 	Model         string
 	SessionTime   any
+	ErrorType     string
 	ActionChoices []string // 行動選択肢（支援者向け）。API 一覧には出さない。
 	Err           string   // 表示用の短いエラーメッセージ。
 	// Progress は実行中の経過エントリ（config-generate 用。他ジョブ種別は空のまま）。
@@ -49,17 +50,23 @@ type AddResult struct {
 	Duplicate     bool
 	JobID         string
 	ExistingJobID string
+	// MaintenanceRejected は本体アップデート適用中のため投入を拒否した
+	//（ファイル自動更新、確認 01番 5.1 / 交換日記 005-2。ハンドラは 409 を返す）。
+	MaintenanceRejected bool
 }
 
 // Queue はジョブのキュー・状態管理・スケジューラ。
 type Queue struct {
-	mu        sync.Mutex
-	jobs      map[string]*Job
-	proc      *process.Manager
-	runner    Runner
-	retention time.Duration
-	newID     func() string // テスト差し替え用の ID 生成。
-	now       func() time.Time
+	mu   sync.Mutex
+	jobs map[string]*Job
+	// maintenance は本体アップデート適用中の新規投入停止フラグ
+	//（BeginMaintenance / EndMaintenance。交換日記 005-2）。
+	maintenance bool
+	proc        *process.Manager
+	runner      Runner
+	retention   time.Duration
+	newID       func() string // テスト差し替え用の ID 生成。
+	now         func() time.Time
 }
 
 // NewQueue は Queue を生成する。proc は 2 軸セマフォ、runner は実行本体。
@@ -80,6 +87,10 @@ func NewQueue(proc *process.Manager, runner Runner, newID func() string) *Queue 
 // （sessionID が空のジョブは重複判定しない）。投入後スケジューラを起動する。
 func (q *Queue) Add(spec Spec) AddResult {
 	q.mu.Lock()
+	if q.maintenance {
+		q.mu.Unlock()
+		return AddResult{MaintenanceRejected: true}
+	}
 	if spec.DedupeKey != "" {
 		if existing := q.activeByDedupeKeyLocked(spec.DedupeKey); existing != nil {
 			id := existing.JobID
@@ -116,6 +127,31 @@ func (q *Queue) Add(spec Spec) AddResult {
 
 	q.schedule()
 	return AddResult{JobID: id}
+}
+
+// BeginMaintenance は本体アップデート適用のための新規投入停止を開始する。
+//
+// pending / processing のジョブがあれば停止せず false を返す。「既存ジョブ無しの
+// 確認」と「新規投入の拒否開始」を同一ロック内で行うことで、確認直後にジョブが
+// 滑り込む競合窓を無くす（交換日記 005-2）。
+func (q *Queue) BeginMaintenance() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, job := range q.jobs {
+		if !job.Status.IsTerminal() {
+			return false
+		}
+	}
+	q.maintenance = true
+	return true
+}
+
+// EndMaintenance は新規投入停止を解除する（アップデート適用の失敗時に呼ぶ。
+// 成功時はプロセスが再起動するため解除不要）。
+func (q *Queue) EndMaintenance() {
+	q.mu.Lock()
+	q.maintenance = false
+	q.mu.Unlock()
 }
 
 // Get は jobID のジョブのスナップショット（コピー）を返す。Phase 9 の status handler 用。
@@ -335,17 +371,10 @@ func (q *Queue) run(started *startedJob) {
 			case err != nil:
 				job.Status = StatusError
 				job.Err = err.Error()
+				applyRunnerResult(job, result)
 			default:
 				job.Status = StatusCompleted
-				job.Result = result.Output
-				if result.Model != "" {
-					job.Model = result.Model
-				}
-				job.SessionTime = result.SessionTime
-				job.ActionChoices = result.ActionChoices
-				if result.FinalSessionID != "" {
-					job.SessionID = result.FinalSessionID
-				}
+				applyRunnerResult(job, result)
 			}
 		}
 		job.cancel = nil
@@ -356,6 +385,19 @@ func (q *Queue) run(started *startedJob) {
 		job.UpdatedAt = q.now().UnixMilli()
 		q.mu.Unlock()
 	}()
+}
+
+func applyRunnerResult(job *Job, result Result) {
+	job.Result = result.Output
+	if result.Model != "" {
+		job.Model = result.Model
+	}
+	job.SessionTime = result.SessionTime
+	job.ErrorType = result.ErrorType
+	job.ActionChoices = result.ActionChoices
+	if result.FinalSessionID != "" {
+		job.SessionID = result.FinalSessionID
+	}
 }
 
 // activeBySessionLocked は sessionID の pending/processing ジョブを返す（ロック前提）。

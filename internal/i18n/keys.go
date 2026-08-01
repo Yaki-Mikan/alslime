@@ -147,4 +147,80 @@ const (
 	KeyErrorSponsorModuleRejected      = "error.sponsorModuleRejected"
 	KeyErrorSponsorModuleUnavailable   = "error.sponsorModuleUnavailable"
 	KeyErrorSponsorModuleInstallFailed = "error.sponsorModuleInstallFailed"
+	KeyErrorSponsorModuleCleanFailed   = "error.sponsorModuleCleanFailed"
+	// モジュール操作の排他・互換検証（交換日記 005-3・005-5）。
+	KeyErrorSponsorModuleBusy          = "error.sponsorModuleBusy"
+	KeyErrorSponsorModuleNeedsNewerApp = "error.sponsorModuleNeedsNewerApp"
+	KeyErrorSponsorModuleIncompatible  = "error.sponsorModuleIncompatible"
+
+	// 本体の直接アップデート（ファイル自動更新、確認 01番 5章・8章）。
+	KeyErrorUpdateApplyFailed      = "error.updateApplyFailed"
+	KeyErrorUpdateApplyUnavailable = "error.updateApplyUnavailable"
+	KeyErrorUpdateApplyInProgress  = "error.updateApplyInProgress"
+	KeyErrorUpdateJobsRunning      = "error.updateJobsRunning"
+	// アップデート適用中の新規ジョブ投入拒否（交換日記 005-2）。
+	KeyErrorUpdateMaintenance = "error.updateMaintenance"
+)
+
+// openai_compat プロバイダ。
+const (
+	// チャット保存エラー（キーを保存し MessageList が解決する固定文言）。
+	KeyChatErrorAPIConnectionUnavailable = "chat.error.apiConnectionUnavailable"
+	KeyChatErrorAPIKeyMissing            = "chat.error.apiKeyMissing"
+	KeyChatErrorAPIAuthError             = "chat.error.apiAuthError"
+	KeyChatErrorAPIRequestError          = "chat.error.apiRequestError"
+	KeyChatErrorAPIRateLimited           = "chat.error.apiRateLimited"
+	KeyChatErrorAPIServerError           = "chat.error.apiServerError"
+	KeyChatErrorAPINetworkError          = "chat.error.apiNetworkError"
+	KeyChatErrorAPIStreamInterrupted     = "chat.error.apiStreamInterrupted"
+	KeyChatErrorAPIIdleTimeout           = "chat.error.apiIdleTimeout"
+	KeyChatErrorAPIContentFiltered       = "chat.error.apiContentFiltered"
+	KeyChatErrorAPIInvalidResponse       = "chat.error.apiInvalidResponse"
+	KeyChatErrorAPIInternalError         = "chat.error.apiInternalError"
+	KeyChatErrorAPINoUsableModel         = "chat.error.apiNoUsableModel"
+
+	// CLI 状態表示（clistatus）。
+	KeyCLIOpenAICompatLabel         = "cli.openaiCompat.label"
+	KeyCLIOpenAICompatReady         = "cli.openaiCompat.ready"
+	KeyCLIOpenAICompatNotConfigured = "cli.openaiCompat.notConfigured"
+
+	// 接続先管理 API のエラー（handler が messageKey で返す）。
+	KeyAPIProvidersErrorLoadFailed              = "apiProviders.error.loadFailed"
+	KeyAPIProvidersErrorSaveFailed              = "apiProviders.error.saveFailed"
+	KeyAPIProvidersErrorDeleteFailed            = "apiProviders.error.deleteFailed"
+	KeyAPIProvidersErrorNotFound                = "apiProviders.error.notFound"
+	KeyAPIProvidersErrorInvalidBaseURL          = "apiProviders.error.invalidBaseUrl"
+	KeyAPIProvidersErrorHTTPNotAllowed          = "apiProviders.error.httpNotAllowed"
+	KeyAPIProvidersErrorInvalidAuthScheme       = "apiProviders.error.invalidAuthScheme"
+	KeyAPIProvidersErrorInvalidPreset           = "apiProviders.error.invalidPreset"
+	KeyAPIProvidersErrorExtraParamsInvalidJSON  = "apiProviders.error.extraParamsInvalidJson"
+	KeyAPIProvidersErrorExtraParamsReservedKey  = "apiProviders.error.extraParamsReservedKey"
+	KeyAPIProvidersErrorExtraParamsSecretKey    = "apiProviders.error.extraParamsSecretKey"
+	KeyAPIProvidersErrorExtraParamsDuplicate    = "apiProviders.error.extraParamsDuplicateKey"
+	KeyAPIProvidersErrorExtraParamsEmptyKey     = "apiProviders.error.extraParamsEmptyKey"
+	KeyAPIProvidersErrorKeyConflict             = "apiProviders.error.keyConflict"
+	KeyAPIProvidersErrorDryRunFailed            = "apiProviders.error.dryRunFailed"
+	KeyAPIProvidersErrorCascadeStepFailed       = "apiProviders.error.cascadeStepFailed"
+	KeyAPIProvidersErrorSystemPromptLoad        = "apiProviders.error.systemPromptLoadFailed"
+	KeyAPIProvidersErrorSystemPromptSave        = "apiProviders.error.systemPromptSaveFailed"
+	KeyAPIProvidersErrorSystemPromptTooLarge    = "apiProviders.error.systemPromptTooLarge"
+	KeyAPIProvidersErrorSystemPromptInvalidUTF8 = "apiProviders.error.systemPromptInvalidUtf8"
+
+	// 接続テストの失敗文言（レスポンスの messageKey）。
+	KeyAPIProvidersTestFailedAuth        = "apiProviders.testFailedAuth"
+	KeyAPIProvidersTestFailedNetwork     = "apiProviders.testFailedNetwork"
+	KeyAPIProvidersTestFailedOther       = "apiProviders.testFailedOther"
+	KeyAPIProvidersTestSaveFailed        = "apiProviders.testSaveFailed"
+	KeyAPIProvidersTestKeyRequired       = "apiProviders.testKeyRequired"
+	KeyAPIProvidersTestModelsUnavailable = "apiProviders.testModelsUnavailable"
+
+	// UserModel 検証エラー。
+	KeyUserModelsErrorConnectionRequired  = "userModels.error.connectionRequired"
+	KeyUserModelsErrorRemoteModelRequired = "userModels.error.remoteModelRequired"
+	KeyUserModelsErrorRemoteModelInvalid  = "userModels.error.remoteModelInvalid"
+	KeyUserModelsErrorConnectionNotFound  = "userModels.error.connectionNotFound"
+
+	// プロンプト文言（API 経路専用。PromptLocale＝ja/en）。
+	KeyPromptParametersAPIInstruction   = "prompt.parameters.apiInstruction"
+	KeyPromptWritingStyleAPIInstruction = "prompt.writingStyle.apiInstruction"
 )

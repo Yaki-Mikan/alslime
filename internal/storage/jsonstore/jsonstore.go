@@ -78,8 +78,37 @@ func WriteJSONIndent(path string, v any, indent string) error {
 	return writeAtomic(path, filepath.Dir(path), data)
 }
 
+// WriteJSONMode は v を既定インデントで整形し、パーミッション mode を確定させた
+// 一時ファイル経由で path へアトミックに書き込む。
+//
+// 秘密情報ファイル用。rename 前に一時ファイルへ Chmod する
+// ことで、mode が緩いままの実体が path に現れる窓を作らない
+// （「rename 後に Chmod」方式は窓と Chmod 失敗時の不整合があるため不採用）。
+func WriteJSONMode(path string, v any, mode os.FileMode) error {
+	data, err := json.MarshalIndent(v, "", defaultIndent)
+	if err != nil {
+		return fmt.Errorf("JSON の整形に失敗 (%s): %w", path, err)
+	}
+	return writeAtomicMode(path, filepath.Dir(path), data, &mode)
+}
+
 // writeAtomic は同一ディレクトリの一時ファイルへ書いてから path へ rename する。
 func writeAtomic(path, dir string, data []byte) error {
+	return writeAtomicMode(path, dir, data, nil)
+}
+
+// WriteRawAtomic は生バイト列を path へアトミックに書き込む。
+//
+// JSON 以外のテキストファイル（openai_compat の指示 md 等）にも
+// 原子書き込みを共通化するための公開口。親作成・境界確認は呼び出し側の責務
+// （パッケージ doc 参照）。
+func WriteRawAtomic(path string, data []byte) error {
+	return writeAtomic(path, filepath.Dir(path), data)
+}
+
+// writeAtomicMode は writeAtomic の実体。mode 非 nil なら rename 前に
+// 一時ファイルへ Chmod してパーミッションを確定させる。
+func writeAtomicMode(path, dir string, data []byte, mode *os.FileMode) error {
 	tmp, err := os.CreateTemp(dir, ".tmp-*.json")
 	if err != nil {
 		return fmt.Errorf("一時ファイル作成に失敗 (%s): %w", dir, err)
@@ -89,6 +118,14 @@ func writeAtomic(path, dir string, data []byte) error {
 	// 失敗時に一時ファイルを残さないよう後始末する。
 	// 成功時は rename 済みで Remove は no-op（既に存在しない）。
 	defer func() { _ = os.Remove(tmpName) }()
+
+	// 秘密ファイル用: rename で path に現れる前にパーミッションを確定する。
+	if mode != nil {
+		if err := tmp.Chmod(*mode); err != nil {
+			_ = tmp.Close()
+			return fmt.Errorf("一時ファイルのパーミッション設定に失敗 (%s): %w", tmpName, err)
+		}
+	}
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()

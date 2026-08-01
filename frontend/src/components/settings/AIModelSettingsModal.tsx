@@ -14,7 +14,7 @@ import { CollapsibleSection } from './CollapsibleSection';
 import { ModelListEditorModal } from './ModelListEditorModal';
 import { listSSRPAllPresets } from '../../api/datetime-presets';
 import { getGlobalSettings, updateGlobalSettings } from '../../api/global-settings';
-import { modelProviderOf, type Model, type ModelProvider } from '../../hooks/useChat';
+import { modelDisplayLabel, modelProviderOf, type Model, type ModelProvider } from '../../hooks/useChat';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { BACKEND_URL } from '../../api/base-url';
@@ -46,7 +46,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
 
     // プロバイダ別デフォルトモデル設定
     const [availableModels, setAvailableModels] = useState<Model[]>([]);
-    const [defaultModels, setDefaultModels] = useState<Record<ModelProvider, string>>({ gemini: '', claude: '', antigravity: '' });
+    const [defaultModels, setDefaultModels] = useState<Record<ModelProvider, string>>({ gemini: '', claude: '', antigravity: '', openai_compat: '' });
     const [defaultModelsDirty, setDefaultModelsDirty] = useState(false);
 
     // モデル一覧編集モーダルの開閉状態
@@ -80,6 +80,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
                     gemini: savedDefaultModels.gemini || '',
                     claude: savedDefaultModels.claude || '',
                     antigravity: savedDefaultModels.antigravity || '',
+                    openai_compat: savedDefaultModels.openai_compat || '',
                 });
                 setDefaultProvider(globalSettings.defaultProvider || '');
             } catch (err) {
@@ -190,6 +191,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
                                         <option value="antigravity">Antigravity</option>
                                         <option value="claude">Claude</option>
                                         <option value="gemini">Gemini</option>
+                                        <option value="openai_compat">{t('chatInput.providerOpenAICompat')}</option>
                                     </select>
                                     <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                                 </div>
@@ -206,6 +208,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
                                         ['gemini', t(SETTINGS_I18N_KEYS.defaultModelsGeminiLabel)],
                                         ['claude', t(SETTINGS_I18N_KEYS.defaultModelsClaudeLabel)],
                                         ['antigravity', t(SETTINGS_I18N_KEYS.defaultModelsAntigravityLabel)],
+                                        ['openai_compat', t('settings.defaultModelsOpenAICompatLabel')],
                                     ] as [ModelProvider, string][]).map(([provider, label]) => (
                                         <div key={provider} className="flex items-center gap-2">
                                             <span className="w-24 shrink-0 text-sm text-gray-300 px-1">{label}</span>
@@ -222,7 +225,7 @@ export const AIModelSettingsModal: React.FC<AIModelSettingsModalProps> = ({
                                                     {availableModels
                                                         .filter(m => m.id !== '' && modelProviderOf(m) === provider)
                                                         .map(m => (
-                                                            <option key={m.id} value={m.id}>{m.description || m.id}</option>
+                                                            <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
                                                         ))}
                                                 </select>
                                                 <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />

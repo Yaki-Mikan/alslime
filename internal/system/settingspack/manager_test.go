@@ -314,6 +314,65 @@ func TestImport_tier外のD分類はスキップ(t *testing.T) {
 	}
 }
 
+func TestExportImport_API接続設定の往復(t *testing.T) {
+	// 実際に見つかった不備の経路: 接続別追加指示は Connection ID 基準の物理パスの
+	// ため、接続先メタデータを同じ種別で運ばないとインポート先で孤児回収される。
+	// export→import の往復で、メタと指示が一緒に運ばれ秘密ストアは含まれない
+	// ことを固定する。
+	src, srcRoot := newTestManager(t)
+	metaBody := `{"connections":[{"id":"conn-abc","preset":"openrouter","label":"メイン","baseUrl":"https://openrouter.ai/api/v1","authScheme":"bearer","enabled":true}]}`
+	writeWorkspaceFile(t, srcRoot, config.APIProvidersFile, metaBody)
+	writeWorkspaceFile(t, srcRoot, config.APIProviderSecretsFile, `{"secrets":{"conn-abc":{"apiKey":"sk-SECRET"}}}`)
+	writeWorkspaceFile(t, srcRoot, config.OpenAICompatSystemPromptFile("ja"), "共通指示")
+	writeWorkspaceFile(t, srcRoot, config.OpenAICompatConnectionPromptFile("conn-abc", "ja"), "接続固有指示")
+
+	var buf bytes.Buffer
+	if _, err := src.Export(&buf, ExportSelection{KindIDs: []string{"apiInstructions"}, Name: "API往復"}, false); err != nil {
+		t.Fatalf("Export 失敗: %v", err)
+	}
+
+	// zip にメタ・指示が含まれ、秘密ストアが含まれないこと。
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("zip 読み戻し失敗: %v", err)
+	}
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+	for _, want := range []string{
+		config.APIProvidersFile,
+		config.OpenAICompatSystemPromptFile("ja"),
+		config.OpenAICompatConnectionPromptFile("conn-abc", "ja"),
+	} {
+		if !names[want] {
+			t.Fatalf("%s がパックへ含まれるべき: %v", want, names)
+		}
+	}
+	if names[config.APIProviderSecretsFile] {
+		t.Fatalf("秘密ストアがパックへ混入: %v", names)
+	}
+
+	// 取り込み先: メタと指示が一緒に書き込まれ、秘密ストアは作られない。
+	dst, dstRoot := newTestManager(t)
+	packPath := filepath.Join(t.TempDir(), "api-pack.zip")
+	if err := os.WriteFile(packPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("パック書き出し失敗: %v", err)
+	}
+	if _, err := dst.Import(packPath, ImportOptions{Policy: PolicySkip}); err != nil {
+		t.Fatalf("Import 失敗: %v", err)
+	}
+	if got := readWorkspaceFile(t, dstRoot, config.APIProvidersFile); got != metaBody {
+		t.Fatalf("接続先メタデータが一緒に運ばれるべき: %q", got)
+	}
+	if got := readWorkspaceFile(t, dstRoot, config.OpenAICompatConnectionPromptFile("conn-abc", "ja")); got != "接続固有指示" {
+		t.Fatalf("接続別追加指示が運ばれるべき: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dstRoot, filepath.FromSlash(config.APIProviderSecretsFile))); err == nil {
+		t.Fatalf("秘密ストアが取り込み先へ作られてはならない")
+	}
+}
+
 func TestExport_選択種別と除外(t *testing.T) {
 	m, root := newTestManager(t)
 	writeWorkspaceFile(t, root, "roleplay/global/situations/カフェ.md", "内容")

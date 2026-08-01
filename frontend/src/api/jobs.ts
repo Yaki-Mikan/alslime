@@ -7,7 +7,7 @@ import axios from '../lib/axios';
 export interface Job {
     jobId: string;
     type: 'chat' | 'regenerate' | 'tag-judge' | 'image-generate';
-    kind: 'gemini' | 'claude' | 'antigravity';
+    kind: 'gemini' | 'claude' | 'antigravity' | 'openai_compat';
     label: string;
     sessionId?: string | null;
     status: 'pending' | 'processing' | 'completed' | 'error' | 'canceled';
@@ -22,11 +22,12 @@ export interface ProcessLimits {
     gemini: number;
     claude: number;
     antigravity: number;
+    openai_compat: number;
 }
 
 export interface JobsResponse {
     jobs: Job[];
-    inUse: { global: number; gemini: number; claude: number; antigravity: number };
+    inUse: { global: number; gemini: number; claude: number; antigravity: number; openai_compat: number };
     limits: ProcessLimits;
 }
 

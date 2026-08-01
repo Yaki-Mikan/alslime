@@ -80,8 +80,71 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 		result, err := svc.InstallModule(r.Context(), req.Module)
 		if err != nil {
 			switch {
+			case errors.Is(err, sponsorsvc.ErrModuleBusy):
+				apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorSponsorModuleBusy))
+			case errors.Is(err, sponsorsvc.ErrModuleNeedsNewerApp):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleNeedsNewerApp))
+			case errors.Is(err, sponsorsvc.ErrModuleIncompatible):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleIncompatible))
 			case errors.Is(err, sponsorsvc.ErrModuleUnknown):
 				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
+			case errors.Is(err, sponsorsvc.ErrModuleNoToken):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
+			case errors.Is(err, sponsorsvc.ErrModuleRejected):
+				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorModuleRejected))
+			case errors.Is(err, sponsorsvc.ErrModuleUnavailable):
+				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
+			default:
+				apierror.Write(w, apierror.WrapKey(http.StatusBadGateway, i18n.KeyErrorSponsorModuleInstallFailed, err))
+			}
+			return
+		}
+		writeJSON(w, moduleInstallResponse{
+			Success:                        true,
+			Version:                        result.Version,
+			RestartRequired:                true,
+			CompanionPackConfigured:        result.CompanionPackConfigured,
+			CompanionPackInstalled:         result.CompanionPackInstalled,
+			CompanionPackWorkflowTemplates: result.CompanionPackWorkflowTemplates,
+			Modules:                        svc.ModulesStatus(),
+		})
+	})
+
+	// クリーン再導入（ファイル自動更新、確認 01番 7章）。
+	// preview は確認モーダルの削除対象表示用（削除は行わない）。
+	mux.HandleFunc("GET "+config.APIPrefix+"/sponsor/module/clean-preview", func(w http.ResponseWriter, r *http.Request) {
+		preview, err := svc.CleanPreviewFor(r.URL.Query().Get("module"))
+		if err != nil {
+			apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
+			return
+		}
+		writeJSON(w, preview)
+	})
+
+	mux.HandleFunc("POST "+config.APIPrefix+"/sponsor/module/clean", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Module    string `json:"module"`
+			Reinstall bool   `json:"reinstall"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Module == "" {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		result, err := svc.CleanModule(r.Context(), req.Module, req.Reinstall)
+		if err != nil {
+			switch {
+			case errors.Is(err, sponsorsvc.ErrModuleBusy):
+				apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorSponsorModuleBusy))
+			case errors.Is(err, sponsorsvc.ErrModuleNeedsNewerApp):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleNeedsNewerApp))
+			case errors.Is(err, sponsorsvc.ErrModuleIncompatible):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleIncompatible))
+			case errors.Is(err, sponsorsvc.ErrModuleUnknown):
+				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
+			case errors.Is(err, sponsorsvc.ErrModuleCleanFailed):
+				apierror.Write(w, apierror.WrapKey(http.StatusInternalServerError, i18n.KeyErrorSponsorModuleCleanFailed, err))
+			// 削除後の再導入で失敗した場合は install 系のエラーへマップする
+			// （トークン切れ・サーバー到達不能等。削除自体は完了している）。
 			case errors.Is(err, sponsorsvc.ErrModuleNoToken):
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
 			case errors.Is(err, sponsorsvc.ErrModuleRejected):

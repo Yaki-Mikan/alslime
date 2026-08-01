@@ -15,6 +15,7 @@ import (
 	"alslime/internal/auth"
 	"alslime/internal/config"
 	calendarsvc "alslime/internal/domain/calendar"
+	updatesvc "alslime/internal/domain/update"
 	"alslime/internal/frontend"
 	"alslime/internal/logging"
 	calendarstore "alslime/internal/storage/calendar"
@@ -32,13 +33,17 @@ type Server struct {
 	// background はルーティング構築時に登録されたバックグラウンドタスクの起動口
 	// （ジョブキューの定期掃除等）。Run で起動し、ctx キャンセルで停止する。
 	background func(ctx context.Context)
+	// restartCh は本体アップデート適用後の再起動要求（値は起動する新 exe のパス。
+	// listen を閉じてから新プロセスを起動するため、Run の select で受ける。01番 5.1）。
+	restartCh chan string
 }
 
 // New は config から Server を組み立てる。
 func New(cfg *config.Config) (*Server, error) {
 	s := &Server{
-		cfg:      cfg,
-		resolver: paths.NewResolver(cfg.WorkspaceRoot),
+		cfg:       cfg,
+		resolver:  paths.NewResolver(cfg.WorkspaceRoot),
+		restartCh: make(chan string, 1),
 	}
 
 	handler, err := s.buildHandler()
@@ -76,7 +81,7 @@ func (s *Server) buildHandler() (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// API ルートの登録口。各 API パッケージはここへ集約してマウントする。
-	s.background = registerAPIRoutes(mux, s.cfg, s.resolver)
+	s.background = registerAPIRoutes(mux, s.cfg, s.resolver, s.requestRestart)
 
 	// フロント同梱（/api 以外のフォールバック）。
 	frontHandler, err := frontend.Handler()
@@ -135,7 +140,29 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return s.http.Shutdown(shutdownCtx)
+	case exePath := <-s.restartCh:
+		// 本体アップデートの再起動: listen を閉じてポートを解放してから
+		// 新 exe を起動する（ポート衝突の回避。01番 5.1）。
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := s.http.Shutdown(shutdownCtx)
+		if spawnErr := updatesvc.SpawnDetached(exePath, s.cfg.WorkspaceRoot); spawnErr != nil {
+			logging.Error("update: restart spawn failed: %v", spawnErr)
+			if err == nil {
+				err = spawnErr
+			}
+		}
+		return err
 	case err := <-errCh:
 		return err
+	}
+}
+
+// requestRestart は更新適用後の再起動要求を受け付ける（domain/update から注入経由で
+// 呼ばれる。二重要求は無視する）。
+func (s *Server) requestRestart(exePath string) {
+	select {
+	case s.restartCh <- exePath:
+	default:
 	}
 }

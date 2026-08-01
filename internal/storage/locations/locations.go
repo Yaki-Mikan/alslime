@@ -41,6 +41,8 @@ const (
 	PWASettingsFile
 	// ServerSettingsFile は起動前サーバー設定の単一ファイル（/api/settings/server）。
 	ServerSettingsFile
+	// UpdateSettingsFile はアップデート確認設定の単一ファイル（/api/update/settings）。
+	UpdateSettingsFile
 	// UserModelsFile はユーザー編集のモデル一覧設定（/api/models/user）。
 	UserModelsFile
 	// GlobalSettingsFile はグローバル設定（デフォルト設定.json）。
@@ -82,6 +84,7 @@ var physicalPaths = map[Location]string{
 
 	PWASettingsFile:    config.PWASettingsFile,
 	ServerSettingsFile: config.ServerSettingsFile,
+	UpdateSettingsFile: config.UpdateSettingsFile,
 	UserModelsFile:     config.UserModelsFile,
 
 	GlobalSettingsFile:    config.GlobalSettingsFile,

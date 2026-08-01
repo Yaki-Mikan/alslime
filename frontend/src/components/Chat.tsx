@@ -16,15 +16,18 @@ import { StatusDrawer } from './StatusDrawer';
 import { CharacterStatusPanel } from './CharacterStatusPanel';
 import { SessionTimePanel } from './SessionTimePanel';
 import { SettingsModal } from './SettingsModal';
+import { UpdateModal } from './UpdateModal';
 import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
 import { DEFAULT_SETTINGS } from '../types/Settings';
 import type { Settings as SettingsType } from '../types/Settings';
 import { JobProgressModal } from './JobProgressModal';
 import { ConfigEditorHub } from './settings/ConfigEditorHub';
+import type { ApiProviderInstructionTarget } from '../api/api-providers';
 import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
 import { MessageList } from './chat/MessageList';
 
 import { MessageInput } from './chat/MessageInput';
+import { modelTypeForNewSession, resolveRestoredModelSelection } from './chat/sessionModelRestore';
 import { HamburgerMenu } from './SSRP/HamburgerMenu';
 import { RolePlaySettings } from './SSRP/RolePlaySettings';
 import type { RolePlaySettingsHandlers } from './SSRP/RolePlaySettings';
@@ -44,6 +47,7 @@ import {
 } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
 import { fetchSystemHealth } from '../api/system';
+import { fetchUpdateCheck, saveUpdateSettings, type AppUpdateInfo } from '../api/update';
 
 // Hooks
 import { useChat } from '../hooks/useChat';
@@ -104,6 +108,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
 
     const [isRolePlaySettingsOpen, setIsRolePlaySettingsOpen] = useState(false);
     const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
+    const [openApiProviderInstruction, setOpenApiProviderInstruction] = useState<ApiProviderInstructionTarget | null>(null);
 
     // 設定 State
     const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
@@ -145,6 +150,9 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
     // UI表示用 i18n 辞書 State
     const [uiCatalog, setUiCatalog] = useState<I18NCatalog | null>(null);
+    // 本体アップデート告知（起動時チェックで新バージョン検知時に表示。01番 9章）
+    const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
+    const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
@@ -211,6 +219,28 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         return () => {
             disposed = true;
             if (timerId !== null) window.clearTimeout(timerId);
+        };
+    }, []);
+
+    // 本体アップデートの起動時チェック（起動時1回のみ。失敗は静かに無視する。01番 4章）。
+    // スキップ済みバージョン・自動確認OFFはバックエンドの応答値で判定する。
+    useEffect(() => {
+        let disposed = false;
+        (async () => {
+            try {
+                const check = await fetchUpdateCheck(BACKEND_URL);
+                if (disposed) return;
+                if (check.autoCheck && check.app.enabled && check.app.hasUpdate
+                    && !check.app.skipped && !check.app.postponedToday) {
+                    setAppUpdateInfo(check.app);
+                    setIsUpdateModalOpen(true);
+                }
+            } catch {
+                // 起動時チェックの失敗は無通知（手動確認時のみ文言表示する）
+            }
+        })();
+        return () => {
+            disposed = true;
         };
     }, []);
 
@@ -358,6 +388,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         setGeminiTempFileMode,
         claudeEffort,
         selectClaudeEffort,
+        antigravityStreamGuardLimit,
+        selectAntigravityStreamGuardLimit,
         actionChoices,
         selectedChoice,
         setSelectedChoice,
@@ -436,11 +468,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         setIsSSRPDirty(false);
         setApplyConfirmOpen(false);
 
-        const modelType = selectedModel?.startsWith('claude-')
-            ? 'claude'
-            : selectedModel?.startsWith('antigravity')
-                ? 'antigravity'
-                : 'gemini';
+        // modelType は選択中プロバイダ（サーバーの provider フィールド正）から取る。
+        // モデルID文字列の startsWith 推測は廃止（openai_compat が gemini に落ちて
+        // 履歴復元時に provider/モデルが既定値へ戻る不具合の経路）。
+        const modelType = modelTypeForNewSession(selectedModelProvider);
         await sessionHandleNewSession(ssrpSettings, modelType);
         setMessages([]); // メッセージクリア
     };
@@ -477,17 +508,23 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 // （閉じたままだとRolePlaySettings側のinit()が走らず、送信時にUIの古い設定が使われるため）
                 rolePlaySettingsRef.current?.applySettings(cloneSSRPConfig(activeConfig));
 
-                // 最後に使用したモデルを復元
-                if (activeConfig.lastModel) {
-                    console.log('[Chat] Restoring last used model:', activeConfig.lastModel);
-                    setSelectedModel(activeConfig.lastModel);
-                }
             }
 
             if (!activeConfig) {
                 setCurrentSessionConfig(null);
                 setSessionHistoryConfig(null);
                 setIsConversationPresetChanged(false);
+            }
+
+            // モデルとproviderは必ず同時に復元する。片方だけを更新すると
+            // useChatの整合effectが復元モデルを直前providerの既定値で上書きする。
+            const restoredSelection = resolveRestoredModelSelection(result);
+            if (restoredSelection.provider) {
+                setSelectedModelProvider(restoredSelection.provider);
+            }
+            if (restoredSelection.model) {
+                console.log('[Chat] Restoring last used model:', restoredSelection.model);
+                setSelectedModel(restoredSelection.model);
             }
 
             // 未完了ジョブがあれば直接ポーリングを再開
@@ -857,6 +894,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
                 imageGenEnabled={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)}
+                openApiProviderInstruction={openApiProviderInstruction}
+                onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
             />
 
             {/* 設定モーダル */}
@@ -869,6 +908,31 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 uiCatalog={uiCatalog}
                 enabledFeatures={enabledFeatures}
                 onModelsChanged={refreshModels}
+                onOpenApiProviderInstruction={target => {
+                    setOpenApiProviderInstruction(target);
+                    setIsConfigEditorOpen(true);
+                }}
+            />
+
+            {/* 本体アップデート告知モーダル（起動時チェックで新バージョン検知時のみ） */}
+            <UpdateModal
+                isOpen={isUpdateModalOpen}
+                app={appUpdateInfo}
+                uiCatalog={uiCatalog}
+                backendUrl={BACKEND_URL}
+                onLater={() => {
+                    // 「後で」は当日中の再表示を抑止する（保存失敗しても閉じる。
+                    // 翌日以降は再表示されるだけで実害なし）
+                    saveUpdateSettings(BACKEND_URL, { postponeToday: true }).catch(() => {});
+                    setIsUpdateModalOpen(false);
+                }}
+                onSkip={() => {
+                    if (appUpdateInfo) {
+                        // 保存失敗しても閉じる（次回起動時に再表示されるだけで実害なし）
+                        saveUpdateSettings(BACKEND_URL, { skippedVersion: appUpdateInfo.latest }).catch(() => {});
+                    }
+                    setIsUpdateModalOpen(false);
+                }}
             />
 
             {/* AIモデル設定モーダル（チャット欄のモデル選択右のアイコンボタンから直接開く） */}
@@ -1363,6 +1427,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onOpenModelSettings={() => setIsModelSettingsOpen(true)}
                             claudeEffort={claudeEffort}
                             onSelectClaudeEffort={selectClaudeEffort}
+                            antigravityStreamGuardLimit={antigravityStreamGuardLimit}
+                            onSelectAntigravityStreamGuardLimit={selectAntigravityStreamGuardLimit}
                             geminiTempFileMode={geminiTempFileMode}
                             onToggleGeminiTempFileMode={setGeminiTempFileMode}
                             showBackgroundThrough={useChatAreaBackground && !!chatBackgroundUrl}

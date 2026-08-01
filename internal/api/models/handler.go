@@ -26,11 +26,17 @@ import (
 	"alslime/internal/domain/models"
 	"alslime/internal/domain/sessions"
 	usermodelssvc "alslime/internal/domain/usermodels"
+	"alslime/internal/i18n"
 	usermodelsstore "alslime/internal/storage/usermodels"
 )
 
 // pingPrompt は疎通確認で送る短文。応答が返ることだけを確認する。
 const pingPrompt = `接続確認です。「OK」とだけ返答してください。 / Connectivity check: reply with just "OK".`
+
+// pingSystemPrompt は openai_compat 疎通確認用の最小 system メッセージ。
+// 通常チャットのプロバイダ基本指示等（設定ファイル読み込み）は使わず、保存を伴わない
+// 最小のチャット要求で選択モデルの生成可否だけを確認する。
+const pingSystemPrompt = `You are performing a connectivity check. Reply briefly. / 接続確認です。簡潔に応答してください。`
 
 // pingOutputLimit は疎通確認レスポンスへ載せる応答本文の上限（ルーン数）。
 const pingOutputLimit = 200
@@ -46,6 +52,13 @@ type Deps struct {
 	// NewPingSessionID は Antigravity 疎通確認用の新規セッション ID を生成する。
 	// Antigravity CLI は --conversation の ID 指定が必須のため（他 provider は空で新規会話）。
 	NewPingSessionID func() string
+	// ResolveAPITarget は openai_compat モデル ID から送信先を解決する
+	//（CoreDeps.ResolveAPIRequestTarget と同じ実体。Engine の messages 契約を
+	// 満たした最小チャット要求を組むために使う。失敗は *coreapi.ProviderFailure）。
+	ResolveAPITarget func(modelID string) (chatflow.APIRequestTarget, error)
+	// APIConnectionLabel は接続IDから現在の利用者向け表示名を解決する。
+	// モデルIDは送信用の内部値のまま保ち、画面表示だけを階層化するために使う。
+	APIConnectionLabel func(connectionID string) (label string, ok bool, err error)
 }
 
 // Register は models 系ルートを mux へ登録する。
@@ -72,6 +85,19 @@ func handleModels(deps Deps) http.HandlerFunc {
 		if err != nil {
 			apierror.Write(w, apierror.Internal(err))
 			return
+		}
+		for i := range merged {
+			if merged[i].ConnectionID == "" || deps.APIConnectionLabel == nil {
+				continue
+			}
+			label, ok, err := deps.APIConnectionLabel(merged[i].ConnectionID)
+			if err != nil {
+				apierror.Write(w, apierror.Internal(err))
+				return
+			}
+			if ok {
+				merged[i].ConnectionLabel = label
+			}
 		}
 		writeJSON(w, modelsResponse{Models: merged})
 	}
@@ -177,22 +203,48 @@ func handlePing(deps Deps, pingMu *sync.Mutex) http.HandlerFunc {
 		defer pingMu.Unlock()
 
 		model := strings.TrimSpace(req.Model)
+		ctx, cancel := context.WithTimeout(r.Context(), deps.Timeout)
+		defer cancel()
+
 		sessionID := ""
 		if models.KindOf(model) == models.KindAntigravity {
 			sessionID = deps.NewPingSessionID()
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), deps.Timeout)
-		defer cancel()
 
-		started := time.Now()
-		res, err := deps.Checker.Chat(ctx, chatflow.Request{
+		engineReq := chatflow.Request{
 			Payload:      chatjobs.Payload{Model: model, Message: pingPrompt},
 			Session:      sessions.UnifiedSession{SessionID: sessionID},
 			UserMessage:  pingPrompt,
 			Prompt:       pingPrompt,
 			ModelType:    sessions.ModelTypeFromModelID(model),
 			IsNewSession: true,
-		})
+		}
+		// openai_compat は保存を伴わない最小チャット要求で、選択した RemoteModelID
+		// そのものの生成可否を確認する（GET models の一覧取得成功では生成可否も、
+		// 一覧非対応接続の手入力モデルも確認できないため）。Engine の messages
+		// 契約（Messages 非空・Prompt 空・APITarget 非 nil）を満たして直接呼ぶ。
+		if models.KindOf(model) == models.KindOpenAICompat {
+			if deps.ResolveAPITarget == nil {
+				writeJSON(w, pingResponse{Success: false, Error: i18n.KeyChatErrorAPIInternalError, ElapsedMs: 0})
+				return
+			}
+			target, err := deps.ResolveAPITarget(model)
+			if err != nil {
+				// Target 解決失敗（接続不存在・無効等）は ProviderFailure の
+				// MessageKey をそのまま表示キーとして返す。
+				writeJSON(w, pingResponse{Success: false, Error: err.Error(), ElapsedMs: 0})
+				return
+			}
+			engineReq.Messages = []chatflow.ChatMessage{
+				{Role: "system", Content: pingSystemPrompt},
+				{Role: "user", Content: pingPrompt},
+			}
+			engineReq.APITarget = &target
+			engineReq.Prompt = ""
+		}
+
+		started := time.Now()
+		res, err := deps.Checker.Chat(ctx, engineReq)
 		elapsed := time.Since(started).Milliseconds()
 
 		switch {

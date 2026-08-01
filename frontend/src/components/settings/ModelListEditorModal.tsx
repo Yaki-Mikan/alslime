@@ -15,7 +15,7 @@ import { X, ListPlus, Trash2, RotateCcw, Radio, Loader2 } from 'lucide-react';
 import { fetchUserModels, saveUserModels, pingModel, type UserModel } from '../../api/user-models';
 import { BACKEND_URL } from '../../api/base-url';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { API_PROVIDERS_TEXT_FALLBACK_JA, COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { getModelProvider, modelProviderOf, type Model, type ModelProvider } from '../../hooks/useChat';
 
 interface Props {
@@ -26,10 +26,12 @@ interface Props {
     onSaved?: () => void;
 }
 
-const PROVIDER_SECTIONS: { provider: ModelProvider; label: string; color: string }[] = [
+const PROVIDER_SECTIONS: { provider: ModelProvider; label: string; color: string; hintKey?: string }[] = [
     { provider: 'gemini', label: 'Gemini', color: 'text-blue-400' },
     { provider: 'claude', label: 'Claude', color: 'text-orange-400' },
     { provider: 'antigravity', label: 'Antigravity', color: 'text-purple-400' },
+    // openai_compat のモデル追加は接続先管理の接続テスト（ピッカー）から行う。
+    { provider: 'openai_compat', label: 'API (OpenAI-compatible)', color: 'text-emerald-400', hintKey: 'modelListEditor.openaiCompatHint' },
 ];
 
 type PingState = { status: 'running' } | { status: 'success' | 'failure'; message: string };
@@ -38,7 +40,7 @@ export const ModelListEditorModal: React.FC<Props> = ({ isOpen, onClose, uiCatal
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
-        SETTINGS_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
+        SETTINGS_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || API_PROVIDERS_TEXT_FALLBACK_JA[key] || key
     );
     const formatText = (template: string, values: Record<string, string | number>) => {
         return Object.entries(values).reduce((text, [key, value]) => {
@@ -241,12 +243,15 @@ export const ModelListEditorModal: React.FC<Props> = ({ isOpen, onClose, uiCatal
                     )}
 
                     {/* プロバイダ毎の現在リスト */}
-                    {PROVIDER_SECTIONS.map(({ provider, label, color }) => {
+                    {PROVIDER_SECTIONS.map(({ provider, label, color, hintKey }) => {
                         const builtinRows = builtin.filter(m => m.id !== '' && modelProviderOf(m) === provider);
                         const addedRows = added.filter(m => modelProviderOf(m) === provider);
                         return (
                             <div key={provider}>
                                 <h4 className={`text-xs font-medium uppercase tracking-wide mb-2 ${color}`}>{label}</h4>
+                                {hintKey && (
+                                    <p className="text-xs text-gray-500 mb-2">{t(hintKey)}</p>
+                                )}
                                 <div className="space-y-1">
                                     {builtinRows.map(m => {
                                         const isHidden = hidden.includes(m.id);

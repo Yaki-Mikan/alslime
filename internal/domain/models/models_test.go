@@ -10,11 +10,37 @@ func TestKindOf(t *testing.T) {
 		"claude-sonnet-4-5":                   KindClaude,
 		"antigravity":                         KindAntigravity,
 		"antigravity:Gemini 3.5 Flash (High)": KindAntigravity,
+		// openai_compat の prefix 判定は Gemini フォールバックより前に効く。
+		"openai_compat:conn-abc/deepseek/deepseek-chat": KindOpenAICompat,
 	}
 	for id, want := range cases {
 		if got := KindOf(id); got != want {
 			t.Errorf("KindOf(%q) = %q, want %q", id, got, want)
 		}
+	}
+}
+
+func TestParseOpenAICompatID(t *testing.T) {
+	// remoteModelId に "/" を含む OpenRouter 形式でも、区切りは最初の 1 個だけ。
+	conn, remote, ok := ParseOpenAICompatID("openai_compat:conn-abc123/deepseek/deepseek-chat-v3")
+	if !ok || conn != "conn-abc123" || remote != "deepseek/deepseek-chat-v3" {
+		t.Fatalf("parse = (%q, %q, %v)", conn, remote, ok)
+	}
+	// Build との往復一致。
+	if rebuilt := BuildOpenAICompatID(conn, remote); rebuilt != "openai_compat:conn-abc123/deepseek/deepseek-chat-v3" {
+		t.Fatalf("往復不一致: %q", rebuilt)
+	}
+	for name, id := range map[string]string{
+		"prefix無し":       "conn-abc/model",
+		"区切り無し":          "openai_compat:conn-abc",
+		"connectionId空":  "openai_compat:/model",
+		"remoteModelId空": "openai_compat:conn-abc/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, ok := ParseOpenAICompatID(id); ok {
+				t.Fatalf("不正形式 %q が受理された", id)
+			}
+		})
 	}
 }
 
