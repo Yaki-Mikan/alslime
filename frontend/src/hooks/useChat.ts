@@ -13,6 +13,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from '../lib/axios';
 import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings';
 import { normalizeClaudeEffort, type ClaudeEffort } from '../constants/claude';
+import {
+    DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT,
+    normalizeAntigravityStreamGuardLimit,
+} from '../constants/antigravity';
 import type { Settings as SettingsType } from '../types/Settings';
 import { CHAT_VIEW_I18N_KEYS, CHAT_VIEW_LOCALIZED_TEXT, CHAT_VIEW_TEXT_FALLBACK_JA } from '../constants/i18n';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
@@ -23,6 +27,7 @@ export interface Message {
     role: 'user' | 'agent';
     content: string;
     model?: string;
+    errorType?: string;
     sessionTime?: { year: number; month: number; day: number; hour: number; minute: number; second?: number };
     /** TURN単位の絶対時刻（content内の[TURN]出現順。各TURNバブルの時刻表示に使用） */
     turnTimes?: { year: number; month: number; day: number; hour: number; minute: number; second?: number }[];
@@ -34,19 +39,39 @@ export interface Model {
     description: string;
     /** 経路種別（サーバのマージ結果が確定値を持つ。旧レスポンス互換のため任意） */
     provider?: ModelProvider;
+    /** openai_compatの利用者表示用メタデータ。送信にはidを使う。 */
+    connectionId?: string;
+    connectionLabel?: string;
+    remoteModelId?: string;
 }
 
-export type ModelProvider = 'antigravity' | 'claude' | 'gemini';
+export type ModelProvider = 'antigravity' | 'claude' | 'gemini' | 'openai_compat';
 
+/**
+ * ID プレフィックスによる予備判定。判定の正本はサーバの provider フィールド
+ * （modelProviderOf が優先する）。新規の判定分岐をここへ足さず、サーバ正本に
+ * 寄せること。
+ */
 export const getModelProvider = (modelId: string): ModelProvider => {
     if (modelId.startsWith('antigravity')) return 'antigravity';
     if (modelId.startsWith('claude-')) return 'claude';
+    if (modelId.startsWith('openai_compat:')) return 'openai_compat';
     return 'gemini';
 };
 
 /** モデルの実効プロバイダ。サーバ確定値（ユーザーの明示指定を反映済み）を優先し、無ければ ID 推定。 */
 export const modelProviderOf = (model: { id: string; provider?: ModelProvider }): ModelProvider => {
     return model.provider || getModelProvider(model.id);
+};
+
+/** 内部IDを露出せず、API接続は「接続表示名 ＞ Remote Model ID」で表示する。 */
+export const modelDisplayLabel = (model: Model): string => {
+    if (modelProviderOf(model) === 'openai_compat') {
+        const connection = model.connectionLabel || model.connectionId;
+        const remoteModel = model.remoteModelId || model.description || model.name;
+        if (connection && remoteModel) return `${connection} ＞ ${remoteModel}`;
+    }
+    return model.description || model.name || model.id;
 };
 
 // モデルリストの正本はサーバの AVAILABLE_MODELS (/api/models)。
@@ -119,6 +144,8 @@ interface ChatSubmitPayload {
     antigravityTempFileMode: boolean;
     geminiTempFileMode: boolean;
     claudeEffort: ClaudeEffort;
+    antigravityMaxStreamCalls: number;
+    enableResponseBackup: boolean;
 }
 
 interface LastSubmitAttempt {
@@ -133,7 +160,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     //（言語切替後も過去のエラーメッセージを判定できるように）。
     const isLocalErrorMessage = (message: Message): boolean => (
         message.role === 'agent' &&
-        (message.content.startsWith(uiText(CHAT_VIEW_I18N_KEYS.errorPrefix)) ||
+        (!!message.errorType ||
+            message.content.startsWith(uiText(CHAT_VIEW_I18N_KEYS.errorPrefix)) ||
             message.content.startsWith(LOCAL_ERROR_PREFIX_JA))
     );
     const [messages, setMessages] = useState<Message[]>([]);
@@ -157,6 +185,9 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     const [antigravityTempFileMode, setAntigravityTempFileMode] = useState(false);
     const [geminiTempFileMode, setGeminiTempFileMode] = useState(false);
     const [claudeEffort, setClaudeEffort] = useState<ClaudeEffort>('');
+    const [antigravityStreamGuardLimit, setAntigravityStreamGuardLimit] = useState(
+        DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT
+    );
 
     // ファイル添付
     const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
@@ -207,8 +238,11 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             const dm = (settings.defaultModels || {}) as Record<string, string>;
             setDefaultModels(dm);
             setClaudeEffort(normalizeClaudeEffort(settings.claudeChatEffort));
+            setAntigravityStreamGuardLimit(
+                normalizeAntigravityStreamGuardLimit(settings.antigravityStreamGuardLimit)
+            );
             const dp = settings.defaultProvider as ModelProvider | undefined;
-            if (dp === 'gemini' || dp === 'claude' || dp === 'antigravity') {
+            if (dp === 'gemini' || dp === 'claude' || dp === 'antigravity' || dp === 'openai_compat') {
                 setSelectedModelProvider(dp);
                 if (dm[dp]) {
                     setSelectedModel(dm[dp]);
@@ -228,6 +262,12 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         void updateGlobalSettings(backendUrl, { claudeChatEffort: normalized });
     }, [backendUrl]);
 
+    const selectAntigravityStreamGuardLimit = useCallback((limit: number) => {
+        const normalized = normalizeAntigravityStreamGuardLimit(limit);
+        setAntigravityStreamGuardLimit(normalized);
+        void updateGlobalSettings(backendUrl, { antigravityStreamGuardLimit: normalized });
+    }, [backendUrl]);
+
     useEffect(() => {
         if (models.length === 0) return;
         const current = models.find(m => m.id === selectedModel);
@@ -244,6 +284,19 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             setSelectedModel(nextModel.id);
         }
     }, [models, selectedModel, selectedModelProvider, defaultModels]);
+
+    // provider選択と実モデル選択を同じイベント内で同期する。
+    // effectだけに任せると、切替直後の送信が切替前モデルをpayloadへ載せる競合が起きる。
+    const selectModelProvider = useCallback((provider: ModelProvider) => {
+        setSelectedModelProvider(provider);
+        const preferredId = defaultModels[provider];
+        const nextModel =
+            (preferredId && models.find(m => m.id === preferredId && modelProviderOf(m) === provider)) ||
+            models.find(m => modelProviderOf(m) === provider);
+        if (nextModel) {
+            setSelectedModel(nextModel.id);
+        }
+    }, [models, defaultModels]);
 
     useEffect(() => {
         if (selectedModelProvider !== 'antigravity' && antigravityTempFileMode) {
@@ -323,7 +376,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
 
             try {
                 const res = await axios.get(`${backendUrl}/api/chat/status/${jobId}`);
-                const { status, result, error, sessionId: finalSessionId } = res.data;
+                const { status, result, error, errorType, sessionId: finalSessionId } = res.data;
 
                 if (status === 'completed') {
                     const usedModelId = res.data.model || selectedModel;
@@ -340,7 +393,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                                 const newMessages = [...prev];
                                 for (let i = newMessages.length - 1; i >= 0; i--) {
                                     if (newMessages[i].role === 'agent') {
-                                        newMessages[i] = { role: 'agent', content: result, model: usedModel, sessionTime };
+                                        newMessages[i] = { role: 'agent', content: result, model: usedModel, sessionTime, errorType };
                                         break;
                                     }
                                 }
@@ -349,7 +402,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                         }
                     } else if (shouldUpdateVisibleHistory) {
                         // 新規追加（通常チャット用）
-                        setMessages(prev => [...prev, { role: 'agent', content: result, model: usedModel, sessionTime }]);
+                        setMessages(prev => [...prev, { role: 'agent', content: result, model: usedModel, sessionTime, errorType }]);
                     }
 
                     // セッション情報更新
@@ -374,11 +427,35 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                     return; // ポーリング終了
                 } else if (status === 'error') {
                     console.error('[Frontend] Job failed:', error);
-                    if (isTargetVisible()) {
+                    const persistedError = !!errorType && !!finalSessionId;
+                    if (isTargetVisible(finalSessionId)) {
                         // error は messageKey（i18nキー）または生文字列。
                         // catalog にキーがあれば表示言語へ解決し、無ければ元の文字列をそのまま出す。
                         const localizedError = resolveMessage(catalog ?? null, error, error);
-                        setMessages(prev => [...prev, { role: 'agent', content: `${uiText(CHAT_VIEW_I18N_KEYS.errorPrefix)} ${localizedError}` }]);
+                        if (persistedError) {
+                            if (mode === 'replace-last-agent') {
+                                // 再生成失敗は正本側で末尾エラーを一件へ整理済み。
+                                // ローカル追加を行わず、正本を即時反映して二重表示を防ぐ。
+                                await loadHistory(finalSessionId);
+                            } else {
+                                setMessages(prev => [...prev, {
+                                    role: 'agent',
+                                    content: localizedError,
+                                    model: res.data.model || selectedModel,
+                                    errorType,
+                                }]);
+                            }
+                        } else {
+                            setMessages(prev => [...prev, { role: 'agent', content: `${uiText(CHAT_VIEW_I18N_KEYS.errorPrefix)} ${localizedError}` }]);
+                        }
+                    }
+                    if (persistedError && finalSessionId) {
+                        if (!targetSessionId && onSessionCreated) {
+                            onSessionCreated(finalSessionId);
+                        }
+                        if (mode !== 'replace-last-agent') {
+                            setTimeout(() => loadHistory(finalSessionId), 1500);
+                        }
                     }
                     setIsLoading(false);
                     return; // ポーリング終了
@@ -468,6 +545,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 antigravityTempFileMode,
                 geminiTempFileMode,
                 claudeEffort,
+                antigravityMaxStreamCalls: antigravityStreamGuardLimit,
+                enableResponseBackup: settings.enableResponseBackup,
             };
             lastSubmitAttemptRef.current = { payload: submitPayload, displayMessage: displayMsg };
 
@@ -551,6 +630,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 antigravityTempFileMode,
                 geminiTempFileMode,
                 claudeEffort,
+                antigravityMaxStreamCalls: antigravityStreamGuardLimit,
+                enableResponseBackup: settings.enableResponseBackup,
             });
 
             const { jobId } = res.data;
@@ -614,13 +695,15 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         selectedModel,
         setSelectedModel,
         selectedModelProvider,
-        setSelectedModelProvider,
+        setSelectedModelProvider: selectModelProvider,
         antigravityTempFileMode,
         setAntigravityTempFileMode,
         geminiTempFileMode,
         setGeminiTempFileMode,
         claudeEffort,
         selectClaudeEffort,
+        antigravityStreamGuardLimit,
+        selectAntigravityStreamGuardLimit,
         attachedFiles,
         setAttachedFiles,
         actionChoices,

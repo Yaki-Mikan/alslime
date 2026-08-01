@@ -14,6 +14,7 @@ import (
 	"alslime/internal/config"
 	"alslime/internal/domain/chatjobs"
 	"alslime/internal/domain/models"
+	"alslime/internal/i18n"
 	jobsvc "alslime/internal/jobs"
 )
 
@@ -31,25 +32,29 @@ func Register(mux *http.ServeMux, deps Deps) {
 }
 
 type submitRequest struct {
-	Message                 string   `json:"message"`
-	SessionID               string   `json:"sessionId"`
-	Model                   string   `json:"model"`
-	Temperature             *float64 `json:"temperature,omitempty"`
-	DirectiveMode           string   `json:"directiveMode"`
-	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
-	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
-	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
-	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
+	Message                   string   `json:"message"`
+	SessionID                 string   `json:"sessionId"`
+	Model                     string   `json:"model"`
+	Temperature               *float64 `json:"temperature,omitempty"`
+	DirectiveMode             string   `json:"directiveMode"`
+	SSRPSettings              any      `json:"ssrpSettings,omitempty"`
+	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
+	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
+	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
 
 type regenerateRequest struct {
-	SessionID               string   `json:"sessionId"`
-	Model                   string   `json:"model"`
-	Temperature             *float64 `json:"temperature,omitempty"`
-	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
-	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
-	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
-	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
+	SessionID                 string   `json:"sessionId"`
+	Model                     string   `json:"model"`
+	Temperature               *float64 `json:"temperature,omitempty"`
+	SSRPSettings              any      `json:"ssrpSettings,omitempty"`
+	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
+	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
+	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
 
 type submitResponse struct {
@@ -71,6 +76,7 @@ type statusResponse struct {
 	Model           string   `json:"model,omitempty"`
 	Result          string   `json:"result,omitempty"`
 	SessionTime     any      `json:"sessionTime,omitempty"`
+	ErrorType       string   `json:"errorType,omitempty"`
 	Error           string   `json:"error,omitempty"`
 	Message         string   `json:"message,omitempty"`
 	ImageAttachment any      `json:"imageAttachment,omitempty"`
@@ -90,15 +96,17 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 		}
 
 		payload := chatjobs.Payload{
-			Message:                 req.Message,
-			SessionID:               req.SessionID,
-			Model:                   req.Model,
-			Temperature:             req.Temperature,
-			DirectiveMode:           req.DirectiveMode,
-			SSRPSettings:            req.SSRPSettings,
-			AntigravityTempFileMode: req.AntigravityTempFileMode,
-			GeminiTempFileMode:      req.GeminiTempFileMode,
-			ClaudeEffort:            req.ClaudeEffort,
+			Message:                   req.Message,
+			SessionID:                 req.SessionID,
+			Model:                     req.Model,
+			Temperature:               req.Temperature,
+			DirectiveMode:             req.DirectiveMode,
+			SSRPSettings:              req.SSRPSettings,
+			AntigravityTempFileMode:   req.AntigravityTempFileMode,
+			GeminiTempFileMode:        req.GeminiTempFileMode,
+			ClaudeEffort:              req.ClaudeEffort,
+			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
+			EnableResponseBackup:      req.EnableResponseBackup,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{
 			Type:      jobsvc.TypeChat,
@@ -108,6 +116,10 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 			Model:     req.Model,
 			Payload:   payload,
 		})
+		if added.MaintenanceRejected {
+			apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorUpdateMaintenance))
+			return
+		}
 		if added.Duplicate {
 			writeDuplicate(w, added.ExistingJobID)
 			return
@@ -129,13 +141,15 @@ func handleRegenerate(deps Deps) http.HandlerFunc {
 		}
 
 		payload := chatjobs.Payload{
-			SessionID:               req.SessionID,
-			Model:                   req.Model,
-			Temperature:             req.Temperature,
-			SSRPSettings:            req.SSRPSettings,
-			AntigravityTempFileMode: req.AntigravityTempFileMode,
-			GeminiTempFileMode:      req.GeminiTempFileMode,
-			ClaudeEffort:            req.ClaudeEffort,
+			SessionID:                 req.SessionID,
+			Model:                     req.Model,
+			Temperature:               req.Temperature,
+			SSRPSettings:              req.SSRPSettings,
+			AntigravityTempFileMode:   req.AntigravityTempFileMode,
+			GeminiTempFileMode:        req.GeminiTempFileMode,
+			ClaudeEffort:              req.ClaudeEffort,
+			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
+			EnableResponseBackup:      req.EnableResponseBackup,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{
 			Type:      jobsvc.TypeRegenerate,
@@ -145,6 +159,10 @@ func handleRegenerate(deps Deps) http.HandlerFunc {
 			Model:     req.Model,
 			Payload:   payload,
 		})
+		if added.MaintenanceRejected {
+			apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorUpdateMaintenance))
+			return
+		}
 		if added.Duplicate {
 			writeDuplicate(w, added.ExistingJobID)
 			return
@@ -170,6 +188,7 @@ func handleStatus(deps Deps) http.HandlerFunc {
 		switch job.Status {
 		case jobsvc.StatusCompleted:
 			res.SessionID = job.SessionID
+			res.ErrorType = job.ErrorType
 			if job.Type == jobsvc.TypeImageGen {
 				res.ImageAttachment = imageAttachmentFromResult(job.Result)
 			} else {
@@ -179,6 +198,10 @@ func handleStatus(deps Deps) http.HandlerFunc {
 			}
 		case jobsvc.StatusError:
 			res.Error = job.Err
+			if job.ErrorType != "" {
+				res.SessionID = job.SessionID
+				res.ErrorType = job.ErrorType
+			}
 		case jobsvc.StatusCanceled:
 			res.Error = job.Err
 		case jobsvc.StatusProcessing:

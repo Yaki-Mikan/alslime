@@ -111,10 +111,11 @@ func handleGetLimits(deps Deps) http.HandlerFunc {
 
 // limitsRequest は POST /api/jobs/limits のボディ。部分指定可（省略は現状維持）。
 type limitsRequest struct {
-	Global      *int `json:"global"`
-	Gemini      *int `json:"gemini"`
-	Claude      *int `json:"claude"`
-	Antigravity *int `json:"antigravity"`
+	Global       *int `json:"global"`
+	Gemini       *int `json:"gemini"`
+	Claude       *int `json:"claude"`
+	Antigravity  *int `json:"antigravity"`
+	OpenAICompat *int `json:"openai_compat"`
 }
 
 func handlePostLimits(deps Deps) http.HandlerFunc {
@@ -125,7 +126,7 @@ func handlePostLimits(deps Deps) http.HandlerFunc {
 			return
 		}
 		// 指定された値は正の整数であること（クランプは manager 側）。
-		for _, v := range []*int{req.Global, req.Gemini, req.Claude, req.Antigravity} {
+		for _, v := range []*int{req.Global, req.Gemini, req.Claude, req.Antigravity, req.OpenAICompat} {
 			if v != nil && *v < 1 {
 				apierror.Write(w, apierror.BadRequestKey(errKeyInvalidProcessLimit))
 				return
@@ -147,15 +148,19 @@ func handlePostLimits(deps Deps) http.HandlerFunc {
 		if req.Antigravity != nil {
 			next.Antigravity = *req.Antigravity
 		}
+		if req.OpenAICompat != nil {
+			next.OpenAICompat = *req.OpenAICompat
+		}
 		updated := deps.Process.UpdateLimits(next)
 
 		// globalsettings へ部分マージ永続化（失敗してもメモリ更新は有効・レスポンスは更新後）。
 		if deps.Limits != nil {
 			patch := map[string]any{globalSettingsKey: map[string]any{
-				"global":      updated.Global,
-				"gemini":      updated.Gemini,
-				"claude":      updated.Claude,
-				"antigravity": updated.Antigravity,
+				"global":        updated.Global,
+				"gemini":        updated.Gemini,
+				"claude":        updated.Claude,
+				"antigravity":   updated.Antigravity,
+				"openai_compat": updated.OpenAICompat,
 			}}
 			if _, err := deps.Limits.Update(patch); err != nil {
 				// 保存失敗でもメモリ上の limits は有効・レスポンスは更新後の値。

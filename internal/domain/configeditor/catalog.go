@@ -6,7 +6,10 @@
 // 低レベル storage ではなく domain に正本を置き、storage は「解決済みカテゴリ」を受け取る。
 package configeditor
 
-import "alslime/internal/config"
+import (
+	"alslime/internal/config"
+	"alslime/internal/domain/apiproviders"
+)
 
 // Category はカテゴリ定義。
 //
@@ -67,10 +70,22 @@ type ProviderInstruction struct {
 }
 
 // providerInstructions は AIプロバイダ指示ファイル定義の正本（順序維持）。
+//
+// openai_compat の API 共通基本指示・固定3プリセット基本指示（ja/en）も
+// 固定 ProviderInstruction として書き換え可能にする。接続別追加指示は動的なため
+// ここには置かず、api/apiproviders の専用 API を使う。
 var providerInstructions = []ProviderInstruction{
 	{ID: "antigravity", Label: "Antigravity 指示ファイル", File: config.ProviderInstructionAntigravityFile},
 	{ID: "claude", Label: "Claude 指示ファイル", File: config.ProviderInstructionClaudeFile},
 	{ID: "gemini", Label: "Gemini 指示ファイル", File: config.ProviderInstructionGeminiFile},
+	{ID: "openai-compat-ja", Label: "API共通基本指示（日本語）", File: config.OpenAICompatSystemPromptFile("ja")},
+	{ID: "openai-compat-en", Label: "API共通基本指示（英語）", File: config.OpenAICompatSystemPromptFile("en")},
+	{ID: "openai-compat-openrouter-ja", Label: "OpenRouter基本指示（日本語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetOpenRouter, "ja")},
+	{ID: "openai-compat-openrouter-en", Label: "OpenRouter基本指示（英語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetOpenRouter, "en")},
+	{ID: "openai-compat-deepseek-ja", Label: "DeepSeek基本指示（日本語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetDeepSeek, "ja")},
+	{ID: "openai-compat-deepseek-en", Label: "DeepSeek基本指示（英語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetDeepSeek, "en")},
+	{ID: "openai-compat-opencode-go-ja", Label: "OpenCode Go基本指示（日本語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetOpenCodeGo, "ja")},
+	{ID: "openai-compat-opencode-go-en", Label: "OpenCode Go基本指示（英語）", File: config.OpenAICompatPresetPromptFile(apiproviders.PresetOpenCodeGo, "en")},
 }
 
 // ProviderInstructions は全定義を順序どおり返す（一覧 API 用）。

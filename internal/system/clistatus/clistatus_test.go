@@ -24,14 +24,20 @@ func TestCheck_AllCLIsFound(t *testing.T) {
 	}
 
 	got := checker.Check()
-	if len(got.CLIs) != 3 {
+	if len(got.CLIs) != 4 {
 		t.Fatalf("clis len=%d", len(got.CLIs))
 	}
-	// 発見（存在）は全 CLI で OK。
-	for _, cli := range got.CLIs {
+	// 発見（存在）は CLI 3 種で OK（openai_compat は CLI ではないため別検証）。
+	for _, cli := range got.CLIs[:3] {
 		if cli.Status != diagnostics.CheckOK || cli.MessageKey != "diagnostics.cliFound" {
 			t.Fatalf("cli unexpected: %#v", cli)
 		}
+	}
+	// openai_compat は接続先読み出し口が未設定 → 未構成の warning。認証段階は常に ok。
+	compat := got.CLIs[3]
+	if compat.ID != "openai_compat" || compat.Status != diagnostics.CheckWarning ||
+		compat.MessageKey != "cli.openaiCompat.notConfigured" || compat.AuthStatus != "ok" {
+		t.Fatalf("openai_compat unexpected: %#v", compat)
 	}
 	// 認証: Stat が常に存在を返すため Gemini/Claude は ok、
 	// Antigravity は Windows=資格ストアのため unknown（存在判定しない）。

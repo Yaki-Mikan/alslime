@@ -99,15 +99,19 @@ func TestCLIStatusRoute(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	if len(got.CLIs) != 3 {
+	if len(got.CLIs) != 4 {
 		t.Fatalf("response unexpected: %#v", got)
 	}
-	// 発見（存在）は全 CLI で OK。認証は別軸（Windows の Antigravity は
+	// 発見（存在）は CLI 3 種で OK。認証は別軸（Windows の Antigravity は
 	// 資格ストアのため unknown となり集約へ影響するが、ここでは発見を検証する）。
-	for _, cli := range got.CLIs {
+	for _, cli := range got.CLIs[:3] {
 		if cli.Status != diagnostics.CheckOK {
 			t.Fatalf("cli discovery should be ok: %#v", cli)
 		}
+	}
+	// openai_compat は接続先読み出し口が未設定 → 未構成の warning。
+	if got.CLIs[3].ID != "openai_compat" || got.CLIs[3].Status != diagnostics.CheckWarning {
+		t.Fatalf("openai_compat unexpected: %#v", got.CLIs[3])
 	}
 }
 

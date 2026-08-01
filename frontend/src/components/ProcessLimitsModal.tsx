@@ -22,6 +22,7 @@ const KIND_LABELS: { key: keyof Omit<ProcessLimits, 'global'>; label: string; co
     { key: 'gemini', label: 'Gemini', color: 'text-blue-400' },
     { key: 'claude', label: 'Claude', color: 'text-orange-400' },
     { key: 'antigravity', label: 'Antigravity', color: 'text-purple-400' },
+    { key: 'openai_compat', label: 'API (OpenAI-compatible)', color: 'text-emerald-400' },
 ];
 
 export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog = null }) => {
@@ -35,7 +36,7 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             return text.split(`{{${key}}}`).join(String(value));
         }, template);
     };
-    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1 });
+    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1, openai_compat: 1 });
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +55,7 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             gemini: Math.min(prev.gemini, g),
             claude: Math.min(prev.claude, g),
             antigravity: Math.min(prev.antigravity, g),
+            openai_compat: Math.min(prev.openai_compat, g),
         }));
     };
 

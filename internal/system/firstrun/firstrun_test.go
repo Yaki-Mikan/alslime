@@ -1,9 +1,12 @@
 package firstrun
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"alslime/internal/config"
 )
 
 func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
@@ -55,6 +58,15 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		"roleplay/global/ComfyUI/image_gen_directive.md",
 		"roleplay/global/ComfyUI/image_gen_directive_natural.md",
 		"roleplay/global/writing_styles/一人称視点_標準.md",
+		// openai_compat の API 共通基本指示と固定 3 プリセット基本指示（ja/en）。
+		"roleplay/global/prompts/openai-compat/system.ja.md",
+		"roleplay/global/prompts/openai-compat/system.en.md",
+		"roleplay/global/prompts/openai-compat/presets/openrouter/system.ja.md",
+		"roleplay/global/prompts/openai-compat/presets/openrouter/system.en.md",
+		"roleplay/global/prompts/openai-compat/presets/deepseek/system.ja.md",
+		"roleplay/global/prompts/openai-compat/presets/deepseek/system.en.md",
+		"roleplay/global/prompts/openai-compat/presets/opencode-go/system.ja.md",
+		"roleplay/global/prompts/openai-compat/presets/opencode-go/system.en.md",
 	}
 	for _, file := range wantFiles {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(file)))
@@ -86,6 +98,94 @@ func TestEnsure_既存ファイルを上書きしない(t *testing.T) {
 	}
 	if string(got) != string(own) {
 		t.Fatalf("既存の CLAUDE.md が上書きされた: %q", string(got))
+	}
+}
+
+func TestEnsure_OpenAICompat指示の生成規則(t *testing.T) {
+	root := t.TempDir()
+	if err := Ensure(root); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	// 固定プリセット基本指示は openrouter / deepseek / opencode-go の 3 種のみ。
+	// openai / custom には固定プリセット指示ファイルを要求しない。
+	for _, preset := range []string{"openai", "custom"} {
+		path := filepath.Join(root, filepath.FromSlash("roleplay/global/prompts/openai-compat/presets/"+preset))
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("%s には固定プリセット指示を生成しないべき", preset)
+		}
+	}
+
+	// 固定3種は短い差分ファイルではなく、API共通基本指示を内包した
+	// Claude相当の全文として単体で成立する。
+	base, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(config.OpenAICompatSystemPromptFile("ja"))))
+	if err != nil {
+		t.Fatalf("API共通基本指示の読込: %v", err)
+	}
+	for _, preset := range []string{"openrouter", "deepseek", "opencode-go"} {
+		full, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(config.OpenAICompatPresetPromptFile(preset, "ja"))))
+		if readErr != nil {
+			t.Fatalf("%s 基本指示の読込: %v", preset, readErr)
+		}
+		if !bytes.HasPrefix(full, bytes.TrimSpace(base)) {
+			t.Errorf("%s 基本指示が API 共通基本指示全文を内包していない", preset)
+		}
+	}
+}
+
+func TestEnsure_未編集の旧プリセット追加指示だけを全文へ移行する(t *testing.T) {
+	root := t.TempDir()
+	rel := config.OpenAICompatPresetPromptFile("deepseek", "ja")
+	dest := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatalf("準備ディレクトリ: %v", err)
+	}
+	legacy, err := defaultsFS.ReadFile(defaultsRoot + "/" + rel)
+	if err != nil {
+		t.Fatalf("旧追加指示の読込: %v", err)
+	}
+	if err := os.WriteFile(dest, legacy, 0o644); err != nil {
+		t.Fatalf("旧追加指示の配置: %v", err)
+	}
+
+	if err := Ensure(root); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("移行後の読込: %v", err)
+	}
+	if bytes.Equal(got, legacy) || !bytes.HasSuffix(bytes.TrimSpace(got), bytes.TrimSpace(legacy)) {
+		t.Fatalf("旧追加指示が基本指示全文へ安全移行されていない")
+	}
+}
+
+func TestEnsure_編集済みAPI指示を上書きしない(t *testing.T) {
+	root := t.TempDir()
+	if err := Ensure(root); err != nil {
+		t.Fatalf("1回目: %v", err)
+	}
+	// ユーザーが API 共通基本指示・プリセット指示を編集した状態で first-run を
+	// 再実行しても上書きされない。
+	edited := []byte("ユーザー編集済みの指示")
+	targets := []string{
+		"roleplay/global/prompts/openai-compat/system.ja.md",
+		"roleplay/global/prompts/openai-compat/presets/deepseek/system.en.md",
+	}
+	for _, rel := range targets {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.WriteFile(abs, edited, 0o644); err != nil {
+			t.Fatalf("編集の準備 (%s): %v", rel, err)
+		}
+	}
+	if err := Ensure(root); err != nil {
+		t.Fatalf("2回目: %v", err)
+	}
+	for _, rel := range targets {
+		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil || string(got) != string(edited) {
+			t.Errorf("編集済み %s が上書きされた: %q err=%v", rel, got, err)
+		}
 	}
 }
 

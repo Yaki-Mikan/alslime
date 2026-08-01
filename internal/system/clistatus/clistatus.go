@@ -14,13 +14,18 @@ import (
 )
 
 const (
-	cliIDGemini      = "gemini"
-	cliIDClaude      = "claude"
-	cliIDAntigravity = "antigravity"
+	cliIDGemini       = "gemini"
+	cliIDClaude       = "claude"
+	cliIDAntigravity  = "antigravity"
+	cliIDOpenAICompat = "openai_compat"
 
-	cliLabelGemini      = "Gemini CLI"
-	cliLabelClaude      = "Claude Code"
-	cliLabelAntigravity = "Antigravity CLI"
+	cliLabelGemini       = "Gemini CLI"
+	cliLabelClaude       = "Claude Code"
+	cliLabelAntigravity  = "Antigravity CLI"
+	cliLabelOpenAICompat = "API (OpenAI-compatible)"
+
+	messageKeyOpenAICompatReady         = "cli.openaiCompat.ready"
+	messageKeyOpenAICompatNotConfigured = "cli.openaiCompat.notConfigured"
 
 	commandGemini = "gemini"
 	commandClaude = "claude"
@@ -48,7 +53,7 @@ type Status struct {
 // CLIStatus は外部 CLI 1件の状態を表す。
 // Command は画面表示用の短い値に留め、絶対パスは details にも出さない。
 //
-// 状態は 2 段階（21番§13）:
+// 状態は 2 段階:
 //   - Status/MessageKey: 発見（起動解決の成否）。
 //   - AuthStatus/AuthMessageKey: 認証（認証ファイル存在）。未認証なら loginRequired。
 type CLIStatus struct {
@@ -72,13 +77,18 @@ type Checker struct {
 	// WorkspaceAuth は配置運用の認証ファイル絶対パス（CLI 別）。
 	// routes 側が paths.Resolver 経由で解決して渡す。空なら配置運用は見ない。
 	WorkspaceAuth cliauth.WorkspacePaths
+	// HasEnabledAPIConnection は openai_compat の有効な接続先が 1 つ以上あるか
+	//（CLI 実行ファイル・認証ファイルを持たないため、これが状態の正本。
+	// nil は未設定＝未構成扱い）。
+	HasEnabledAPIConnection func() (bool, error)
 }
 
 // New は配置運用の認証ファイルパスを載せた Checker を返す。
 // workspaceAuth は routes 側が paths.Resolver 経由で解決した絶対パス。
 // 配置運用を使わない場合はゼロ値を渡す。
-func New(workspaceAuth cliauth.WorkspacePaths) Checker {
-	return Checker{WorkspaceAuth: workspaceAuth}
+// hasEnabledAPIConnection は openai_compat の接続先有無の読み出し口。
+func New(workspaceAuth cliauth.WorkspacePaths, hasEnabledAPIConnection func() (bool, error)) Checker {
+	return Checker{WorkspaceAuth: workspaceAuth, HasEnabledAPIConnection: hasEnabledAPIConnection}
 }
 
 // authChecker は自身の設定を反映した cliauth.Checker を組み立てる。
@@ -101,8 +111,9 @@ func (c Checker) Check() Status {
 	applyAuth(&claude, auth.Claude(), messageKeyLoginClaude)
 	antigravity := c.checkAntigravity()
 	applyAuth(&antigravity, auth.Antigravity(), messageKeyLoginAntigravity)
+	openaiCompat := c.checkOpenAICompat()
 
-	results := []CLIStatus{gemini, claude, antigravity}
+	results := []CLIStatus{gemini, claude, antigravity, openaiCompat}
 	checks := make([]diagnostics.CheckResult, 0, len(results)*2)
 	for _, result := range results {
 		checks = append(checks, diagnostics.CheckResult{ID: result.ID, Status: result.Status})
@@ -201,6 +212,33 @@ func (c Checker) checkAntigravity() CLIStatus {
 		}
 	}
 	return c.checkLookPath(cliIDAntigravity, cliLabelAntigravity, commandAgy)
+}
+
+// checkOpenAICompat は openai_compat の状態を返す。
+//
+// CLI 実行ファイル・認証ファイルは存在しないため、「有効な接続先が 1 つ以上
+// あるか」だけを状態にする。認証段階は常に OK（キー未設定は送信時の
+// ErrorType で案内する）。
+func (c Checker) checkOpenAICompat() CLIStatus {
+	configured := false
+	if c.HasEnabledAPIConnection != nil {
+		if has, err := c.HasEnabledAPIConnection(); err == nil {
+			configured = has
+		}
+	}
+	status := diagnostics.CheckWarning
+	messageKey := messageKeyOpenAICompatNotConfigured
+	if configured {
+		status = diagnostics.CheckOK
+		messageKey = messageKeyOpenAICompatReady
+	}
+	return CLIStatus{
+		ID:         cliIDOpenAICompat,
+		Label:      cliLabelOpenAICompat,
+		Status:     status,
+		MessageKey: messageKey,
+		AuthStatus: cliauth.AuthOK,
+	}
 }
 
 func executableName(goos, base string) string {

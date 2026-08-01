@@ -15,6 +15,7 @@ import type { OpenFileRequest } from './ConfigEditorModal';
 import { ConfigGenModal } from './ConfigGenModal';
 import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import type { ApiProviderInstructionTarget } from '../../api/api-providers';
 
 interface Props {
     isOpen: boolean;
@@ -23,6 +24,8 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
     // FeatureComfyUI の有効状態（Chat が保持する enabledFeatures 由来）。
     imageGenEnabled: boolean;
+    openApiProviderInstruction?: ApiProviderInstructionTarget | null;
+    onOpenApiProviderInstructionConsumed?: () => void;
 }
 
 type Tab = 'config' | 'configGen' | 'imageGen';
@@ -33,6 +36,8 @@ export const ConfigEditorHub: React.FC<Props> = ({
     backendUrl,
     uiCatalog = null,
     imageGenEnabled,
+    openApiProviderInstruction = null,
+    onOpenApiProviderInstructionConsumed,
 }) => {
     const [tab, setTab] = useState<Tab>('config');
     // 設定自動生成 → 設定ファイルタブへの「このファイルを開いて」要求（消費後に null へ戻る）。
@@ -77,6 +82,8 @@ export const ConfigEditorHub: React.FC<Props> = ({
                 headerTabs={headerTabs}
                 openFileRequest={openFileRequest}
                 onOpenFileRequestConsumed={() => setOpenFileRequest(null)}
+                openApiProviderInstruction={openApiProviderInstruction}
+                onOpenApiProviderInstructionConsumed={onOpenApiProviderInstructionConsumed}
             />
             <ConfigGenModal
                 isOpen={isOpen && tab === 'configGen'}

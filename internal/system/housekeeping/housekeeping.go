@@ -31,6 +31,7 @@ var tempSubDirs = []string{
 	config.AntigravityContextTempDir,
 	config.ClaudeFileRelayOutputDir,
 	config.ClaudeSystemPromptTempDir,
+	config.UpdateTempDir,
 }
 
 // NativeSweep は各 CLI ネイティブ履歴の定期掃除境界（12番 3.4）。

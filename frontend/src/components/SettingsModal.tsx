@@ -12,9 +12,10 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings as SettingsIcon, LogOut, Activity, BookOpen, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Server, Tag, Palette } from 'lucide-react';
+import { X, Settings as SettingsIcon, LogOut, Activity, BookOpen, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Plug, RefreshCw, Server, Tag, Palette } from 'lucide-react';
 import type { Settings } from '../types/Settings';
 import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
+import { ApiProvidersModal } from './settings/ApiProvidersModal';
 import { ChatBasicSettingsModal } from './settings/ChatBasicSettingsModal';
 import { ServerSettingsModal } from './settings/ServerSettingsModal';
 import { DebugSettingsModal } from './settings/DebugSettingsModal';
@@ -24,11 +25,14 @@ import { SystemDiagnosticsModal } from './SystemDiagnosticsModal';
 import { SponsorModal } from './SponsorModal';
 import { SettingsPackModal } from './settings/SettingsPackModal';
 import { ManualModal } from './ManualModal';
+import { UpdateModal } from './UpdateModal';
+import { fetchUpdateCheck, fetchUpdateSettings, saveUpdateSettings, type AppUpdateInfo } from '../api/update';
 import { rebuildCharacterFilters } from '../api/files';
 import { fetchI18NLanguages, resolveMessage, type I18NCatalog } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
 import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
-import { DEFAULT_UI_LANGUAGE, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA, UI_LANGUAGE_LABELS, UI_LANGUAGE_OPTIONS } from '../constants/i18n';
+import { DEFAULT_UI_LANGUAGE, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA, UI_LANGUAGE_LABELS, UI_LANGUAGE_OPTIONS, UPDATE_I18N_KEYS, UPDATE_TEXT_FALLBACK_JA } from '../constants/i18n';
+import type { ApiProviderInstructionTarget } from '../api/api-providers';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -41,6 +45,7 @@ interface SettingsModalProps {
     enabledFeatures?: Record<string, boolean> | null;
     // モデル一覧編集の保存後にチャット側のモデル一覧を再取得させる（useChat.refreshModels）。
     onModelsChanged?: () => void;
+    onOpenApiProviderInstruction?: (target: ApiProviderInstructionTarget) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -52,6 +57,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     uiCatalog,
     enabledFeatures = null,
     onModelsChanged,
+    onOpenApiProviderInstruction,
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string | number>) => {
@@ -62,6 +68,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     // サブモーダルの開閉状態
     const [isAIModelOpen, setIsAIModelOpen] = useState(false);
+    const [isApiProvidersOpen, setIsApiProvidersOpen] = useState(false);
     const [isComfyUISettingsOpen, setIsComfyUISettingsOpen] = useState(false);
     const [isChatBasicOpen, setIsChatBasicOpen] = useState(false);
     const [isServerSettingsOpen, setIsServerSettingsOpen] = useState(false);
@@ -75,6 +82,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     // 言語設定（トップ直置き。変更時に即保存する）
     const [uiLanguageOptions, setUILanguageOptions] = useState(UI_LANGUAGE_OPTIONS);
     const [isSavingLanguage, setIsSavingLanguage] = useState(false);
+
+    // 手動の更新確認（01番 4.3・9章。手動時はスキップ設定を無視して常に結果を出す）
+    const tu = (key: string) => resolveMessage(uiCatalog, key, UPDATE_TEXT_FALLBACK_JA[key] || key);
+    const [updateChecking, setUpdateChecking] = useState(false);
+    const [updateResult, setUpdateResult] = useState<'none' | 'latest' | 'failed'>('none');
+    const [manualUpdateApp, setManualUpdateApp] = useState<AppUpdateInfo | null>(null);
+    const [updateAutoCheck, setUpdateAutoCheck] = useState(true);
+
+    const handleCheckUpdate = async () => {
+        setUpdateChecking(true);
+        setUpdateResult('none');
+        try {
+            const check = await fetchUpdateCheck(BACKEND_URL);
+            if (check.app.enabled && check.app.hasUpdate) {
+                setManualUpdateApp(check.app);
+            } else if (!check.app.enabled || check.app.checkFailed) {
+                setUpdateResult('failed');
+            } else {
+                setUpdateResult('latest');
+            }
+        } catch {
+            setUpdateResult('failed');
+        }
+        setUpdateChecking(false);
+    };
+
+    const handleToggleAutoCheck = async (value: boolean) => {
+        setUpdateAutoCheck(value);
+        try {
+            await saveUpdateSettings(BACKEND_URL, { autoCheck: value });
+        } catch {
+            setUpdateAutoCheck(!value);
+        }
+    };
 
     useEffect(() => {
         if (!isOpen) return;
@@ -91,6 +132,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }
         };
         fetchLanguages();
+        // 自動確認トグルの初期値（失敗時は既定 ON のまま）
+        fetchUpdateSettings(BACKEND_URL)
+            .then((updateSettings) => setUpdateAutoCheck(updateSettings.autoCheck))
+            .catch(() => {});
     }, [isOpen]);
 
     // 言語変更は即保存（祝日カレンダーは日本語UI専用のため他言語では無効化する）
@@ -200,6 +245,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {t(SETTINGS_I18N_KEYS.aiModelLabel)}
                         </button>
 
+                        {/* API接続先管理（openai_compat） */}
+                        <button
+                            onClick={() => setIsApiProvidersOpen(true)}
+                            className={hubButtonClass('border-emerald-600')}
+                            title={resolveMessage(uiCatalog, 'apiProviders.menuLabel', 'API接続先管理')}
+                        >
+                            <Plug size={16} className="text-emerald-400" />
+                            {resolveMessage(uiCatalog, 'apiProviders.menuLabel', 'API接続先管理')}
+                        </button>
+
                         {/* 画像生成設定（支援者機能が有効な場合のみ表示） */}
                         {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && (
                             <button
@@ -306,6 +361,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     </button>
                                 )}
                             </div>
+                            {/* 本体の更新確認（手動。01番 4.3・9章） */}
+                            <div className="mt-3 space-y-2">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <button
+                                        onClick={handleCheckUpdate}
+                                        disabled={updateChecking}
+                                        className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg text-sm text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        title={tu(UPDATE_I18N_KEYS.manualCheck)}
+                                    >
+                                        <RefreshCw size={16} className={updateChecking ? 'animate-spin' : ''} />
+                                        {updateChecking ? tu(UPDATE_I18N_KEYS.checking) : tu(UPDATE_I18N_KEYS.manualCheck)}
+                                    </button>
+                                    {updateResult === 'latest' && (
+                                        <span className="text-xs text-emerald-400">{tu(UPDATE_I18N_KEYS.upToDate)}</span>
+                                    )}
+                                    {updateResult === 'failed' && (
+                                        <span className="text-xs text-red-300">{tu(UPDATE_I18N_KEYS.checkFailed)}</span>
+                                    )}
+                                </div>
+                                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={updateAutoCheck}
+                                        onChange={(e) => handleToggleAutoCheck(e.target.checked)}
+                                        className="rounded border-gray-600 bg-gray-800"
+                                    />
+                                    {tu(UPDATE_I18N_KEYS.autoCheckToggle)}
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -327,6 +411,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClose={() => setIsAIModelOpen(false)}
                 uiCatalog={uiCatalog}
                 onModelsChanged={onModelsChanged}
+            />
+
+            {/* API接続先管理モーダル（openai_compat） */}
+            <ApiProvidersModal
+                isOpen={isApiProvidersOpen}
+                onClose={() => setIsApiProvidersOpen(false)}
+                uiCatalog={uiCatalog}
+                onModelsChanged={onModelsChanged}
+                onOpenInstruction={target => {
+                    setIsApiProvidersOpen(false);
+                    onClose();
+                    onOpenApiProviderInstruction?.(target);
+                }}
             />
 
             {/* 基本チャット設定モーダル */}
@@ -386,6 +483,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClose={() => setIsSettingsPackOpen(false)}
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
+            />
+
+            {/* 手動更新確認の結果モーダル（新バージョン検知時のみ。スキップ設定は無視） */}
+            <UpdateModal
+                isOpen={manualUpdateApp !== null}
+                app={manualUpdateApp}
+                uiCatalog={uiCatalog}
+                backendUrl={BACKEND_URL}
+                onLater={() => setManualUpdateApp(null)}
+                onSkip={() => {
+                    if (manualUpdateApp) {
+                        saveUpdateSettings(BACKEND_URL, { skippedVersion: manualUpdateApp.latest }).catch(() => {});
+                    }
+                    setManualUpdateApp(null);
+                }}
             />
 
             {/* 支援者機能モーダル */}

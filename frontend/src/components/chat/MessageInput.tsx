@@ -7,7 +7,7 @@
  * - ストップボタン（生成中）
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Send, ChevronUp, Square, Settings } from 'lucide-react';
 import type { Model, ModelProvider } from '../../hooks/useChat';
 import { modelProviderOf } from '../../hooks/useChat';
@@ -15,6 +15,11 @@ import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { CHAT_INPUT_I18N_KEYS, CHAT_INPUT_TEXT_FALLBACK_JA, CLAUDE_EFFORT_I18N_KEY_BY_VALUE } from '../../constants/i18n';
 import { CLAUDE_EFFORT_VALUES, type ClaudeEffort } from '../../constants/claude';
 import { CHAT_SEND_KEYS, DEFAULT_CHAT_SEND_KEY, type ChatSendKey } from '../../types/Settings';
+import {
+    MIN_ANTIGRAVITY_STREAM_GUARD_LIMIT,
+    normalizeAntigravityStreamGuardLimit,
+} from '../../constants/antigravity';
+import { apiModelsForConnection, apiRemoteModelLabel, buildAPIConnectionChoices } from './modelSelection';
 
 const COARSE_POINTER_MEDIA_QUERY = '(pointer: coarse)';
 
@@ -37,6 +42,8 @@ interface MessageInputProps {
     onOpenModelSettings: () => void;
     claudeEffort: ClaudeEffort;
     onSelectClaudeEffort: (effort: ClaudeEffort) => void;
+    antigravityStreamGuardLimit: number;
+    onSelectAntigravityStreamGuardLimit: (limit: number) => void;
     geminiTempFileMode: boolean;
     onToggleGeminiTempFileMode: (enabled: boolean) => void;
     showBackgroundThrough?: boolean;
@@ -64,6 +71,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     onOpenModelSettings,
     claudeEffort,
     onSelectClaudeEffort,
+    antigravityStreamGuardLimit,
+    onSelectAntigravityStreamGuardLimit,
     geminiTempFileMode,
     onToggleGeminiTempFileMode,
     showBackgroundThrough = false,
@@ -73,7 +82,19 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     chatSendKey = DEFAULT_CHAT_SEND_KEY,
 }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [streamGuardLimitInput, setStreamGuardLimitInput] = useState(
+        String(antigravityStreamGuardLimit)
+    );
     const visibleModels = models.filter(m => modelProviderOf(m) === selectedModelProvider);
+    const apiConnectionChoices = selectedModelProvider === 'openai_compat'
+        ? buildAPIConnectionChoices(visibleModels)
+        : [];
+    const selectedApiConnectionId = selectedModelProvider === 'openai_compat'
+        ? (visibleModels.find(model => model.id === selectedModel)?.connectionId || apiConnectionChoices[0]?.id || '')
+        : '';
+    const modelChoices = selectedModelProvider === 'openai_compat'
+        ? apiModelsForConnection(visibleModels, selectedApiConnectionId)
+        : visibleModels;
     const t = (key: string) => resolveMessage(uiCatalog, key, CHAT_INPUT_TEXT_FALLBACK_JA[key] || key);
 
     // テキストエリアの高さ自動調整
@@ -83,6 +104,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
         }
     }, [input]);
+
+    useEffect(() => {
+        setStreamGuardLimitInput(String(antigravityStreamGuardLimit));
+    }, [antigravityStreamGuardLimit]);
+
+    const commitStreamGuardLimit = () => {
+        const normalized = normalizeAntigravityStreamGuardLimit(streamGuardLimitInput);
+        setStreamGuardLimitInput(String(normalized));
+        onSelectAntigravityStreamGuardLimit(normalized);
+    };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.nativeEvent.isComposing) return;
@@ -161,9 +192,29 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                                 <option value="antigravity">Antigravity</option>
                                 <option value="claude">Claude</option>
                                 <option value="gemini">Gemini</option>
+                                <option value="openai_compat">{t('chatInput.providerOpenAICompat')}</option>
                             </select>
                             <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         </div>
+
+                        {selectedModelProvider === 'openai_compat' && apiConnectionChoices.length > 0 && (
+                            <div className="relative">
+                                <select
+                                    value={selectedApiConnectionId}
+                                    onChange={(e) => {
+                                        const firstModel = apiModelsForConnection(visibleModels, e.target.value)[0];
+                                        if (firstModel) onSelectModel(firstModel.id);
+                                    }}
+                                    aria-label={t(CHAT_INPUT_I18N_KEYS.apiConnection)}
+                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[120px]"
+                                >
+                                    {apiConnectionChoices.map(connection => (
+                                        <option key={connection.id} value={connection.id}>{connection.label}</option>
+                                    ))}
+                                </select>
+                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            </div>
+                        )}
 
                         <div className="relative">
                             <select
@@ -171,12 +222,26 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                                 onChange={(e) => onSelectModel(e.target.value)}
                                 className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 disabled:opacity-50 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[140px]"
                             >
-                                {visibleModels.map(m => (
-                                    <option key={m.id} value={m.id}>{m.description}</option>
+                                {modelChoices.map(m => (
+                                    <option key={m.id} value={m.id}>
+                                        {selectedModelProvider === 'openai_compat' ? apiRemoteModelLabel(m) : m.description}
+                                    </option>
                                 ))}
                             </select>
                             <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         </div>
+
+                        {selectedModelProvider === 'openai_compat' && visibleModels.length === 0 && (
+                            <span className="text-xs text-amber-400">
+                                {t('chatInput.openaiCompatNoModels')}
+                            </span>
+                        )}
+                        {selectedModelProvider === 'openai_compat' && (
+                            /* 行動選択肢はフェーズ1では openai_compat 未対応。 */
+                            <span className="text-[10px] text-gray-500" title={t('chatInput.actionChoiceUnsupported')}>
+                                {t('chatInput.actionChoiceUnsupported')}
+                            </span>
+                        )}
 
                         {selectedModelProvider === 'claude' && (
                             <div className="relative">
@@ -205,6 +270,35 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         >
                             <Settings size={14} />
                         </button>
+
+                        {selectedModelProvider === 'antigravity' && (
+                            <label
+                                className="flex items-center gap-1.5 text-xs text-gray-400"
+                                title={t(CHAT_INPUT_I18N_KEYS.antigravityStreamGuardLimitTitle)}
+                            >
+                                <span className="whitespace-nowrap">
+                                    {t(CHAT_INPUT_I18N_KEYS.antigravityStreamGuardLimit)}
+                                </span>
+                                <input
+                                    type="number"
+                                    min={MIN_ANTIGRAVITY_STREAM_GUARD_LIMIT}
+                                    step={MIN_ANTIGRAVITY_STREAM_GUARD_LIMIT}
+                                    inputMode="numeric"
+                                    value={streamGuardLimitInput}
+                                    onChange={(e) => setStreamGuardLimitInput(e.target.value)}
+                                    onBlur={commitStreamGuardLimit}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            commitStreamGuardLimit();
+                                            e.currentTarget.blur();
+                                        }
+                                    }}
+                                    aria-label={t(CHAT_INPUT_I18N_KEYS.antigravityStreamGuardLimitTitle)}
+                                    className="w-14 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-1.5 py-1.5 outline-none focus:border-blue-500"
+                                />
+                            </label>
+                        )}
 
                         {/* Antigravity はファイル経由方式へ一本化済みのためトグルなし
                             （24_Antigravity一時ファイル一本化と暴走対策設計.md）。

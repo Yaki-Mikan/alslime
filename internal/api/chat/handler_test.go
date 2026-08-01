@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"alslime/internal/config"
+	"alslime/internal/domain/chatjobs"
 	jobsvc "alslime/internal/jobs"
 	"alslime/internal/process"
 )
@@ -21,6 +23,25 @@ type blockingRunner struct {
 	started chan string
 	done    chan struct{}
 	once    sync.Once
+}
+
+type persistedErrorRunner struct{}
+
+type payloadRecordingRunner struct {
+	jobs chan jobsvc.Job
+}
+
+func (r payloadRecordingRunner) Run(_ context.Context, job jobsvc.Job) (jobsvc.Result, error) {
+	r.jobs <- job
+	return jobsvc.Result{Output: "ok", FinalSessionID: job.SessionID}, nil
+}
+
+func (persistedErrorRunner) Run(context.Context, jobsvc.Job) (jobsvc.Result, error) {
+	return jobsvc.Result{
+		FinalSessionID: "saved-session",
+		Output:         "temp output missing",
+		ErrorType:      "provider_execution_error",
+	}, errors.New("temp output missing")
 }
 
 func newBlockingRunner() *blockingRunner {
@@ -109,6 +130,93 @@ func TestSubmit_Status_Abort(t *testing.T) {
 	}
 }
 
+func TestResponseBackupSettingIsPassedToSubmitAndRegenerateJobs(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+		kind jobsvc.Type
+	}{
+		{
+			name: "submit",
+			path: config.APIPrefix + "/chat/submit",
+			body: `{"message":"hello","sessionId":"submit-session","model":"gemini-3.1-pro-preview","enableResponseBackup":true}`,
+			kind: jobsvc.TypeChat,
+		},
+		{
+			name: "regenerate",
+			path: config.APIPrefix + "/regenerate",
+			body: `{"sessionId":"regenerate-session","model":"claude-sonnet-4-5","enableResponseBackup":true}`,
+			kind: jobsvc.TypeRegenerate,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := payloadRecordingRunner{jobs: make(chan jobsvc.Job, 1)}
+			mux := newTestMux(runner)
+			res := httptest.NewRecorder()
+			mux.ServeHTTP(res, httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body)))
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+
+			job := <-runner.jobs
+			if job.Type != tt.kind {
+				t.Fatalf("job type: got %s want %s", job.Type, tt.kind)
+			}
+			payload, ok := job.Payload.(chatjobs.Payload)
+			if !ok {
+				t.Fatalf("payload type: %T", job.Payload)
+			}
+			if !payload.EnableResponseBackup {
+				t.Fatal("enableResponseBackup was not passed to job payload")
+			}
+		})
+	}
+}
+
+func TestAntigravityMaxStreamCallsIsPassedToSubmitAndRegenerateJobs(t *testing.T) {
+	const wantLimit = 7
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "submit",
+			path: config.APIPrefix + "/chat/submit",
+			body: `{"message":"hello","model":"antigravity","antigravityMaxStreamCalls":7}`,
+		},
+		{
+			name: "regenerate",
+			path: config.APIPrefix + "/regenerate",
+			body: `{"sessionId":"regenerate-session","model":"antigravity","antigravityMaxStreamCalls":7}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := payloadRecordingRunner{jobs: make(chan jobsvc.Job, 1)}
+			mux := newTestMux(runner)
+			res := httptest.NewRecorder()
+			mux.ServeHTTP(res, httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body)))
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+
+			job := <-runner.jobs
+			payload, ok := job.Payload.(chatjobs.Payload)
+			if !ok {
+				t.Fatalf("payload type: %T", job.Payload)
+			}
+			if payload.AntigravityMaxStreamCalls != wantLimit {
+				t.Fatalf("antigravityMaxStreamCalls=%d want %d", payload.AntigravityMaxStreamCalls, wantLimit)
+			}
+		})
+	}
+}
+
 func TestSubmit_DuplicateSession(t *testing.T) {
 	runner := newBlockingRunner()
 	mux := newTestMux(runner)
@@ -158,6 +266,27 @@ func TestStatus_CompletedReturnsModel(t *testing.T) {
 	}
 	if status.Model != "gemini-3.1-pro-preview" {
 		t.Fatalf("model が返っていない: %#v", status)
+	}
+}
+
+func TestStatus_ErrorReturnsPersistedSession(t *testing.T) {
+	mux := newTestMux(persistedErrorRunner{})
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(
+		http.MethodPost,
+		config.APIPrefix+"/chat/submit",
+		strings.NewReader(`{"message":"hello","model":"antigravity"}`),
+	))
+	var submitted submitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &submitted); err != nil {
+		t.Fatalf("submit response decode: %v", err)
+	}
+
+	status := waitStatus(t, mux, submitted.JobID, jobsvc.StatusError)
+	if status.SessionID != "saved-session" ||
+		status.ErrorType != "provider_execution_error" ||
+		status.Error != "temp output missing" {
+		t.Fatalf("保存済みerror status 想定外: %#v", status)
 	}
 }
 

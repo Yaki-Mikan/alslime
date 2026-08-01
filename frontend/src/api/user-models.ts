@@ -18,6 +18,9 @@ export interface UserModel {
     /** Gemini系Thinkingエイリアス用（thinkingLevelとペアで指定） */
     geminiBase?: string;
     thinkingLevel?: 'high' | 'medium' | 'low';
+    /** openai_compat専用。IDはサーバーが connectionId/remoteModelId から正規化する */
+    connectionId?: string;
+    remoteModelId?: string;
 }
 
 export interface UserModelsData {

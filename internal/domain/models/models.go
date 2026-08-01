@@ -17,13 +17,15 @@ const (
 	KindClaude Kind = "claude"
 	// KindAntigravity は Antigravity 経路。
 	KindAntigravity Kind = "antigravity"
+	// KindOpenAICompat は OpenAI 互換 API 経路。
+	KindOpenAICompat Kind = "openai_compat"
 )
 
 // ParseKind は provider 指定文字列を Kind へ解決する。
 // 空文字・未知の値は ok=false（＝ID からの自動判定に委ねる）。
 func ParseKind(s string) (Kind, bool) {
 	switch Kind(s) {
-	case KindGemini, KindClaude, KindAntigravity:
+	case KindGemini, KindClaude, KindAntigravity, KindOpenAICompat:
 		return Kind(s), true
 	default:
 		return "", false
@@ -34,10 +36,13 @@ func ParseKind(s string) (Kind, bool) {
 // 現行 Node 版の AVAILABLE_MODELS と同じ形（id / name / description）を保つ。
 // Provider は経路種別（マージ時に確定値を埋める。レスポンス互換のため追加のみ）。
 type Model struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Provider    Kind   `json:"provider,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Provider        Kind   `json:"provider,omitempty"`
+	ConnectionID    string `json:"connectionId,omitempty"`
+	ConnectionLabel string `json:"connectionLabel,omitempty"`
+	RemoteModelID   string `json:"remoteModelId,omitempty"`
 }
 
 // available は内蔵デフォルトのモデル一覧。現行 Node 版 AVAILABLE_MODELS と同一順序・同一内容。
@@ -103,6 +108,10 @@ type UserModel struct {
 	Provider      string `json:"provider,omitempty"`
 	GeminiBase    string `json:"geminiBase,omitempty"`
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	// ConnectionID / RemoteModelID は openai_compat 専用。
+	// ID はサーバー側で "openai_compat:<ConnectionID>/<RemoteModelID>" へ正規化される。
+	ConnectionID  string `json:"connectionId,omitempty"`
+	RemoteModelID string `json:"remoteModelId,omitempty"`
 }
 
 // Kind は経路種別を返す。明示指定があればそれを優先し、なければ ID から自動判定する。
@@ -118,13 +127,26 @@ func (u UserModel) Kind() Kind {
 func (u UserModel) Model() Model {
 	name := u.Name
 	if name == "" {
-		name = u.ID
+		name = u.RemoteModelID
+		if name == "" {
+			name = u.ID
+		}
 	}
 	description := u.Description
 	if description == "" {
-		description = u.ID
+		description = u.RemoteModelID
+		if description == "" {
+			description = u.ID
+		}
 	}
-	return Model{ID: u.ID, Name: name, Description: description, Provider: u.Kind()}
+	return Model{
+		ID:            u.ID,
+		Name:          name,
+		Description:   description,
+		Provider:      u.Kind(),
+		ConnectionID:  u.ConnectionID,
+		RemoteModelID: u.RemoteModelID,
+	}
 }
 
 // Merge は「内蔵デフォルト − hidden ＋ added」のマージ結果（モデル一覧の正本）を返す。
@@ -211,15 +233,57 @@ func KindOf(id string) Kind {
 }
 
 // defaultKindOf は ID プレフィックスによる既定の種別判定。
+// openai_compat の判定は Gemini フォールバックより前に置く。
 func defaultKindOf(id string) Kind {
 	switch {
 	case id == antigravityPrefix || hasPrefix(id, antigravityPrefix+":"):
 		return KindAntigravity
 	case hasPrefix(id, "claude-"):
 		return KindClaude
+	case hasPrefix(id, openAICompatIDPrefix):
+		return KindOpenAICompat
 	default:
 		return KindGemini
 	}
+}
+
+// openAICompatIDPrefix は openai_compat モデル ID の接頭辞。
+// ID 形式: "openai_compat:<connectionId>/<remoteModelId>"。
+const openAICompatIDPrefix = "openai_compat:"
+
+// ParseOpenAICompatID は openai_compat モデル ID を分解する単一パーサ。
+//
+// remoteModelID 自体が "/" を含む（OpenRouter の provider/model 形式）ため、
+// 区切りは最初の "/" 1 個だけで行う。形式不正は ok=false。
+// モデル ID のパースはこの関数以外に置かないこと（フロントの startsWith 判定も
+// サーバー正本の provider フィールドへ寄せる）。
+func ParseOpenAICompatID(id string) (connectionID, remoteModelID string, ok bool) {
+	if !hasPrefix(id, openAICompatIDPrefix) {
+		return "", "", false
+	}
+	rest := id[len(openAICompatIDPrefix):]
+	slash := indexByte(rest, '/')
+	if slash <= 0 || slash == len(rest)-1 {
+		return "", "", false
+	}
+	return rest[:slash], rest[slash+1:], true
+}
+
+// BuildOpenAICompatID は ConnectionID・RemoteModelID から正規化済みモデル ID を作る
+// （ParseOpenAICompatID の逆操作。ID 生成もここへ集約する）。
+func BuildOpenAICompatID(connectionID, remoteModelID string) string {
+	return openAICompatIDPrefix + connectionID + "/" + remoteModelID
+}
+
+// indexByte は strings.IndexByte の薄いラッパ（hasPrefix と同じく判定をこの
+// パッケージ内に閉じる意図の明示）。
+func indexByte(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // hasPrefix は strings.HasPrefix の薄いラッパ。

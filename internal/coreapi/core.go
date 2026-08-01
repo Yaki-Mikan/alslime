@@ -47,6 +47,14 @@ type CoreDeps struct {
 	PromptLocale func() PromptLocale
 	// DefaultModel はプロバイダ種別ごとのデフォルトモデルID解決（未設定は空）。
 	DefaultModel func(modelType sessions.ModelType) string
+	// ResolveAPIRequestTarget は openai_compat モデルIDから送信先を解決する
+	//（UserModel 正本を参照。chatflow が Request 構築直前に呼ぶ）。
+	// 不存在・接続先無効は *ProviderFailure を返す。
+	ResolveAPIRequestTarget func(modelID string) (APIRequestTarget, error)
+	// ResolveAPIConnection は接続先ID から接続情報（キー含む）を解決する。
+	// openaicompat エンジンが実行直前にのみ呼ぶ（秘密値を Request・ジョブへ
+	// 載せない構造的排除。失敗は *ProviderFailure）。
+	ResolveAPIConnection func(connectionID string) (APIConnectionInfo, error)
 	// ResolveGeminiExe / ResolveClaudeExe / ResolveAntigravityExe は各 CLI の
 	// 実行パス解決（設定優先→フォールバック探索。都度読み）。
 	ResolveGeminiExe      func() (string, error)

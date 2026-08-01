@@ -3,13 +3,15 @@ package chatjobs
 
 // Payload is the stable payload contract for chat/regenerate jobs.
 type Payload struct {
-	Message                 string   `json:"message,omitempty"`
-	SessionID               string   `json:"sessionId,omitempty"`
-	Model                   string   `json:"model,omitempty"`
-	Temperature             *float64 `json:"temperature,omitempty"`
-	DirectiveMode           string   `json:"directiveMode,omitempty"`
-	SSRPSettings            any      `json:"ssrpSettings,omitempty"`
-	AntigravityTempFileMode bool     `json:"antigravityTempFileMode,omitempty"`
-	GeminiTempFileMode      bool     `json:"geminiTempFileMode,omitempty"`
-	ClaudeEffort            string   `json:"claudeEffort,omitempty"`
+	Message                   string   `json:"message,omitempty"`
+	SessionID                 string   `json:"sessionId,omitempty"`
+	Model                     string   `json:"model,omitempty"`
+	Temperature               *float64 `json:"temperature,omitempty"`
+	DirectiveMode             string   `json:"directiveMode,omitempty"`
+	SSRPSettings              any      `json:"ssrpSettings,omitempty"`
+	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
+	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
+	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
+	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }

@@ -21,7 +21,7 @@ func (f *fakeStore) Save(data usermodelsstore.Data) error {
 
 func TestUpdateValidatesAndNormalizes(t *testing.T) {
 	store := &fakeStore{}
-	svc := New(store)
+	svc := New(store, nil)
 
 	saved, err := svc.Update(usermodelsstore.Data{
 		Added: []models.UserModel{
@@ -37,10 +37,10 @@ func TestUpdateValidatesAndNormalizes(t *testing.T) {
 		t.Errorf("トリムされていない: %+v", saved.Added[0])
 	}
 	if saved.Added[1].ThinkingLevel != "high" {
-		t.Errorf("thinkingLevel は小文字へ正規化されるはず: %q", saved.Added[1].ThinkingLevel)
+		t.Errorf("thinkingLevel は小文字へ正規化されるべき: %q", saved.Added[1].ThinkingLevel)
 	}
 	if len(saved.Hidden) != 1 || saved.Hidden[0] != "gemini-2.5-flash" {
-		t.Errorf("hidden は内蔵実在 ID のみ・重複除去されるはず: %v", saved.Hidden)
+		t.Errorf("hidden は内蔵実在 ID のみ・重複除去されるべき: %v", saved.Hidden)
 	}
 	if store.saved == nil {
 		t.Fatal("Save が呼ばれていない")
@@ -48,7 +48,7 @@ func TestUpdateValidatesAndNormalizes(t *testing.T) {
 }
 
 func TestUpdateRejectsInvalid(t *testing.T) {
-	svc := New(&fakeStore{})
+	svc := New(&fakeStore{}, nil)
 	cases := []struct {
 		name string
 		data usermodelsstore.Data
@@ -69,7 +69,7 @@ func TestUpdateRejectsInvalid(t *testing.T) {
 }
 
 func TestUpdateAcceptsExplicitProvider(t *testing.T) {
-	svc := New(&fakeStore{})
+	svc := New(&fakeStore{}, nil)
 	defer models.SetUserKinds(nil)
 
 	updated, err := svc.Update(usermodelsstore.Data{
@@ -79,16 +79,16 @@ func TestUpdateAcceptsExplicitProvider(t *testing.T) {
 		t.Fatalf("Update failed: %v", err)
 	}
 	if updated.Added[0].Provider != "claude" {
-		t.Errorf("provider は小文字へ正規化されるはず: %q", updated.Added[0].Provider)
+		t.Errorf("provider は小文字へ正規化されるべき: %q", updated.Added[0].Provider)
 	}
-	// 保存後は種別判定へ反映され、チャット投入経路が指定どおりになること。
+	// 保存後の種別判定へ反映され、チャット投入経路が指定どおりになること。
 	if got := models.KindOf("opus-latest"); got != models.KindClaude {
 		t.Errorf("KindOf へのオーバーライド反映漏れ: %q", got)
 	}
 }
 
 func TestUpdateRejectsUnknownProvider(t *testing.T) {
-	svc := New(&fakeStore{})
+	svc := New(&fakeStore{}, nil)
 	_, err := svc.Update(usermodelsstore.Data{
 		Added: []models.UserModel{{ID: "some-model", Provider: "openai"}},
 	})
@@ -101,7 +101,7 @@ func TestUpdateRejectsUnknownProvider(t *testing.T) {
 }
 
 func TestUpdateThinkingUsesExplicitProvider(t *testing.T) {
-	svc := New(&fakeStore{})
+	svc := New(&fakeStore{}, nil)
 	defer models.SetUserKinds(nil)
 
 	// claude- プレフィックスでも明示 gemini 指定なら Thinking を許可する。
@@ -119,13 +119,92 @@ func TestUpdateThinkingUsesExplicitProvider(t *testing.T) {
 	}
 }
 
+func TestUpdateOpenAICompatRows(t *testing.T) {
+	exists := func(id string) (bool, error) { return id == "conn-alive", nil }
+
+	t.Run("ID正規化上書きと正規化済み返却", func(t *testing.T) {
+		svc := New(&fakeStore{}, exists)
+		defer models.SetUserKinds(nil)
+		// クライアントが異なる ID を送ってもエラーにせずサーバー正規化値で上書きする。
+		saved, err := svc.Update(usermodelsstore.Data{
+			Added: []models.UserModel{{
+				ID:            "client-made-up-id",
+				Provider:      "openai_compat",
+				ConnectionID:  "conn-alive",
+				RemoteModelID: " deepseek/deepseek-chat ",
+			}},
+		})
+		if err != nil {
+			t.Fatalf("Update failed: %v", err)
+		}
+		row := saved.Added[0]
+		if row.ID != "openai_compat:conn-alive/deepseek/deepseek-chat" {
+			t.Fatalf("ID が正規化されるべき: %q", row.ID)
+		}
+		if row.RemoteModelID != "deepseek/deepseek-chat" {
+			t.Fatalf("RemoteModelID がトリムされるべき: %q", row.RemoteModelID)
+		}
+	})
+
+	t.Run("必須と実在確認", func(t *testing.T) {
+		svc := New(&fakeStore{}, exists)
+		cases := []struct {
+			name string
+			row  models.UserModel
+			want error
+		}{
+			{"ConnectionID必須", models.UserModel{Provider: "openai_compat", RemoteModelID: "m"}, ErrConnectionRequired},
+			{"RemoteModelID必須", models.UserModel{Provider: "openai_compat", ConnectionID: "conn-alive"}, ErrRemoteModelRequired},
+			{"接続先不存在拒否", models.UserModel{Provider: "openai_compat", ConnectionID: "conn-dead", RemoteModelID: "m"}, ErrConnectionNotFound},
+		}
+		for _, c := range cases {
+			if _, err := svc.Update(usermodelsstore.Data{Added: []models.UserModel{c.row}}); !errors.Is(err, c.want) {
+				t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+			}
+		}
+	})
+
+	t.Run("ThinkingとGeminiBaseの併用不可", func(t *testing.T) {
+		svc := New(&fakeStore{}, exists)
+		_, err := svc.Update(usermodelsstore.Data{
+			Added: []models.UserModel{{
+				Provider: "openai_compat", ConnectionID: "conn-alive", RemoteModelID: "m",
+				GeminiBase: "gemini-3.5-flash", ThinkingLevel: "high",
+			}},
+		})
+		if !errors.Is(err, ErrThinkingNotGemini) {
+			t.Fatalf("openai_compat 行への Thinking は拒否されるべき: %v", err)
+		}
+	})
+
+	t.Run("実在確認未結線は不存在扱い", func(t *testing.T) {
+		svc := New(&fakeStore{}, nil)
+		_, err := svc.Update(usermodelsstore.Data{
+			Added: []models.UserModel{{Provider: "openai_compat", ConnectionID: "conn-alive", RemoteModelID: "m"}},
+		})
+		if !errors.Is(err, ErrConnectionNotFound) {
+			t.Fatalf("安全側で不存在扱いのはず: %v", err)
+		}
+	})
+
+	t.Run("既存プロバイダ行は無変更", func(t *testing.T) {
+		svc := New(&fakeStore{}, exists)
+		saved, err := svc.Update(usermodelsstore.Data{
+			Added: []models.UserModel{{ID: "my-gemini-model"}},
+		})
+		if err != nil || saved.Added[0].ID != "my-gemini-model" {
+			t.Fatalf("既存行の検証が変わっている: %+v err=%v", saved, err)
+		}
+	})
+}
+
 func TestNewSyncsStoredProviderOverrides(t *testing.T) {
 	store := &fakeStore{data: usermodelsstore.Data{
 		Added: []models.UserModel{{ID: "boot-model", Provider: "antigravity"}},
 	}}
 	defer models.SetUserKinds(nil)
 
-	New(store)
+	New(store, nil)
 	if got := models.KindOf("boot-model"); got != models.KindAntigravity {
 		t.Errorf("起動時同期漏れ: %q", got)
 	}
@@ -138,7 +217,7 @@ func TestGeminiAliases(t *testing.T) {
 			{ID: "plain-model"},
 		},
 	}}
-	svc := New(store)
+	svc := New(store, nil)
 	aliases, err := svc.GeminiAliases()
 	if err != nil {
 		t.Fatalf("GeminiAliases failed: %v", err)
@@ -157,7 +236,7 @@ func TestMergedUsesStoreData(t *testing.T) {
 		Added:  []models.UserModel{{ID: "my-model"}},
 		Hidden: []string{"gemini-2.5-flash"},
 	}}
-	svc := New(store)
+	svc := New(store, nil)
 	merged, err := svc.Merged()
 	if err != nil {
 		t.Fatalf("Merged failed: %v", err)

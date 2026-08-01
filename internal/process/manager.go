@@ -16,23 +16,25 @@ import (
 
 // Limits は同時実行数の上限。global と各種別。
 type Limits struct {
-	Global      int `json:"global"`
-	Gemini      int `json:"gemini"`
-	Claude      int `json:"claude"`
-	Antigravity int `json:"antigravity"`
+	Global       int `json:"global"`
+	Gemini       int `json:"gemini"`
+	Claude       int `json:"claude"`
+	Antigravity  int `json:"antigravity"`
+	OpenAICompat int `json:"openai_compat"`
 }
 
 // InUse は現在の使用中スロット数。
 type InUse struct {
-	Global      int `json:"global"`
-	Gemini      int `json:"gemini"`
-	Claude      int `json:"claude"`
-	Antigravity int `json:"antigravity"`
+	Global       int `json:"global"`
+	Gemini       int `json:"gemini"`
+	Claude       int `json:"claude"`
+	Antigravity  int `json:"antigravity"`
+	OpenAICompat int `json:"openai_compat"`
 }
 
 // DefaultLimits は既定の上限（現行 Node 版と同じく全て 1）。
 func DefaultLimits() Limits {
-	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1}
+	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1, OpenAICompat: 1}
 }
 
 // Manager は 2 軸セマフォ。sync.Mutex でカウンタを保護する。
@@ -46,8 +48,13 @@ type Manager struct {
 // NewManager は既定上限の Manager を生成する。
 func NewManager() *Manager {
 	return &Manager{
-		limits:    DefaultLimits(),
-		kindInUse: map[models.Kind]int{models.KindGemini: 0, models.KindClaude: 0, models.KindAntigravity: 0},
+		limits: DefaultLimits(),
+		kindInUse: map[models.Kind]int{
+			models.KindGemini:       0,
+			models.KindClaude:       0,
+			models.KindAntigravity:  0,
+			models.KindOpenAICompat: 0,
+		},
 	}
 }
 
@@ -93,10 +100,11 @@ func (m *Manager) InUse() InUse {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return InUse{
-		Global:      m.globalInUse,
-		Gemini:      m.kindInUse[models.KindGemini],
-		Claude:      m.kindInUse[models.KindClaude],
-		Antigravity: m.kindInUse[models.KindAntigravity],
+		Global:       m.globalInUse,
+		Gemini:       m.kindInUse[models.KindGemini],
+		Claude:       m.kindInUse[models.KindClaude],
+		Antigravity:  m.kindInUse[models.KindAntigravity],
+		OpenAICompat: m.kindInUse[models.KindOpenAICompat],
 	}
 }
 
@@ -126,6 +134,8 @@ func (m *Manager) limitOf(kind models.Kind) int {
 		return m.limits.Claude
 	case models.KindAntigravity:
 		return m.limits.Antigravity
+	case models.KindOpenAICompat:
+		return m.limits.OpenAICompat
 	default:
 		return m.limits.Gemini
 	}
@@ -147,9 +157,10 @@ func clampLimits(l Limits) Limits {
 		return v
 	}
 	return Limits{
-		Global:      global,
-		Gemini:      clamp(l.Gemini),
-		Claude:      clamp(l.Claude),
-		Antigravity: clamp(l.Antigravity),
+		Global:       global,
+		Gemini:       clamp(l.Gemini),
+		Claude:       clamp(l.Claude),
+		Antigravity:  clamp(l.Antigravity),
+		OpenAICompat: clamp(l.OpenAICompat),
 	}
 }

@@ -60,6 +60,7 @@ func TestSessions_History_Title_Update_Resume(t *testing.T) {
 		Title:         "old",
 		IsSSRP:        true,
 		SSRPSettings:  map[string]any{"directiveMode": "C"},
+		LastModel:     "gemini-3.1-pro-preview",
 		Bindings: sessiondom.Bindings{
 			ActiveModelType: sessiondom.ModelGemini,
 			Gemini:          &sessiondom.Binding{NativeSessionID: "s1"},
@@ -133,6 +134,9 @@ func TestSessions_History_Title_Update_Resume(t *testing.T) {
 	}
 	if !resumeBody.Success || !resumeBody.IsSSRP || resumeBody.Config["directiveMode"] != "C" {
 		t.Fatalf("resume response 想定外: %#v", resumeBody)
+	}
+	if resumeBody.ModelType != sessiondom.ModelGemini || resumeBody.LastModel != "gemini-3.1-pro-preview" {
+		t.Fatalf("resume model state 想定外: %#v", resumeBody)
 	}
 	if len(resumeBody.History) != 2 || resumeBody.History[1].Content != "" {
 		t.Fatalf("resume history 想定外: %#v", resumeBody.History)

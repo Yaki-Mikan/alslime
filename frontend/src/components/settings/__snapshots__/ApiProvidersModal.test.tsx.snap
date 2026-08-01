@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`API接続先管理UI > 画面スナップショットにAPIキー値を含めず、編集時も空のpassword入力だけを出す 1`] = `
+<p
+  class="text-xs text-gray-400"
+>
+  キー: 設定済み
+   ／ 
+  モデル: 0件登録
+</p>
+`;

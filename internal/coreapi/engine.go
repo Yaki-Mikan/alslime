@@ -37,6 +37,27 @@ type Request struct {
 	IsNewSession   bool
 	MethodCContext []string
 	MethodCHistory []MethodCHistoryMessage
+	// Messages / APITarget は openai_compat 専用（MethodC系と同じ
+	// プロバイダ専用フィールドのパターン）。
+	Messages  []ChatMessage     `json:"messages,omitempty"`
+	APITarget *APIRequestTarget `json:"apiTarget,omitempty"`
+}
+
+// ChatMessage は openai_compat の messages 配列 1 要素。
+type ChatMessage struct {
+	Role    string `json:"role"` // "system" | "user" | "assistant"
+	Content string `json:"content"`
+}
+
+// APIRequestTarget は openai_compat の送信先（サーバー側で UserModel 正本から
+// 解決する。秘密値は含まない）。
+type APIRequestTarget struct {
+	ConnectionID  string `json:"connectionId"`
+	RemoteModelID string `json:"remoteModelId"` // 送信時 model フィールドへそのまま入る文字列
+	// Preset は接続先のプリセット ID（openrouter|openai|deepseek|opencode-go|custom）。
+	// chatflow が固定プリセット基本指示ファイルのパスを解決するために持つ
+	// （秘密を含まないサーバー解決情報）。
+	Preset string `json:"preset,omitempty"`
 }
 
 // Response is the provider result after CLI/native execution.
@@ -46,6 +67,12 @@ type Response struct {
 	ModelLabel      string
 	ProviderError   bool
 	ErrorType       string
+	// Usage は openai_compat の使用量回収結果（nil = なし）。
+	Usage *Usage
+	// RequestSent は HTTP リクエストが実際に送出されたか（httptrace の
+	// WroteHeaders 基準）。chatflow が EffectiveContent 保存可否を判定する
+	// 唯一の信号。正常受理時は常に true。
+	RequestSent bool
 }
 
 // MethodCHistoryMessage is the provider-neutral history used when recreating a

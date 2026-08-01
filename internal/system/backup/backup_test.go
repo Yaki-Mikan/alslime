@@ -47,6 +47,32 @@ func TestCreate_BackupIncludesSettingsAndExcludesCacheAndBackups(t *testing.T) {
 	assertNotContains(t, names, config.AuthWorkspaceGeminiFile)
 }
 
+func TestCreate_APIProviderSecretsExcludedFromBackup(t *testing.T) {
+	root := t.TempDir()
+	resolver := paths.NewResolver(root)
+	manager := New(resolver)
+	manager.now = func() time.Time { return time.Date(2026, 8, 1, 12, 0, 0, 0, time.Local) }
+
+	// 接続先メタデータ（通常領域）は backup 対象、秘密ストア（AuthDir 配下）は
+	// 既存の AuthDir 除外が自動で効いて含まれないこと。
+	writeFile(t, resolver, config.APIProvidersFile, `{"connections":[]}`)
+	writeFile(t, resolver, config.APIProviderSecretsFile, `{"secrets":{"conn-x":{"apiKey":"sk-SECRET"}}}`)
+	writeFile(t, resolver, config.OpenAICompatSystemPromptFile("ja"), "共通指示")
+
+	result, err := manager.Create()
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	backupAbs, err := resolver.ResolveExisting(result.Backup.Path)
+	if err != nil {
+		t.Fatalf("resolve backup failed: %v", err)
+	}
+	names := zipNames(t, backupAbs)
+	assertContains(t, names, config.APIProvidersFile)
+	assertContains(t, names, config.OpenAICompatSystemPromptFile("ja"))
+	assertNotContains(t, names, config.APIProviderSecretsFile)
+}
+
 func TestList_BackupsNewestFirst(t *testing.T) {
 	root := t.TempDir()
 	resolver := paths.NewResolver(root)

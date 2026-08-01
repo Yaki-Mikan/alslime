@@ -94,6 +94,10 @@ type Service struct {
 	modules   map[string]ModuleTarget
 	moduleIDs []string
 	verifySig func(payload []byte, sigB64 string) error
+	// moduleOpMu はモジュール変更操作（install / clean）の排他。UI の抑止は
+	// ブラウザ内に閉じるため、API 並行実行による配置物・レシートの破損を
+	// サーバー側で防ぐ（TryLock で競合時は ErrModuleBusy。交換日記 005-3）。
+	moduleOpMu sync.Mutex
 
 	// notices / uiLang は開発者お知らせの依存（ConfigureNotice で注入。
 	// 未設定の間はお知らせの取得・表示を行わない）。
@@ -110,12 +114,20 @@ type Service struct {
 type ModuleTarget struct {
 	// InstallPath は配置先の絶対パス（<WORKSPACE_ROOT>/modules/alslime-<id>(.exe)）。
 	InstallPath string
+	// ReceiptPath は配置レシートの絶対パス（module.ReceiptPath。
+	// 空の場合はレシートを書かない・読まない）。
+	ReceiptPath string
 	// Active は現在プロセスで当該サイドカーが起動しているか。
 	Active bool
 	// InstallCompanionPack は署名・ハッシュ検証済み付属パックの適用口。
 	// 戻り値は付属パックによって利用可能になった ComfyUI workflow
 	// テンプレート名。nil のモジュールは付属パックを取得しない。
 	InstallCompanionPack func(zipPath string) ([]string, error)
+	// WorkflowTemplateDir は companion pack が展開する workflow テンプレートの
+	// ルート絶対パス（<WORKSPACE_ROOT>/roleplay/global/ComfyUI/templates）。
+	// クリーン再導入がレシートのテンプレート名から削除先を組み立てるのに使う。
+	// 空のモジュールはテンプレート削除を行わない（01番 7章）。
+	WorkflowTemplateDir string
 }
 
 // ConfigureModules はサイドカーモジュール取得・配置の依存を注入する（複数対応）。

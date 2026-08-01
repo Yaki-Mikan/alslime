@@ -54,6 +54,40 @@ export const fetchModulesStatus = async (backendUrl: string): Promise<ModuleStat
 };
 
 // 指定モジュールを entitlement サーバーから取得・検証して配置する。
+// CleanPreview はクリーン再導入の削除対象（確認モーダル表示用）。
+export interface CleanPreview {
+    id: string;
+    exeInstalled: boolean;
+    receiptFound: boolean;
+    workflowTemplates: string[];
+}
+
+// クリーン再導入の削除対象一覧を取得する（削除は行わない）。
+export const fetchCleanPreview = async (backendUrl: string, moduleId: string): Promise<CleanPreview> => {
+    const response = await axios.get(`${backendUrl}/api/sponsor/module/clean-preview`, {
+        params: { module: moduleId },
+    });
+    return response.data;
+};
+
+// 配布物一式（テンプレート → exe → レシート）を削除して最新版を入れ直す。
+export const cleanModule = async (
+    backendUrl: string,
+    moduleId: string,
+    reinstall = true
+): Promise<{
+    success: boolean;
+    version: string;
+    restartRequired: boolean;
+    modules: ModuleStatusEntry[];
+}> => {
+    const response = await axios.post(`${backendUrl}/api/sponsor/module/clean`, {
+        module: moduleId,
+        reinstall,
+    });
+    return response.data;
+};
+
 export const installModule = async (
     backendUrl: string,
     moduleId: string
