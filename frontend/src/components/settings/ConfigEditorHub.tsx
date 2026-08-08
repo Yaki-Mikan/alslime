@@ -24,6 +24,9 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
     // FeatureComfyUI の有効状態（Chat が保持する enabledFeatures 由来）。
     imageGenEnabled: boolean;
+    // 設定ファイルエディタの種別「画像生成分析指示」の表示可否
+    //（ComfyUI機能が有効な支援レベル かつ モジュール連携済み。Chat 側で判定）。
+    comfyDirectiveVisible?: boolean;
     openApiProviderInstruction?: ApiProviderInstructionTarget | null;
     onOpenApiProviderInstructionConsumed?: () => void;
 }
@@ -36,6 +39,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
     backendUrl,
     uiCatalog = null,
     imageGenEnabled,
+    comfyDirectiveVisible = false,
     openApiProviderInstruction = null,
     onOpenApiProviderInstructionConsumed,
 }) => {
@@ -84,6 +88,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
                 onOpenFileRequestConsumed={() => setOpenFileRequest(null)}
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={onOpenApiProviderInstructionConsumed}
+                comfyDirectiveVisible={comfyDirectiveVisible}
             />
             <ConfigGenModal
                 isOpen={isOpen && tab === 'configGen'}

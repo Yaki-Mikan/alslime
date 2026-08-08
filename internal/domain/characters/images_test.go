@@ -2,7 +2,11 @@ package characters
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"testing"
@@ -62,6 +66,83 @@ func TestImageServiceRejectsInvalidUpload(t *testing.T) {
 	if _, err := svc.Upload("Alice", "喜び", "text/plain", bytes.NewReader([]byte("x"))); err == nil {
 		t.Fatalf("expected unsupported content type error")
 	}
+}
+
+func TestImageServiceUpload_申告MIMEでなく実データ形式を使う(t *testing.T) {
+	root := t.TempDir()
+	svc := NewImageService(paths.NewResolver(root))
+	jpegData := testJPEGBytes(t)
+
+	upload, err := svc.Upload("Alice", "happy", "image/png", bytes.NewReader(jpegData))
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+	if upload.OriginalImagePath != "originals/happy.jpg" {
+		t.Fatalf("実データは JPEG なので .jpg で保存されるべき: %#v", upload)
+	}
+
+	result, err := svc.Crop("Alice", "happy", CropData{
+		Zoom:              1,
+		CroppedAreaPixels: CropAreaPixels{X: 0, Y: 0, Width: 2, Height: 2},
+	})
+	if err != nil {
+		t.Fatalf("JPEG の切り抜きに失敗: %v", err)
+	}
+	if result.IconPath != "icons/happy.png" || result.FileHash == "" {
+		t.Fatalf("unexpected crop result: %#v", result)
+	}
+}
+
+func TestImageServiceCrop_WebPを切り抜ける(t *testing.T) {
+	root := t.TempDir()
+	svc := NewImageService(paths.NewResolver(root))
+	webpData, err := base64.StdEncoding.DecodeString("UklGRh4AAABXRUJQVlA4TBEAAAAvA8AAAAdQqOIVpf+BiOh/AAA=")
+	if err != nil {
+		t.Fatalf("WebP fixture decode failed: %v", err)
+	}
+
+	upload, err := svc.Upload("Alice", "happy", "image/webp", bytes.NewReader(webpData))
+	if err != nil {
+		t.Fatalf("WebP Upload failed: %v", err)
+	}
+	if upload.OriginalImagePath != "originals/happy.webp" {
+		t.Fatalf("WebP の保存先が不正: %#v", upload)
+	}
+	if _, err := svc.Crop("Alice", "happy", CropData{
+		Zoom:              1,
+		CroppedAreaPixels: CropAreaPixels{X: 0, Y: 0, Width: 2, Height: 2},
+	}); err != nil {
+		t.Fatalf("WebP の切り抜きに失敗: %v", err)
+	}
+}
+
+func TestDecodeCropSource_拡張子でなく実データを判定する(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mislabeled.png")
+	if err := os.WriteFile(path, testJPEGBytes(t), config.FilePerm); err != nil {
+		t.Fatalf("fixture write failed: %v", err)
+	}
+	_, format, err := decodeCropSource(path)
+	if err != nil {
+		t.Fatalf("JPEG 実データの判定に失敗: %v", err)
+	}
+	if format != "jpeg" {
+		t.Fatalf("実データは jpeg と判定されるべき: %q", format)
+	}
+}
+
+func testJPEGBytes(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(50 * x), G: uint8(50 * y), B: 120, A: 255})
+		}
+	}
+	buf := &bytes.Buffer{}
+	if err := jpeg.Encode(buf, img, nil); err != nil {
+		t.Fatalf("JPEG encode failed: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func writeEmotionDefinitions(t *testing.T, root string) {

@@ -90,6 +90,10 @@ type ComfyProvider interface {
 	// TagJudgeKind はタグ判定に使う provider 種別（ジョブの同時実行制御用。
 	// generate-from-chat がジョブ投入時に参照する）。
 	TagJudgeKind() models.Kind
+	// InProcess は本ビルドが in-process の画像生成実装を持つかを返す。
+	// false のビルドでは ComfyUI 供給はサイドカーのみで、モジュール未配置で
+	// 起動した場合も初回導入時にサイドカーを結線して有効化する。
+	InProcess() bool
 }
 
 // ConfigGenProgressSink は config-generate ジョブの経過追記口。

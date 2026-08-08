@@ -8,13 +8,16 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Save, FileText } from 'lucide-react';
+import { Save, FileText, RotateCcw } from 'lucide-react';
 import {
     listComfyDirectives,
     getComfyDirective,
     saveComfyDirective,
+    resetComfyDirective,
     type ComfyDirective,
 } from '../../../api/config-editor';
+import { getComfyUIConfig } from '../../../api/comfyui';
+import { directiveModeForDirectiveId } from '../../SSRP/ImageGenerationSettings';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 
 interface Props {
@@ -30,6 +33,11 @@ const FALLBACK_JA: Record<string, string> = {
     'comfyDirective.saving': '保存中...',
     'comfyDirective.save': '上書き保存',
     'comfyDirective.placeholder': '指示内容を入力...',
+    'comfyDirective.inUseBadge': 'グローバル設定で使用中',
+    'comfyDirective.reset': 'デフォルトに戻す',
+    'comfyDirective.resetConfirm': '指示ファイルを同梱デフォルトの内容に戻します。現在の内容は失われます。よろしいですか？',
+    'comfyDirective.resetDone': 'デフォルトに戻しました',
+    'comfyDirective.resetFailed': 'デフォルトへの復元に失敗しました',
 };
 
 export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCatalog = null }) => {
@@ -40,7 +48,11 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
     const [content, setContent] = useState('');
     const [isDirty, setIsDirty] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
     const [notice, setNotice] = useState('');
+    // グローバル設定で実行時に使われている directiveMode（「使用中」表示用。
+    // 編集対象の選択とは独立のため、どれが実際に使われるかを明示する）
+    const [activeDirectiveMode, setActiveDirectiveMode] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -53,6 +65,9 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
                 }
             })
             .catch(() => setNotice(t('comfyDirective.loadFailed')));
+        getComfyUIConfig(backendUrl)
+            .then(cfg => { if (!cancelled) setActiveDirectiveMode(cfg.directiveMode); })
+            .catch(() => { /* バッジ表示のみのため失敗は無視 */ });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [backendUrl]);
@@ -91,25 +106,43 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
         }
     };
 
+    // 同梱デフォルトへの復元。利用者の編集内容を破棄するため確認を挟む。
+    const handleReset = async () => {
+        if (!selectedId) return;
+        if (!confirm(t('comfyDirective.resetConfirm'))) return;
+        setIsResetting(true);
+        try {
+            const restored = await resetComfyDirective(backendUrl, selectedId);
+            setContent(restored);
+            setIsDirty(false);
+            showNotice(t('comfyDirective.resetDone'));
+        } catch {
+            showNotice(t('comfyDirective.resetFailed'));
+        } finally {
+            setIsResetting(false);
+        }
+    };
+
     return (
         <div className="space-y-3">
             <p className="text-xs text-gray-500">{t('comfyDirective.hint')}</p>
 
-            {/* directive 切り替え（Danbooru形式 / 自然文形式） */}
-            <div className="inline-flex rounded-lg border border-gray-700 bg-gray-800 p-1">
-                {directives.map(d => (
-                    <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => setSelectedId(d.id)}
-                        className={`px-3 py-1 text-xs rounded transition-colors ${selectedId === d.id
-                            ? 'bg-amber-700 text-white'
-                            : 'text-gray-300 hover:bg-gray-700'}`}
-                        title={d.file}
-                    >
-                        {d.label}
-                    </button>
-                ))}
+            {/* directive 切り替え（形式×視点の4件のためプルダウン） */}
+            <div className="flex items-center gap-2">
+                <select
+                    value={selectedId}
+                    onChange={e => setSelectedId(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 outline-none focus:border-amber-600 transition-colors"
+                >
+                    {directives.map(d => (
+                        <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                </select>
+                {selectedId && activeDirectiveMode === directiveModeForDirectiveId(selectedId) && (
+                    <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded whitespace-nowrap">
+                        {t('comfyDirective.inUseBadge')}
+                    </span>
+                )}
             </div>
 
             <textarea
@@ -122,11 +155,19 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
             <div className="flex items-center gap-3">
                 <button
                     onClick={handleSave}
-                    disabled={isSaving || !selectedId || !isDirty}
+                    disabled={isSaving || isResetting || !selectedId || !isDirty}
                     className="flex items-center gap-2 px-4 py-1.5 text-sm text-white bg-amber-700 hover:bg-amber-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <Save size={14} />
                     {isSaving ? t('comfyDirective.saving') : t('comfyDirective.save')}
+                </button>
+                <button
+                    onClick={handleReset}
+                    disabled={isSaving || isResetting || !selectedId}
+                    className="flex items-center gap-2 px-4 py-1.5 text-sm text-gray-300 border border-gray-600 rounded hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <RotateCcw size={14} />
+                    {t('comfyDirective.reset')}
                 </button>
                 {selectedId && (
                     <span className="flex items-center gap-1 text-xs text-gray-500">

@@ -20,6 +20,8 @@ type moduleInstallResponse struct {
 	Success                        bool                           `json:"success"`
 	Version                        string                         `json:"version"`
 	RestartRequired                bool                           `json:"restartRequired"`
+	SidecarRestarted               bool                           `json:"sidecarRestarted"`
+	FirstInstall                   bool                           `json:"firstInstall"`
 	CompanionPackConfigured        bool                           `json:"companionPackConfigured"`
 	CompanionPackInstalled         bool                           `json:"companionPackInstalled"`
 	CompanionPackWorkflowTemplates []string                       `json:"companionPackWorkflowTemplates"`
@@ -102,7 +104,9 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 		writeJSON(w, moduleInstallResponse{
 			Success:                        true,
 			Version:                        result.Version,
-			RestartRequired:                true,
+			RestartRequired:                !result.SidecarRestarted,
+			SidecarRestarted:               result.SidecarRestarted,
+			FirstInstall:                   result.FirstInstall,
 			CompanionPackConfigured:        result.CompanionPackConfigured,
 			CompanionPackInstalled:         result.CompanionPackInstalled,
 			CompanionPackWorkflowTemplates: result.CompanionPackWorkflowTemplates,
@@ -159,7 +163,9 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 		writeJSON(w, moduleInstallResponse{
 			Success:                        true,
 			Version:                        result.Version,
-			RestartRequired:                true,
+			RestartRequired:                !result.SidecarRestarted,
+			SidecarRestarted:               result.SidecarRestarted,
+			FirstInstall:                   result.FirstInstall,
 			CompanionPackConfigured:        result.CompanionPackConfigured,
 			CompanionPackInstalled:         result.CompanionPackInstalled,
 			CompanionPackWorkflowTemplates: result.CompanionPackWorkflowTemplates,

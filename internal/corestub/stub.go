@@ -69,3 +69,4 @@ type stubComfy struct{}
 func (stubComfy) RegisterRoutes(*http.ServeMux, *jobs.Queue, coreapi.FeatureGate) {}
 func (stubComfy) ImageRunner() jobs.Runner                                        { return jobs.NotImplementedRunner{} }
 func (stubComfy) TagJudgeKind() models.Kind                                       { return models.KindGemini }
+func (stubComfy) InProcess() bool                                                 { return false }

@@ -6,7 +6,7 @@ import axios from '../lib/axios';
 import type { ClaudeEffort } from '../constants/claude';
 
 // 型定義
-export type DirectiveMode = 'danbooru_only' | 'natural_language';
+export type DirectiveMode = 'danbooru_only' | 'natural_language' | 'danbooru_third_person' | 'natural_language_third_person';
 export type DanbooruTagFormat = 'underscore' | 'space';
 /** トリガーワードのコピー時変換。raw=変換なし / underscore=スペース→_ / space=_→スペース */
 export type TriggerWordFormat = 'raw' | 'underscore' | 'space';
@@ -31,6 +31,8 @@ export interface ComfyUIConfig {
     lightweightImageSave: LightweightImageSaveConfig;
     /** 選択中のプレースホルダプリセット名（空/未設定は未選択） */
     placeholderPresetName?: string;
+    /** directiveMode値ごとの使用ワークフロー名。未登録・空値は共通（defaultTemplateId）を使う */
+    workflowByDirectiveMode?: Record<string, string>;
 }
 
 /** プレースホルダプリセットの1行（変換元→変換先。description はタグ判定AIへの状況説明） */
@@ -389,6 +391,9 @@ export async function searchDanbooruTags(
 export interface ImageAttachment {
     id: string;
     characterName: string;
+    /** 生成元のチャットバブル（TURN）。両方未設定は旧データ（メッセージ末尾表示） */
+    turnId?: string;
+    turnIndex?: number;
     createdAt: string;
     filename: string;
     mimeType: string;
@@ -412,17 +417,30 @@ export interface GenerateFromChatJobResult {
 }
 
 // 会話履歴からタグ判定 + 画像生成（ジョブキュー方式。即座にjobIdを返す）
+// turnId / turnIndex は生成対象のチャットバブル指定（turnId優先。両方省略は従来動作）
 export async function generateFromChat(
     backendUrl: string,
     sessionId: string,
     messageId: string,
+    turnId?: string | null,
+    turnIndex?: number,
     characterName?: string,
     templateName?: string
 ): Promise<GenerateFromChatJobResult> {
     const res = await axios.post(`${backendUrl}/api/comfyui/generate-from-chat`, {
-        sessionId, messageId, characterName, templateName,
+        sessionId, messageId, turnId: turnId || undefined, turnIndex, characterName, templateName,
     });
     return res.data;
+}
+
+// 添付画像の削除（メタデータと、他から参照されていなければ画像ファイル本体も削除）
+export async function deleteImageAttachment(
+    backendUrl: string,
+    sessionId: string,
+    messageId: string,
+    attachmentId: string
+): Promise<void> {
+    await axios.delete(`${backendUrl}/api/comfyui/image-attachments/${encodeURIComponent(sessionId)}/${encodeURIComponent(messageId)}/${encodeURIComponent(attachmentId)}`);
 }
 
 // メッセージの添付画像一覧取得

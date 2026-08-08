@@ -29,6 +29,11 @@ type Settings struct {
 	// PostponedDate は「後で」を押した日付（ローカル日付 "2006-01-02" 形式）。
 	// 同日中は起動時の告知モーダルを出さない（翌日以降は再表示）。
 	PostponedDate string `json:"postponedDate"`
+	// PendingModuleUpdates は一括全更新でユーザーが承認したモジュール更新のうち、
+	// 本体の更新完了後でないと適用できないもの（minAppVersion 制約）の ID 一覧。
+	// 本体更新後の起動時に一度だけ適用を試み、成否に関わらずクリアされる
+	//（承認していない更新を起動時に勝手に適用しないための正本）。
+	PendingModuleUpdates []string `json:"pendingModuleUpdates,omitempty"`
 }
 
 // Store は update-settings.json の読み書きを担う。

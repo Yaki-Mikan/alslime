@@ -111,15 +111,18 @@ func FindProviderInstruction(id string) (ProviderInstruction, bool) {
 // API 層は FeatureComfyUI の gate を通す。provider 指示と違いパック対象でもある
 // （settingspack の comfyDirectives 種別と同じ実体を指す）。
 type ComfyDirective struct {
-	ID    string // "danbooru" | "natural"
+	ID    string // "danbooru" | "natural" | "danbooru_third" | "natural_third"
 	Label string
 	File  string // WORKSPACE_ROOT 相対の固定ファイル
 }
 
 // comfyDirectives はタグ判定指示ファイル定義の正本（順序維持）。
+// 既存2件のIDは互換のため変更しない（ラベルのみ視点表記を追加）。
 var comfyDirectives = []ComfyDirective{
-	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式）", File: config.ComfyUIDirectiveDanbooruFile},
-	{ID: "natural", Label: "タグ判定指示（自然文形式）", File: config.ComfyUIDirectiveNaturalFile},
+	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveDanbooruFile},
+	{ID: "natural", Label: "タグ判定指示（自然文形式・一人称視点）", File: config.ComfyUIDirectiveNaturalFile},
+	{ID: "danbooru_third", Label: "タグ判定指示（Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveDanbooruThirdFile},
+	{ID: "natural_third", Label: "タグ判定指示（自然文形式・三人称視点）", File: config.ComfyUIDirectiveNaturalThirdFile},
 }
 
 // ComfyDirectives は全定義を順序どおり返す（一覧 API 用）。

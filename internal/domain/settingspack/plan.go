@@ -209,7 +209,8 @@ func integrityWarnings(entries []PlanEntry, exists func(string) bool) []Warning 
 			hasDirective = true
 		}
 	}
-	directiveExists := exists(config.ComfyUIDirectiveDanbooruFile) || exists(config.ComfyUIDirectiveNaturalFile)
+	directiveExists := exists(config.ComfyUIDirectiveDanbooruFile) || exists(config.ComfyUIDirectiveNaturalFile) ||
+		exists(config.ComfyUIDirectiveDanbooruThirdFile) || exists(config.ComfyUIDirectiveNaturalThirdFile)
 	profileExists := exists(config.ComfyUIProfileDir)
 	if hasProfile && !hasDirective && !directiveExists {
 		warnings = append(warnings, Warning{Key: WarnProfileWithoutDirective})

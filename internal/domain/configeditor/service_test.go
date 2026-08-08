@@ -323,14 +323,22 @@ func TestComfyDirectives_一覧と読み書き(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 2 {
-		t.Fatalf("2 件のはず: %d", len(list))
+	if len(list) != 4 {
+		t.Fatalf("4 件（一人称・三人称 × Danbooru・自然文）のはず: %d", len(list))
 	}
 
 	// 未作成の読み取りは空文字。
 	content, err := svc.ReadComfyDirective("danbooru")
 	if err != nil || content != "" {
 		t.Fatalf("未作成は空のはず: content=%q err=%v", content, err)
+	}
+
+	// 三人称版も同じ固定ファイル機構で読み書きできる。
+	if err := svc.WriteComfyDirective("danbooru_third", "# third"); err != nil {
+		t.Fatalf("Write(danbooru_third): %v", err)
+	}
+	if content, err := svc.ReadComfyDirective("danbooru_third"); err != nil || content != "# third" {
+		t.Fatalf("Read(danbooru_third): content=%q err=%v", content, err)
 	}
 
 	// 書き込み → ComfyUI ディレクトリ配下の固定名に保存される。

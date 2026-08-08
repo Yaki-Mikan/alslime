@@ -16,6 +16,7 @@
 //	GET    /defaults
 //	POST   /defaults                                   body { categoryId, templateName }
 //	GET    /initial-content/{categoryId}
+//	POST   /comfy-directive/{directiveId}/reset
 package configeditor
 
 import (
@@ -33,6 +34,7 @@ import (
 	"alslime/internal/i18n"
 	"alslime/internal/storage/paths"
 	"alslime/internal/storage/safename"
+	"alslime/internal/system/firstrun"
 )
 
 // Register は Config Editor 系ルートを mux へ登録する。
@@ -69,6 +71,7 @@ func Register(mux *http.ServeMux, svc *domain.Service, gate coreapi.FeatureGate)
 	mux.HandleFunc(http.MethodGet+" "+base+routeComfyDirectives, withImageGenGate(gate, handleListComfyDirectives(svc)))
 	mux.HandleFunc(http.MethodGet+" "+base+routeComfyDirective, withImageGenGate(gate, handleGetComfyDirective(svc)))
 	mux.HandleFunc(http.MethodPost+" "+base+routeComfyDirective, withImageGenGate(gate, handleSaveComfyDirective(svc)))
+	mux.HandleFunc(http.MethodPost+" "+base+routeComfyDirectiveReset, withImageGenGate(gate, handleResetComfyDirective(svc)))
 }
 
 // withImageGenGate は FeatureComfyUI が無効なら 403 を返すミドルウェア。
@@ -358,6 +361,32 @@ func handleSaveComfyDirective(svc *domain.Service) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, successResponse{Success: true})
+	}
+}
+
+// handleResetComfyDirective は指示ファイルを同梱デフォルトの内容へ上書きする。
+// 利用者の編集内容を破棄する操作のため、フロント側の確認を経て呼ばれる想定。
+// 復元後の本文を返し、UI が再取得なしで表示を更新できるようにする。
+// firstrun（同梱デフォルトの正本）との合成はドメイン層でなくここで行う
+// （firstrun がドメインを import しているため、逆参照は循環になる）。
+func handleResetComfyDirective(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		d, ok := domain.FindComfyDirective(r.PathValue(pathParamDirectiveID))
+		if !ok {
+			writeError(w, domain.ErrUnknownComfyDirective)
+			return
+		}
+		data, err := firstrun.DefaultContent(d.File)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		content := string(data)
+		if err := svc.WriteComfyDirective(d.ID, content); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, contentResponse{Content: content})
 	}
 }
 

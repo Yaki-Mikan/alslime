@@ -57,6 +57,8 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		".agents/rules/AGENTS.md",
 		"roleplay/global/ComfyUI/image_gen_directive.md",
 		"roleplay/global/ComfyUI/image_gen_directive_natural.md",
+		"roleplay/global/ComfyUI/image_gen_directive_third.md",
+		"roleplay/global/ComfyUI/image_gen_directive_natural_third.md",
 		"roleplay/global/writing_styles/一人称視点_標準.md",
 		// openai_compat の API 共通基本指示と固定 3 プリセット基本指示（ja/en）。
 		"roleplay/global/prompts/openai-compat/system.ja.md",
@@ -186,6 +188,39 @@ func TestEnsure_編集済みAPI指示を上書きしない(t *testing.T) {
 		if err != nil || string(got) != string(edited) {
 			t.Errorf("編集済み %s が上書きされた: %q err=%v", rel, got, err)
 		}
+	}
+}
+
+func TestDefaultContent_初回書き出しと同一内容を返す(t *testing.T) {
+	root := t.TempDir()
+	if err := Ensure(root); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	// 素通しの通常ファイルと、基本指示を合成するプリセット指示の両経路を確認する。
+	targets := []string{
+		"roleplay/global/ComfyUI/image_gen_directive.md",
+		"roleplay/global/prompts/openai-compat/presets/deepseek/system.ja.md",
+	}
+	for _, rel := range targets {
+		got, err := DefaultContent(rel)
+		if err != nil {
+			t.Errorf("DefaultContent(%s): %v", rel, err)
+			continue
+		}
+		written, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if readErr != nil {
+			t.Errorf("読み戻し (%s): %v", rel, readErr)
+			continue
+		}
+		if !bytes.Equal(got, written) {
+			t.Errorf("%s の DefaultContent が初回書き出しの内容と一致しない", rel)
+		}
+	}
+}
+
+func TestDefaultContent_未知パスはエラー(t *testing.T) {
+	if _, err := DefaultContent("roleplay/global/ComfyUI/no_such_file.md"); err == nil {
+		t.Fatal("未知パスでエラーにならなかった")
 	}
 }
 

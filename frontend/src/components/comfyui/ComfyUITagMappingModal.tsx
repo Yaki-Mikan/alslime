@@ -144,24 +144,19 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                 setMappingData({ categoryId: selectedCategoryId, tags: [] });
             }
 
-            // このカテゴリにLoRAプレフィックスがあればLoRA一覧も取得
-            const cat = categories.find(c => c.id === selectedCategoryId);
-            if (cat && cat.loraPrefixes.length > 0) {
-                try {
-                    const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
-                    setLoraList(loras);
-                } catch (e) {
-                    // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
-                    // 読み込み済みのタグマッピングを破棄しない。
-                    setLoraList([]);
-                    console.error('[ComfyUITagMappingModal] lora list load failed:', e);
-                }
-            } else {
+            // LoRA一覧も取得（カテゴリ別の絞り込みはバックエンドのディレクトリ設定で行う）
+            try {
+                const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
+                setLoraList(loras);
+            } catch (e) {
+                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
+                // 読み込み済みのタグマッピングを破棄しない。
                 setLoraList([]);
+                console.error('[ComfyUITagMappingModal] lora list load failed:', e);
             }
             setIsLoading(false);
         })();
-    }, [isOpen, selectedCategoryId, categories, backendUrl]);
+    }, [isOpen, selectedCategoryId, backendUrl]);
 
     // 外側クリックでLoRAドロップダウン閉じる
     useEffect(() => {
@@ -174,8 +169,6 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
         return () => document.removeEventListener('mousedown', handleClick);
     }, []);
 
-    const selectedCategory = categories.find(c => c.id === selectedCategoryId);
-    const hasLoraPrefixes = selectedCategory ? selectedCategory.loraPrefixes.length > 0 : false;
     const selectedTag = mappingData && selectedTagIndex !== null ? mappingData.tags[selectedTagIndex] : null;
 
     // 現在カテゴリのLoRAディレクトリ値
@@ -470,7 +463,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                             {sortOrder === 'asc' ? <ArrowUp size={10} /> : sortOrder === 'desc' ? <ArrowDown size={10} /> : <ArrowUpDown size={10} className="opacity-40" />}
                                         </button>
                                         <span className="flex-1">{TAG_MAPPING.LABELS.DANBOORU_PROMPT_SHORT}</span>
-                                        {hasLoraPrefixes && <span className="w-16 text-center">LoRA</span>}
+                                        <span className="w-16 text-center">LoRA</span>
                                         <span className="w-8" />
                                     </div>
                                     {/* タグ行 */}
@@ -493,11 +486,9 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                             >
                                                 <span className="flex-1 truncate">{tag.key || TAG_MAPPING.MESSAGES.NOT_SET}</span>
                                                 <span className="flex-1 truncate text-gray-400">{tag.prompt || '-'}</span>
-                                                {hasLoraPrefixes && (
-                                                    <span className="w-16 text-center text-xs">
-                                                        {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
-                                                    </span>
-                                                )}
+                                                <span className="w-16 text-center text-xs">
+                                                    {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                                </span>
                                                 <button
                                                     onClick={e => { e.stopPropagation(); deleteTag(idx); }}
                                                     className="w-8 flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors"
@@ -645,8 +636,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                     )}
 
                                     {/* LoRA選択 */}
-                                    {hasLoraPrefixes && (
-                                        <div className="space-y-1" ref={loraDropdownRef}>
+                                    <div className="space-y-1" ref={loraDropdownRef}>
                                             <div className="flex items-center justify-between">
                                                 <label className="text-xs text-gray-500">LoRA</label>
                                                 <button
@@ -797,8 +787,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                                     </div>
                                                 );
                                             })}
-                                        </div>
-                                    )}
+                                    </div>
                                 </div>
                             )}
                         </>

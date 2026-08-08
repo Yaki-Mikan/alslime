@@ -17,6 +17,8 @@ export interface CharacterTurn {
     emotion: string | null;
     /** シーン情報。nullの場合は指定なし */
     scene: string | null;
+    /** TURN固有ID（バックエンドが保存時に付与）。ID無し旧メッセージはnull */
+    turnId: string | null;
     /** ターンの内容（セリフ、内心、行動描写など） */
     content: string;
     /** メッセージ内でのTURNの出現順序（0始まりのインデックス） */
@@ -24,17 +26,30 @@ export interface CharacterTurn {
 }
 
 /**
- * [TURN character="キャラ名" emotion="心情名" scene="シーン情報"]...[/TURN]形式のタグにマッチする正規表現
+ * [TURN character="キャラ名" emotion="心情名" scene="シーン情報" id="t_xxxxxxxx"]...[/TURN]形式のタグにマッチする正規表現
  *
  * - `\[TURN\s+character="([^"]+)"` - 開始タグ（キャラ名をキャプチャ）
- * - `(?:\s+emotion="([^"]+)")?` - emotion属性（オプショナル、心情名をキャプチャ）
- * - `(?:\s+scene="([^"]+)")?` - scene属性（オプショナル、シーン情報をキャプチャ）
- * - `(?:\s+\w+="[^"]*")*` - 将来の未知の属性を許容（キャプチャしない）
+ * - `((?:\s+\w+="[^"]*")*)` - character以降の属性部を丸ごとキャプチャ
+ *   （emotion / scene / id / 将来の未知属性。個別値は TURN_ATTR_REGEX で抽出する）
  * - `\]` - 開始タグ終了
  * - `([\s\S]*?)` - コンテンツ（非貪欲マッチ）
  * - `(?:\[\/TURN\]|$)` - 終了タグ、もしくは文字列の終端（トークン上限による途切れ対応）
  */
-const TURN_REGEX = /\[TURN\s+character="([^"]+)"(?:\s+emotion="([^"]+)")?(?:\s+scene="([^"]+)")?(?:\s+\w+="[^"]*")*\]([\s\S]*?)(?:\[\/TURN\]|$)/g;
+const TURN_REGEX = /\[TURN\s+character="([^"]+)"((?:\s+\w+="[^"]*")*)\]([\s\S]*?)(?:\[\/TURN\]|$)/g;
+
+/** 属性部から key="value" を列挙する正規表現 */
+const TURN_ATTR_REGEX = /\s(\w+)="([^"]*)"/g;
+
+/** 属性部文字列を {emotion, scene, id 等} の連想へ展開する */
+const parseTurnAttrs = (attrs: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    TURN_ATTR_REGEX.lastIndex = 0;
+    let m;
+    while ((m = TURN_ATTR_REGEX.exec(attrs)) !== null) {
+        out[m[1]] = m[2];
+    }
+    return out;
+};
 
 /**
  * AIの応答を複数キャラクターのターンに分割する
@@ -74,16 +89,16 @@ export function parseMultiCharacterResponse(content: string): CharacterTurn[] {
 
     while ((match = TURN_REGEX.exec(content)) !== null) {
         const character = match[1];
-        const emotion = match[2] || null; // emotion属性（オプショナル）
-        const scene = match[3] || null; // scene属性（オプショナル）
-        const turnContent = match[4].trim();
+        const attrs = parseTurnAttrs(match[2]);
+        const turnContent = match[3].trim();
 
         // 空のコンテンツはスキップ
         if (turnContent.length > 0) {
             turns.push({
                 character,
-                emotion,
-                scene,
+                emotion: attrs.emotion || null,
+                scene: attrs.scene || null,
+                turnId: attrs.id || null,
                 content: turnContent,
                 index: turnIndex++
             });
@@ -96,6 +111,7 @@ export function parseMultiCharacterResponse(content: string): CharacterTurn[] {
             character: null,
             emotion: null,
             scene: null,
+            turnId: null,
             content: content,
             index: 0
         }];

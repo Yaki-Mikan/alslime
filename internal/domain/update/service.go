@@ -16,6 +16,7 @@ import (
 
 	"alslime/internal/buildinfo"
 	"alslime/internal/config"
+	"alslime/internal/logging"
 	"alslime/internal/semver"
 	storage "alslime/internal/storage/updatesettings"
 )
@@ -59,6 +60,10 @@ type SettingsPatch struct {
 	// PostponeToday が true のとき「後で」の日付をサーバー側の現在日付で記録する
 	// （日付の出所をバックエンドに固定し、フロントからは真偽値だけ受ける）。
 	PostponeToday *bool `json:"postponeToday"`
+	// ApproveModuleUpdates は一括全更新の承認時に、本体更新後でないと適用
+	// できないモジュール ID を記録する（本体更新後の起動時に一度だけ適用）。
+	// 空配列は記録のクリア。
+	ApproveModuleUpdates *[]string `json:"approveModuleUpdates"`
 }
 
 // Service は本体アップデート確認と設定の読み書きを担う。
@@ -76,6 +81,10 @@ type Service struct {
 	dlClient   *http.Client
 	applyMu    sync.Mutex
 	applyState ApplyStatus
+
+	// 承認済みモジュール更新の適用進行（RunApprovedModuleUpdates が更新する）。
+	moduleApplyMu    sync.Mutex
+	moduleApplyState ModuleApplyStatus
 }
 
 // New は Service を生成する。
@@ -180,11 +189,104 @@ func (s *Service) UpdateSettings(patch SettingsPatch) (SettingsView, error) {
 			current.PostponedDate = ""
 		}
 	}
+	if patch.ApproveModuleUpdates != nil {
+		ids := make([]string, 0, len(*patch.ApproveModuleUpdates))
+		for _, id := range *patch.ApproveModuleUpdates {
+			if trimmed := strings.TrimSpace(id); trimmed != "" {
+				ids = append(ids, trimmed)
+			}
+		}
+		current.PendingModuleUpdates = ids
+	}
 	saved, err := s.store.Save(current)
 	if err != nil {
 		return SettingsView{}, err
 	}
 	return toView(saved), nil
+}
+
+// ModuleApplyStatus は承認済みモジュール更新の適用進行
+// （GET /api/update/status の moduleApply 部）。
+type ModuleApplyStatus struct {
+	// Applying は適用が進行中か。
+	Applying bool `json:"applying"`
+	// CurrentID は適用中のモジュール ID（進行中のみ）。
+	CurrentID string `json:"currentId,omitempty"`
+	// Done はこの起動での適用が完了したか（適用が行われた場合のみ true）。
+	Done bool `json:"done"`
+	// CompletedAt は完了時刻（RFC3339）。フロントの完了報告は再読み込み時の
+	// 再表示を直近数分に留めるため、この時刻で判定する。
+	CompletedAt string `json:"completedAt,omitempty"`
+	// FailedIDs は適用に失敗したモジュール ID（空なら全て成功）。
+	FailedIDs []string `json:"failedIds,omitempty"`
+}
+
+// ModuleApplyState は承認済みモジュール更新の適用進行のスナップショットを返す。
+func (s *Service) ModuleApplyState() ModuleApplyStatus {
+	s.moduleApplyMu.Lock()
+	defer s.moduleApplyMu.Unlock()
+	state := s.moduleApplyState
+	state.FailedIDs = append([]string(nil), s.moduleApplyState.FailedIDs...)
+	return state
+}
+
+// RunApprovedModuleUpdates は一括全更新でユーザーが承認済みのモジュール更新を
+// 適用する（本体更新後の起動時に一度だけ呼ぶ）。承認記録が無ければ何もしない。
+// 承認の取り出しと進行状態の設定は同期で行い（ページ読み込みが適用より先に
+// 完了しても「適用中」を取りこぼさない）、適用本体はバックグラウンドで進む。
+// install は 1 モジュールの取得・配置・サイドカー再起動の実体（組み立て層で注入）。
+func (s *Service) RunApprovedModuleUpdates(ctx context.Context, install func(ctx context.Context, moduleID string) error) {
+	ids, err := s.ConsumePendingModuleUpdates()
+	if err != nil {
+		logging.Error("update: approved module updates load failed: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	s.moduleApplyMu.Lock()
+	s.moduleApplyState = ModuleApplyStatus{Applying: true, CurrentID: ids[0]}
+	s.moduleApplyMu.Unlock()
+	go func() {
+		failed := make([]string, 0, len(ids))
+		for _, id := range ids {
+			s.moduleApplyMu.Lock()
+			s.moduleApplyState.CurrentID = id
+			s.moduleApplyMu.Unlock()
+			if err := install(ctx, id); err != nil {
+				logging.Error("update: approved module %s update failed: %v", id, err)
+				failed = append(failed, id)
+				continue
+			}
+			logging.Info("update: approved module %s update applied", id)
+		}
+		s.moduleApplyMu.Lock()
+		s.moduleApplyState = ModuleApplyStatus{
+			Done:        true,
+			CompletedAt: s.now().Format(time.RFC3339),
+			FailedIDs:   failed,
+		}
+		s.moduleApplyMu.Unlock()
+	}()
+}
+
+// ConsumePendingModuleUpdates は承認済みモジュール更新の一覧を取り出し、記録を
+// クリアする（本体更新後の起動時に一度だけ呼ぶ）。適用の試行は一度きりとし、
+// 失敗した分は通常の更新告知の経路に戻す（起動のたびの再試行はしない）。
+func (s *Service) ConsumePendingModuleUpdates() ([]string, error) {
+	settings, err := s.store.Load()
+	if err != nil {
+		return nil, err
+	}
+	if len(settings.PendingModuleUpdates) == 0 {
+		return nil, nil
+	}
+	ids := settings.PendingModuleUpdates
+	settings.PendingModuleUpdates = nil
+	if _, err := s.store.Save(settings); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func toView(settings storage.Settings) SettingsView {

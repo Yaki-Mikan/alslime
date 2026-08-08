@@ -32,6 +32,9 @@ func Register(mux *http.ServeMux, svc *charsvc.Service) {
 // RegisterImages はキャラクター画像系ルートを mux へ登録する。
 func RegisterImages(mux *http.ServeMux, svc *charsvc.ImageService) {
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterEmotions, handleEmotions(svc))
+	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeEmotionCatalog, handleEmotionCatalog(svc))
+	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeEmotionCatalog, handleSaveEmotionCatalog(svc))
+	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeEmotionImagePrune, handlePruneEmotionImages(svc))
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterImages, handleCharacterImages(svc))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeCharacterImageUpload, handleUploadImage(svc))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeCharacterImageCrop, handleCropImage(svc))
@@ -91,6 +94,44 @@ func handleEmotions(svc *charsvc.ImageService) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+func handleEmotionCatalog(svc *charsvc.ImageService) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		data, err := svc.EmotionCatalog()
+		if err != nil {
+			apierror.Write(w, apierror.Internal(err))
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+func handleSaveEmotionCatalog(svc *charsvc.ImageService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req charsvc.EmotionCatalogData
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(errKeyInvalidImageUploadForm))
+			return
+		}
+		result, err := svc.SaveEmotionCatalog(req)
+		if err != nil {
+			writeImageServiceError(w, err)
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: result})
+	}
+}
+
+func handlePruneEmotionImages(svc *charsvc.ImageService) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		result, err := svc.PruneOrphanImages()
+		if err != nil {
+			writeImageServiceError(w, err)
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: result})
 	}
 }
 
@@ -205,6 +246,14 @@ func writeImageServiceError(w http.ResponseWriter, err error) {
 		apierror.Write(w, apierror.NewKey(http.StatusUnsupportedMediaType, errKeyUnsupportedCropImageType))
 	case errors.Is(err, charsvc.ErrInvalidCropData):
 		apierror.Write(w, apierror.BadRequestKey(errKeyInvalidCropData))
+	case errors.Is(err, charsvc.ErrEmotionNameInvalid):
+		apierror.Write(w, apierror.BadRequestKey(errKeyEmotionNameInvalid))
+	case errors.Is(err, charsvc.ErrEmotionNameDuplicate):
+		apierror.Write(w, apierror.BadRequestKey(errKeyEmotionNameDuplicate))
+	case errors.Is(err, charsvc.ErrEmotionDefaultRequired):
+		apierror.Write(w, apierror.BadRequestKey(errKeyEmotionDefaultRequired))
+	case errors.Is(err, charsvc.ErrEmotionCatalogMissing):
+		apierror.Write(w, apierror.BadRequestKey(errKeyEmotionCatalogMissing))
 	default:
 		apierror.Write(w, apierror.Internal(err))
 	}

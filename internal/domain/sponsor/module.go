@@ -77,6 +77,12 @@ type ModuleInstallResult struct {
 	CompanionPackConfigured        bool
 	CompanionPackInstalled         bool
 	CompanionPackWorkflowTemplates []string
+	// SidecarRestarted は配置後にサイドカーを新実体で起動し直せたか。
+	// false は従来通り本体の再起動で有効化する（未起動モジュール・再起動失敗）。
+	SidecarRestarted bool
+	// FirstInstall は配置先に実行ファイルが無い状態からの導入か
+	//（更新との文言出し分け用。クリーン再導入後の入れ直しも含む）。
+	FirstInstall bool
 }
 
 // ModuleStatusEntry は 1 モジュールの配置状態（GET /api/sponsor/modules の要素）。
@@ -85,8 +91,8 @@ type ModuleStatusEntry struct {
 	ID string `json:"id"`
 	// Installed はモジュール実行ファイルが配置済みか。
 	Installed bool `json:"installed"`
-	// Active は現在のプロセスで当該サイドカーが起動しているか。
-	// 配置直後は false のままで、本体の再起動後に有効になる。
+	// Active は現在のプロセスで当該サイドカーが起動しているか
+	//（配置直後の自動起動・更新後の起こし直しも反映した実測値）。
 	Active bool `json:"active"`
 }
 
@@ -102,7 +108,8 @@ func (s *Service) ModulesStatus() []ModuleStatusEntry {
 		if _, err := os.Stat(target.InstallPath); err == nil {
 			installed = true
 		}
-		out = append(out, ModuleStatusEntry{ID: id, Installed: installed, Active: target.Active})
+		active := target.Active != nil && target.Active()
+		out = append(out, ModuleStatusEntry{ID: id, Installed: installed, Active: active})
 	}
 	return out
 }
@@ -214,6 +221,7 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 		Version:                        manifest.Version,
 		CompanionPackConfigured:        target.InstallCompanionPack != nil,
 		CompanionPackWorkflowTemplates: []string{},
+		FirstInstall:                   !usedBackup,
 	}
 	receipt := moduleReceipt{
 		Module:      moduleID,
@@ -226,6 +234,8 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 		if err != nil {
 			logging.Error("sponsor: module %s companion pack install failed: %v", moduleID, err)
 			s.writeReceipt(target.ReceiptPath, receipt)
+			// バイナリ自体は入れ替わっているため、再起動して新実体を有効化する。
+			result.SidecarRestarted = s.restartSidecar(moduleID, target)
 			return result, nil
 		}
 		result.CompanionPackInstalled = true
@@ -238,7 +248,23 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 		}
 	}
 	s.writeReceipt(target.ReceiptPath, receipt)
+	// 配置一式（バイナリ＋付属パック）が確定してから再起動する（新実体の即時有効化）。
+	result.SidecarRestarted = s.restartSidecar(moduleID, target)
 	return result, nil
+}
+
+// restartSidecar は配置済みの新実体でサイドカーを起動し直す（Restart 未設定は false）。
+// 再起動の失敗は配置の成功を覆さない（本体再起動で有効化できるためログのみ）。
+func (s *Service) restartSidecar(moduleID string, target ModuleTarget) bool {
+	if target.Restart == nil {
+		return false
+	}
+	if err := target.Restart(); err != nil {
+		logging.Error("sponsor: module %s sidecar restart failed: %v", moduleID, err)
+		return false
+	}
+	logging.Info("sponsor: module %s sidecar restarted", moduleID)
+	return true
 }
 
 // installCompanionPack は付属パックを取得・検証して適用する。

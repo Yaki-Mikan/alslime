@@ -101,6 +101,9 @@ const (
 	ReplacementConfigFile = "roleplay/global/settings/replacement_config.json"
 	// EmotionDefinitionsFile は SSRP 応答時に参照する心情定義ファイル。
 	EmotionDefinitionsFile = "roleplay/global/settings/emotion_definitions.json"
+	// EmotionCatalogFile は表情種別の管理用ファイル（無効な表情も含む正本）。
+	// AI 送信用の EmotionDefinitionsFile は保存時にここから有効な表情だけを抽出して生成する。
+	EmotionCatalogFile = "roleplay/global/settings/emotion_catalog.json"
 	// CalendarFile は日付時刻プロンプトで祝日名を判定するカレンダー定義ファイル。
 	CalendarFile = "roleplay/global/settings/calendar.json"
 	// CalendarLogFile は祝日カレンダー自動更新のログ。
@@ -199,10 +202,14 @@ const (
 	ComfyUITagMappingDir = ComfyUIDir + "/tag_mappings"
 	// ComfyUITagCategoriesFile はタグカテゴリ定義の正本。
 	ComfyUITagCategoriesFile = ComfyUITagMappingDir + "/categories.json"
-	// ComfyUIDirectiveDanbooruFile は画像生成タグ判定の Danbooru 指示ファイル。
+	// ComfyUIDirectiveDanbooruFile は画像生成タグ判定の Danbooru 指示ファイル（一人称視点）。
 	ComfyUIDirectiveDanbooruFile = ComfyUIDir + "/image_gen_directive.md"
-	// ComfyUIDirectiveNaturalFile は画像生成タグ判定の自然文指示ファイル。
+	// ComfyUIDirectiveNaturalFile は画像生成タグ判定の自然文指示ファイル（一人称視点）。
 	ComfyUIDirectiveNaturalFile = ComfyUIDir + "/image_gen_directive_natural.md"
+	// ComfyUIDirectiveDanbooruThirdFile は Danbooru 指示ファイルの三人称視点版。
+	ComfyUIDirectiveDanbooruThirdFile = ComfyUIDir + "/image_gen_directive_third.md"
+	// ComfyUIDirectiveNaturalThirdFile は自然文指示ファイルの三人称視点版。
+	ComfyUIDirectiveNaturalThirdFile = ComfyUIDir + "/image_gen_directive_natural_third.md"
 	// ComfyUIDebugDir は ComfyUI 連携のデバッグ出力ルート。
 	ComfyUIDebugDir = ComfyUIDir + "/debug"
 	// ComfyUITagJudgeResponsesDir はタグ判定AIの応答ログ格納先。

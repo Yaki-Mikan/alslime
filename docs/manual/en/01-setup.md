@@ -39,9 +39,14 @@ AlSlime is a front end for AI CLIs. Depending on which AI you want to use, **sub
 
 ### Distribution builds (GitHub Releases)
 
-Download the file for your OS from GitHub Releases and extract it (distribution is in preparation).
+Download the file for your OS from GitHub Releases and extract it. **The distribution build is the full-featured edition.**
+
+- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip`
+- **Linux**: extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`). The binary is already executable, so you can run it as-is
 
 ### Building from source
+
+A source build does not include the implementation of the core features such as AI conversation execution (those features return a "not implemented" error). For the full feature set, use the distribution build.
 
 With Go 1.26 or later, you can clone the repository and build it yourself. The prebuilt front end is bundled, so Go alone is enough.
 

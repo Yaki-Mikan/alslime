@@ -43,6 +43,9 @@ export interface UpdateSettingsPatch {
     autoCheck?: boolean;
     skippedVersion?: string;
     postponeToday?: boolean;
+    // 一括全更新の承認時に、本体更新後でないと適用できないモジュール ID を記録する
+    // （本体更新後の起動時に一度だけ適用される）。
+    approveModuleUpdates?: string[];
 }
 
 // fetchUpdateCheck は本体＋モジュールの更新有無を取得する。
@@ -57,6 +60,15 @@ export const fetchUpdateSettings = async (backendUrl: string): Promise<UpdateSet
     return res.data;
 };
 
+// ModuleApplyStatus は本体更新後の起動時に適用される、承認済みモジュール更新の進行。
+export interface ModuleApplyStatus {
+    applying: boolean;
+    currentId?: string;
+    done: boolean;
+    completedAt?: string;
+    failedIds?: string[];
+}
+
 // UpdateApplyStatus は本体直接アップデートの進捗（GET /api/update/status）。
 // current は応答したプロセスの本体バージョン（復帰判定用。交換日記 002）。
 export interface UpdateApplyStatus {
@@ -64,6 +76,8 @@ export interface UpdateApplyStatus {
     percent: number;
     messageKey?: string;
     current: string;
+    // 旧バージョンのバックエンド応答には無いため optional。
+    moduleApply?: ModuleApplyStatus;
 }
 
 // APPLY_POST_TIMEOUT_MS は更新開始 POST のタイムアウト。バックエンドの開始処理は

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"image"
 	"image/draw"
-	"image/jpeg"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"io/fs"
@@ -20,10 +20,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"alslime/internal/config"
 	"alslime/internal/storage/jsonstore"
 	"alslime/internal/storage/paths"
+	_ "golang.org/x/image/webp"
 )
 
 const maxCharacterImageUploadBytes = 5 * 1024 * 1024
@@ -50,6 +52,27 @@ var (
 	ErrUnsupportedCropImageType = errors.New("unsupported character crop image type")
 	// ErrInvalidCropData は croppedAreaPixels が画像範囲として不正な場合の利用者起因エラー。
 	ErrInvalidCropData = errors.New("invalid character crop data")
+	// ErrEmotionNameInvalid は表情名に使用できない文字・形式が含まれる場合の利用者起因エラー。
+	ErrEmotionNameInvalid = errors.New("invalid emotion name")
+	// ErrEmotionNameDuplicate は表情名が重複する場合の利用者起因エラー。
+	// 表情名は画像ファイル名になり、ファイル名の大小を区別しない環境があるため、
+	// OS を問わず大文字小文字を無視した重複を拒否する。
+	ErrEmotionNameDuplicate = errors.New("duplicate emotion name")
+	// ErrEmotionDefaultRequired は default 表情の欠落・無効化を拒否する利用者起因エラー。
+	// default は画像フォールバックの基点かつプロンプトの出力契約が参照する名前のため壊せない。
+	ErrEmotionDefaultRequired = errors.New("default emotion required")
+	// ErrEmotionCatalogMissing は表情定義が存在しない状態で一括削除を要求された場合のエラー。
+	// 空定義のまま「定義に無いものは削除」を実行すると全キャラの全画像削除になるため拒否する。
+	ErrEmotionCatalogMissing = errors.New("emotion catalog missing")
+)
+
+const (
+	defaultEmotionName    = "default"
+	emotionCatalogVersion = "1.0"
+	// defaultEmotionDescription は default 表情の説明の規定値。
+	// AI へそのまま渡る文言のため i18n を通さず日本語固定とし、
+	// 保存・生成・マージのたびにサーバー側でこの値へ正規化する。
+	defaultEmotionDescription = "特に際立った感情がなく、他のどの表情にも当てはまらない時の表情"
 )
 
 type ImageService struct {
@@ -59,12 +82,43 @@ type ImageService struct {
 	metaMu sync.Mutex
 }
 
-type EmotionDefinitionFile struct {
-	Emotions []EmotionDefinition `json:"emotions"`
+// EmotionCatalogData は表情種別の管理用ファイル（emotion_catalog.json）の全体。
+// 無効な表情も含む正本で、AI 送信用の emotion_definitions.json は
+// ここから有効な表情だけを抽出して生成する。
+type EmotionCatalogData struct {
+	Version      string                `json:"version"`
+	Emotions     []EmotionCatalogEntry `json:"emotions"`
+	LastModified string                `json:"lastModified"`
 }
 
-type EmotionDefinition struct {
+// EmotionCatalogEntry は表情種別 1 件。
+type EmotionCatalogEntry struct {
+	// Name は表情の識別子。AI が出力する値で、画像ファイル名にもなる。
 	Name string `json:"name"`
+	// Label は UI 表示用の名称。AI へは渡さない。
+	Label string `json:"label"`
+	// Description は AI へ渡す説明。どんな時にする表情かを伝える。
+	Description string `json:"description"`
+	// Enabled が false の表情は AI へ候補として渡さない。
+	Enabled bool `json:"enabled"`
+}
+
+// emotionDefinitionDetail は AI 送信用ファイル（emotion_definitions.json）の 1 件。
+type emotionDefinitionDetail struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type emotionDefinitionDetailFile struct {
+	Emotions []emotionDefinitionDetail `json:"emotions"`
+}
+
+// PruneOrphanImagesResult は定義に無い表情画像の一括削除の結果。
+type PruneOrphanImagesResult struct {
+	ScannedCharacters  int `json:"scannedCharacters"`
+	AffectedCharacters int `json:"affectedCharacters"`
+	DeletedFiles       int `json:"deletedFiles"`
+	DeletedEntries     int `json:"deletedEntries"`
 }
 
 type CharacterImagesData struct {
@@ -153,7 +207,10 @@ func (s *ImageService) Images(characterName string) (CharacterImagesData, error)
 	if err != nil {
 		return CharacterImagesData{}, err
 	}
-	emotions, err := s.emotionDefinitions()
+	// 走査対象は管理用カタログ（無効含む全表情）。
+	// 送信用ファイルを走査すると無効化した表情が応答から消え、
+	// 画像管理パネルの操作とチャットの過去ログのアイコン解決が壊れる。
+	catalog, err := s.EmotionCatalog()
 	if err != nil {
 		return CharacterImagesData{}, err
 	}
@@ -163,7 +220,7 @@ func (s *ImageService) Images(characterName string) (CharacterImagesData, error)
 	}
 	// image_hashes.json は心情数ぶん繰り返し読まず、ループ前に 1 回だけ読む。
 	imageHashes := s.loadImageHashes(characterName)
-	for _, emotion := range emotions.Emotions {
+	for _, emotion := range catalog.Emotions {
 		emotionName, err := sanitizeImageSegment(emotion.Name)
 		if err != nil || emotionName == "" {
 			continue
@@ -195,7 +252,7 @@ func (s *ImageService) Images(characterName string) (CharacterImagesData, error)
 	return out, nil
 }
 
-func (s *ImageService) Upload(characterName, emotion, contentType string, r io.Reader) (UploadResult, error) {
+func (s *ImageService) Upload(characterName, emotion, _ string, r io.Reader) (UploadResult, error) {
 	characterName, err := sanitizeImageSegment(characterName)
 	if err != nil {
 		return UploadResult{}, err
@@ -219,12 +276,9 @@ func (s *ImageService) Upload(characterName, emotion, contentType string, r io.R
 		return UploadResult{}, ErrImageTooLarge
 	}
 	sniffed := http.DetectContentType(data)
-	ext, err := extensionForImageContentType(contentType)
+	ext, err := extensionForImageContentType(sniffed)
 	if err != nil {
-		ext, err = extensionForImageContentType(sniffed)
-		if err != nil {
-			return UploadResult{}, err
-		}
+		return UploadResult{}, err
 	}
 	if err := s.deleteImageFiles(characterName, config.CharacterOriginalImageDirName, emotion); err != nil {
 		return UploadResult{}, err
@@ -291,12 +345,9 @@ func (s *ImageService) Crop(characterName, emotion string, cropData CropData) (C
 	if err != nil {
 		return CropResult{}, err
 	}
-	src, format, err := decodeCropSource(originalAbs)
+	src, _, err := decodeCropSource(originalAbs)
 	if err != nil {
 		return CropResult{}, err
-	}
-	if format == "webp" {
-		return CropResult{}, ErrUnsupportedCropImageType
 	}
 	icon, err := cropAndResize(src, cropData.CroppedAreaPixels, cropIconSizePixels)
 	if err != nil {
@@ -356,20 +407,323 @@ func (s *ImageService) StaticImage(characterName, rest string) (ServedImage, err
 	return ServedImage{Path: abs, ContentType: mime.TypeByExtension(strings.ToLower(filepath.Ext(abs)))}, nil
 }
 
-func (s *ImageService) emotionDefinitions() (EmotionDefinitionFile, error) {
-	raw, err := s.Emotions()
-	if err != nil {
-		return EmotionDefinitionFile{}, err
+// EmotionCatalog は管理用ファイルを読み、送信用ファイルとマージした結果を返す。
+// 管理用が無い場合は送信用から生成する（初回・既存環境・旧形式パックのインポート後）。
+// 返り値は正規化済みだがディスクへは書かない。永続化は SaveEmotionCatalog が行う。
+func (s *ImageService) EmotionCatalog() (EmotionCatalogData, error) {
+	catalog, _, err := s.emotionCatalogWithPresence()
+	return catalog, err
+}
+
+// emotionCatalogWithPresence は EmotionCatalog の実体。
+// 管理用・送信用のどちらかが存在したかを返す（PruneOrphanImages の安全装置用）。
+func (s *ImageService) emotionCatalogWithPresence() (EmotionCatalogData, bool, error) {
+	found := false
+	var catalog EmotionCatalogData
+	if path, err := s.resolver.ResolveLexical(config.EmotionCatalogFile); err == nil {
+		switch err := readJSONFile(path, &catalog); {
+		case err == nil:
+			found = true
+		case errors.Is(err, fs.ErrNotExist):
+			// 未作成。送信用からの生成に回す。
+		default:
+			return EmotionCatalogData{}, false, err
+		}
+	} else {
+		return EmotionCatalogData{}, false, err
 	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return EmotionDefinitionFile{}, err
+	var definitions emotionDefinitionDetailFile
+	if path, err := s.resolver.ResolveLexical(config.EmotionDefinitionsFile); err == nil {
+		switch err := readJSONFile(path, &definitions); {
+		case err == nil:
+			found = true
+		case errors.Is(err, fs.ErrNotExist):
+			// 送信用も無い。マージ対象なしとして続行する。
+		default:
+			return EmotionCatalogData{}, false, err
+		}
+	} else {
+		return EmotionCatalogData{}, false, err
 	}
-	var out EmotionDefinitionFile
-	if err := json.Unmarshal(data, &out); err != nil {
-		return EmotionDefinitionFile{}, err
+	return mergeEmotionCatalog(catalog, definitions.Emotions), found, nil
+}
+
+// mergeEmotionCatalog は送信用にのみ存在する表情を enabled: true で管理用へ取り込む。
+// 旧形式の設定パック（送信用のみ）をインポートしても表情を持ち込めるようにするための
+// 「足りない分を増やす」方向のみのマージで、減らす操作は管理モーダルからのみ行う。
+// 照合は OS を問わず大文字小文字を無視する。
+func mergeEmotionCatalog(catalog EmotionCatalogData, definitions []emotionDefinitionDetail) EmotionCatalogData {
+	seen := map[string]bool{}
+	for _, entry := range catalog.Emotions {
+		seen[strings.ToLower(strings.TrimSpace(entry.Name))] = true
+	}
+	for _, def := range definitions {
+		name := strings.TrimSpace(def.Name)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		label := strings.TrimSpace(def.Description)
+		if label == "" {
+			label = name
+		}
+		catalog.Emotions = append(catalog.Emotions, EmotionCatalogEntry{
+			Name:        name,
+			Label:       label,
+			Description: def.Description,
+			Enabled:     true,
+		})
+	}
+	catalog.Emotions = normalizeDefaultEmotion(catalog.Emotions)
+	if catalog.Version == "" {
+		catalog.Version = emotionCatalogVersion
+	}
+	return catalog
+}
+
+// normalizeDefaultEmotion は default 行を規定値で作り直して先頭へ置く。
+// default は全項目編集不可（利用者決定）のため、入力に何が来ても規定値を正とする。
+func normalizeDefaultEmotion(entries []EmotionCatalogEntry) []EmotionCatalogEntry {
+	out := make([]EmotionCatalogEntry, 0, len(entries)+1)
+	out = append(out, EmotionCatalogEntry{
+		Name:        defaultEmotionName,
+		Label:       defaultEmotionName,
+		Description: defaultEmotionDescription,
+		Enabled:     true,
+	})
+	for _, entry := range entries {
+		if strings.EqualFold(strings.TrimSpace(entry.Name), defaultEmotionName) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// SaveEmotionCatalog は入力を検証して管理用ファイルへ書き、送信用ファイルを再生成する。
+// 管理用の書き込み後に送信用の生成が失敗した場合はエラーを返す。
+// 送信用は次回保存で必ず再生成されるため、復旧は保存のやり直しで足りる。
+func (s *ImageService) SaveEmotionCatalog(input EmotionCatalogData) (EmotionCatalogData, error) {
+	entries, err := validateEmotionCatalogEntries(input.Emotions)
+	if err != nil {
+		return EmotionCatalogData{}, err
+	}
+	out := EmotionCatalogData{
+		Version:      emotionCatalogVersion,
+		Emotions:     entries,
+		LastModified: time.Now().UTC().Format(time.RFC3339),
+	}
+	catalogAbs, err := s.resolver.ResolveForCreateMkdirAll(config.EmotionCatalogFile, config.DirPerm)
+	if err != nil {
+		return EmotionCatalogData{}, err
+	}
+	if err := writeJSONFile(catalogAbs, out); err != nil {
+		return EmotionCatalogData{}, err
+	}
+	enabled := []emotionDefinitionDetail{}
+	for _, entry := range entries {
+		if !entry.Enabled {
+			continue
+		}
+		enabled = append(enabled, emotionDefinitionDetail{Name: entry.Name, Description: entry.Description})
+	}
+	definitionsAbs, err := s.resolver.ResolveForCreateMkdirAll(config.EmotionDefinitionsFile, config.DirPerm)
+	if err != nil {
+		return EmotionCatalogData{}, err
+	}
+	if err := writeJSONFile(definitionsAbs, emotionDefinitionDetailFile{Emotions: enabled}); err != nil {
+		return EmotionCatalogData{}, err
 	}
 	return out, nil
+}
+
+// validateEmotionCatalogEntries は保存入力を検証し、正規化済みの一覧を返す。
+// 表情名が空の行は除外する（モーダルの自動追加行の保険）。
+func validateEmotionCatalogEntries(entries []EmotionCatalogEntry) ([]EmotionCatalogEntry, error) {
+	out := []EmotionCatalogEntry{}
+	seen := map[string]bool{}
+	hasDefault := false
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			continue
+		}
+		if err := validateEmotionName(name); err != nil {
+			return nil, err
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			return nil, ErrEmotionNameDuplicate
+		}
+		seen[key] = true
+		if key == defaultEmotionName {
+			hasDefault = true
+			if !entry.Enabled {
+				return nil, ErrEmotionDefaultRequired
+			}
+		}
+		entry.Name = name
+		if strings.TrimSpace(entry.Label) == "" {
+			entry.Label = entry.Description
+		}
+		out = append(out, entry)
+	}
+	if !hasDefault {
+		return nil, ErrEmotionDefaultRequired
+	}
+	return normalizeDefaultEmotion(out), nil
+}
+
+// validateEmotionName は表情名として使えない値を拒否する。
+// 表情名は画像ファイル名になるため sanitizeImageSegment が除去する文字と揃えるが、
+// 黙って除去すると利用者の入力と保存結果が食い違うため、エラーで返して修正させる。
+// 末尾のドットはファイル名として扱えない環境があるため OS を問わず拒否する。
+func validateEmotionName(name string) error {
+	if strings.ContainsAny(name, "\\/:*?\"<>|") || strings.Contains(name, "..") {
+		return ErrEmotionNameInvalid
+	}
+	if strings.HasSuffix(name, ".") {
+		return ErrEmotionNameInvalid
+	}
+	return nil
+}
+
+// PruneOrphanImages は定義に無い表情の画像・ハッシュ・切り抜きデータを全キャラから削除する。
+// 有効・無効を問わず、定義に存在する表情はすべて残す。
+// 照合は OS を問わず大文字小文字を無視し、「残し過ぎ」側に倒す。
+func (s *ImageService) PruneOrphanImages() (PruneOrphanImagesResult, error) {
+	result := PruneOrphanImagesResult{}
+	catalog, found, err := s.emotionCatalogWithPresence()
+	if err != nil {
+		return result, err
+	}
+	if !found {
+		// 定義ファイルがどこにも無い状態で実行すると全画像削除になるため中断する。
+		return result, ErrEmotionCatalogMissing
+	}
+	keep := map[string]bool{}
+	for _, entry := range catalog.Emotions {
+		keep[strings.ToLower(strings.TrimSpace(entry.Name))] = true
+	}
+	if !keep[defaultEmotionName] {
+		// 正規化により通常発生しないが、全削除事故の最終防壁として残す。
+		return result, ErrEmotionCatalogMissing
+	}
+	rootAbs, err := s.resolver.ResolveLexical(config.CharacterListDir)
+	if err != nil {
+		return result, err
+	}
+	characterDirs, err := os.ReadDir(rootAbs)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, nil
+		}
+		return result, err
+	}
+	for _, characterDir := range characterDirs {
+		if !characterDir.IsDir() {
+			continue
+		}
+		characterName := characterDir.Name()
+		result.ScannedCharacters++
+		deletedFiles, err := s.pruneCharacterImageFiles(rootAbs, characterName, keep)
+		if err != nil {
+			return result, err
+		}
+		deletedEntries, err := s.pruneCharacterImageMetadata(characterName, keep)
+		if err != nil {
+			return result, err
+		}
+		result.DeletedFiles += deletedFiles
+		result.DeletedEntries += deletedEntries
+		if deletedFiles > 0 || deletedEntries > 0 {
+			result.AffectedCharacters++
+		}
+	}
+	return result, nil
+}
+
+// pruneCharacterImageFiles は 1 キャラの icons/originals から定義に無い表情の画像を削除する。
+func (s *ImageService) pruneCharacterImageFiles(rootAbs, characterName string, keep map[string]bool) (int, error) {
+	deleted := 0
+	for _, dirName := range []string{config.CharacterOriginalImageDirName, config.CharacterIconImageDirName} {
+		imagesDir := filepath.Join(rootAbs, characterName, config.CharacterImageDirName, dirName)
+		files, err := os.ReadDir(imagesDir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return deleted, err
+		}
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+			base := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
+			if keep[strings.ToLower(base)] {
+				continue
+			}
+			if err := os.Remove(filepath.Join(imagesDir, file.Name())); err != nil {
+				return deleted, err
+			}
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
+// pruneCharacterImageMetadata は image_hashes.json / crop_data.json から定義に無いキーを削除する。
+// JSON として読めないファイルは触らず残す（読めないものを消すのは危険なため）。
+func (s *ImageService) pruneCharacterImageMetadata(characterName string, keep map[string]bool) (int, error) {
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
+	removed := 0
+	hashesPath, err := s.resolver.ResolveLexical(characterInternalRel(characterName, config.CharacterImageHashesFileName))
+	if err != nil {
+		return removed, err
+	}
+	var hashes imageHashesFile
+	if err := readJSONFile(hashesPath, &hashes); err == nil && hashes.Hashes != nil {
+		changed := false
+		for key := range hashes.Hashes {
+			if keep[strings.ToLower(strings.TrimSpace(key))] {
+				continue
+			}
+			delete(hashes.Hashes, key)
+			removed++
+			changed = true
+		}
+		if changed {
+			if err := writeJSONFile(hashesPath, hashes); err != nil {
+				return removed, err
+			}
+		}
+	}
+	cropPath, err := s.resolver.ResolveLexical(characterInternalRel(characterName, config.CharacterImageCropDataFileName))
+	if err != nil {
+		return removed, err
+	}
+	var crops struct {
+		Crops map[string]CropData `json:"crops"`
+	}
+	if err := readJSONFile(cropPath, &crops); err == nil && crops.Crops != nil {
+		changed := false
+		for key := range crops.Crops {
+			if keep[strings.ToLower(strings.TrimSpace(key))] {
+				continue
+			}
+			delete(crops.Crops, key)
+			removed++
+			changed = true
+		}
+		if changed {
+			if err := writeJSONFile(cropPath, crops); err != nil {
+				return removed, err
+			}
+		}
+	}
+	return removed, nil
 }
 
 func (s *ImageService) findImageRel(characterName, dirName, emotion string) (string, bool) {
@@ -519,16 +873,16 @@ func decodeCropSource(filePath string) (image.Image, string, error) {
 		return nil, "", err
 	}
 	defer file.Close()
-	ext := strings.ToLower(filepath.Ext(filePath))
-	switch ext {
-	case ".jpg", ".jpeg":
-		img, err := jpeg.Decode(file)
-		return img, "jpeg", err
-	case ".png":
-		img, err := png.Decode(file)
-		return img, "png", err
-	case ".webp":
-		return nil, "webp", ErrUnsupportedCropImageType
+	img, format, err := image.Decode(file)
+	if err != nil {
+		if errors.Is(err, image.ErrFormat) {
+			return nil, "", ErrUnsupportedCropImageType
+		}
+		return nil, "", err
+	}
+	switch format {
+	case "jpeg", "png", "webp":
+		return img, format, nil
 	default:
 		return nil, "", ErrUnsupportedCropImageType
 	}

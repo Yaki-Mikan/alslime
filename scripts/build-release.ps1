@@ -25,10 +25,11 @@ param(
     # Also build the action-choice sidecar module (alslime-core/cmd/actionchoicemodule).
     # Deploy it as <WORKSPACE_ROOT>/modules/alslime-actionchoice(.exe).
     [switch]$BuildActionChoiceModule,
-    # Package the release zip for GitHub Releases (ファイル自動更新、確認 01番 10章).
-    # The zip stores the binary under a FIXED name (alslime-<ver>/alslime(.exe)) so
-    # in-app updates never break user shortcuts, and SHA256SUMS.txt is generated for
-    # download verification. Upload BOTH files as release assets.
+    # Package the release archive for GitHub Releases (ファイル自動更新、確認 01番 10章).
+    # Windows は zip、Linux は tar.gz（Unix 実行権限を保持するため）。どちらも
+    # バイナリを固定名 (alslime-<ver>/alslime(.exe)) で格納するので、アプリ内
+    # アップデートでユーザーのショートカットが壊れない。SHA256SUMS.txt も生成する。
+    # アーカイブと SHA256SUMS.txt の両方を Release アセットとしてアップロードする。
     [switch]$Package
 )
 
@@ -181,12 +182,29 @@ if ($NoGarble) {
 
 $buildTags = "release"
 if ($Public) {
-    $buildTags = "release,public"
+    # Lightsail（自前サーバー）向けのみ、画像生成の in-process 実装を内蔵する。
+    # 配布ビルド（タグ無し）はサイドカーモジュール経由のみとなる。
+    $buildTags = "release,public,comfyembed"
 }
 
 Write-Host "[release] backend build: $TargetOS/$TargetArch (garble=$useGarble, scope=$CoreGarblePattern, tiny=$useTiny, public=$([bool]$Public))"
 Push-Location $AlslimeRoot
 try {
+    # ビルド前の依存グラフ検証: 配布ビルドに画像生成の in-process 実装
+    # （alslime/core/comfyui）が混入していないこと、逆に -Public（Lightsail）
+    # ビルドには内蔵されていることを両向きで確認する。タグ指定ミスが
+    # どちらの方向にも黙って通らないようにする。
+    $comfyDeps = go list -deps -tags $buildTags ./cmd/app | Select-String -SimpleMatch "alslime/core/comfyui"
+    if ($LASTEXITCODE -ne 0) {
+        throw "go list -deps failed (exit $LASTEXITCODE)"
+    }
+    if ($Public) {
+        if (-not $comfyDeps) {
+            throw "public (Lightsail) build must embed in-process image generation, but alslime/core/comfyui is missing from the dependency graph (comfyembed tag lost?)"
+        }
+    } elseif ($comfyDeps) {
+        throw "distribution build must NOT embed in-process image generation, but the dependency graph contains: $(($comfyDeps | ForEach-Object { $_.Line }) -join ', ')"
+    }
     if ($useGarble) {
         $garbleArgs = @("-literals")
         if ($useTiny) {
@@ -315,24 +333,66 @@ if ($Package) {
         Copy-Item -LiteralPath (Join-Path $AlslimeRoot $doc) -Destination $pkgDir
     }
 
-    $zipName = "alslime-$Version-$TargetOS-$TargetArch.zip"
-    $zipPath = Join-Path $OutputDir $zipName
-    $zipFull = [System.IO.Path]::GetFullPath($zipPath)
-    if (-not $zipFull.StartsWith($outFull)) {
-        throw "zip path escapes the build output dir: $zipFull"
+    # アーカイブ形式は OS で分ける。zip は Unix の実行権限を保持できないため、
+    # Linux は tar.gz とし、cmd/mkdisttar がヘッダへ権限（alslime のみ 0755）を
+    # 明示して生成する。展開だけでそのまま実行できる。
+    if ($TargetOS -eq "windows") {
+        $archiveName = "alslime-$Version-$TargetOS-$TargetArch.zip"
+    } else {
+        $archiveName = "alslime-$Version-$TargetOS-$TargetArch.tar.gz"
     }
-    if (Test-Path -LiteralPath $zipPath) {
-        Remove-Item -LiteralPath $zipPath -Force
+    $archivePath = Join-Path $OutputDir $archiveName
+    $archiveFull = [System.IO.Path]::GetFullPath($archivePath)
+    if (-not $archiveFull.StartsWith($outFull)) {
+        throw "archive path escapes the build output dir: $archiveFull"
     }
-    Compress-Archive -Path $pkgDir -DestinationPath $zipPath
+    if (Test-Path -LiteralPath $archivePath) {
+        Remove-Item -LiteralPath $archivePath -Force
+    }
+    if ($TargetOS -eq "windows") {
+        Compress-Archive -Path $pkgDir -DestinationPath $archivePath
+    } else {
+        # mkdisttar はホスト側で動かすツールなので、クロスビルド用の
+        # GOOS/GOARCH を go run の間だけ外し、終わったら必ず戻す。
+        $prevGoos = $env:GOOS
+        $prevGoarch = $env:GOARCH
+        $env:GOOS = ""
+        $env:GOARCH = ""
+        try {
+            Push-Location $AlslimeRoot
+            try {
+                go run ./cmd/mkdisttar -src $pkgDir -out $archivePath -exe $fixedExe
+            } finally {
+                Pop-Location
+            }
+            if ($LASTEXITCODE -ne 0) {
+                throw "mkdisttar failed (exit $LASTEXITCODE)"
+            }
+        } finally {
+            $env:GOOS = $prevGoos
+            $env:GOARCH = $prevGoarch
+        }
+    }
     Remove-Item -LiteralPath $pkgDir -Recurse -Force
 
-    # SHA256SUMS.txt: the in-app updater downloads this asset and verifies the zip
-    # hash before swapping binaries. ASCII (no BOM) so the Go parser reads line 1.
-    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
+    # SHA256SUMS.txt: アプリ内アップデータがこのアセットを取得し、アーカイブの
+    # ハッシュをファイル名で照合してから差し替える（Go 側は全行を
+    # 「ファイル名→ハッシュ」で読む）。ASCII（BOM 無し）を維持する。
+    # マルチ OS リリースは OS 毎に本スクリプトを 1 回ずつ実行するため、単純上書きに
+    # すると後の実行が先の OS の行を消す。同一バージョンの他アーカイブの行だけ保持し、
+    # 別バージョンの行と今回アーカイブ自身の旧行は破棄する。
+    $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLower()
     $sumsPath = Join-Path $OutputDir "SHA256SUMS.txt"
-    "$hash  $zipName" | Out-File -LiteralPath $sumsPath -Encoding ascii
-    Write-Host "[release] package: $zipPath"
+    $keptLines = @()
+    if (Test-Path -LiteralPath $sumsPath) {
+        $sameVersionPrefix = [regex]::Escape("alslime-$Version-")
+        $selfName = [regex]::Escape($archiveName)
+        $keptLines = @(Get-Content -LiteralPath $sumsPath | Where-Object {
+            $_ -match "^[0-9a-f]{64}  $sameVersionPrefix\S+\.(zip|tar\.gz)\s*$" -and $_ -notmatch "  $selfName\s*$"
+        })
+    }
+    @($keptLines + "$hash  $archiveName") | Out-File -LiteralPath $sumsPath -Encoding ascii
+    Write-Host "[release] package: $archivePath"
     Write-Host "[release] sums:    $sumsPath"
     Write-Host "[release] upload BOTH files as release assets (in-app update requires SHA256SUMS.txt)"
 }

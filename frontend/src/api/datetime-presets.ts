@@ -188,6 +188,10 @@ export interface SSRPAllPreset {
     additionalWritingStyleEnabled?: boolean;
     additionalWritingStyleText?: string;
     imageGenerationNotes?: string;
+    /** 画像生成設定: 使用ワークフロー（''/未設定 = グローバル設定に従う） */
+    imageGenWorkflowId?: string;
+    /** 画像生成設定: 分析指示の directiveMode 値（''/未設定 = グローバル設定に従う） */
+    imageGenDirectiveMode?: string;
     additionalSituationEnabled?: boolean;
     additionalSituationText?: string;
     additionalUserEnabled?: boolean;
