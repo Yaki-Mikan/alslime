@@ -73,7 +73,9 @@ $outputPath = Get-OutputPath
 Write-Host "[debug] backend build: $TargetOS/$TargetArch"
 Push-Location $AlslimeRoot
 try {
-    go build -tags debug -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
+    # 開発ビルドは画像生成の in-process 実装を内蔵する（comfyembed）。
+    # 配布ビルド（build-release.ps1 のタグ無し）には内蔵されない。
+    go build -tags debug,comfyembed -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
 } finally {
     Pop-Location
 }

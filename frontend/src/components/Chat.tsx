@@ -24,6 +24,7 @@ import { JobProgressModal } from './JobProgressModal';
 import { ConfigEditorHub } from './settings/ConfigEditorHub';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
 import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
+import { MODULE_COMFY, fetchModulesStatus } from '../api/sponsor';
 import { MessageList } from './chat/MessageList';
 
 import { MessageInput } from './chat/MessageInput';
@@ -38,7 +39,9 @@ import {
     CHAT_VIEW_TEXT_FALLBACK_JA,
     COMMON_I18N_KEYS,
     COMMON_TEXT_FALLBACK_JA,
-    DEFAULT_UI_LANGUAGE
+    DEFAULT_UI_LANGUAGE,
+    UPDATE_I18N_KEYS,
+    UPDATE_TEXT_FALLBACK_JA
 } from '../constants/i18n';
 import {
     fetchI18NCatalog,
@@ -47,7 +50,13 @@ import {
 } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
 import { fetchSystemHealth } from '../api/system';
-import { fetchUpdateCheck, saveUpdateSettings, type AppUpdateInfo } from '../api/update';
+import {
+    fetchUpdateApplyStatus,
+    fetchUpdateCheck,
+    saveUpdateSettings,
+    type AppUpdateInfo,
+    type ModuleUpdateEntry,
+} from '../api/update';
 
 // Hooks
 import { useChat } from '../hooks/useChat';
@@ -150,9 +159,12 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
     // UI表示用 i18n 辞書 State
     const [uiCatalog, setUiCatalog] = useState<I18NCatalog | null>(null);
-    // 本体アップデート告知（起動時チェックで新バージョン検知時に表示。01番 9章）
+    // 本体・モジュール統合の更新告知（起動時チェックで更新検知時に 1 画面で表示）
     const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
+    const [moduleUpdateEntries, setModuleUpdateEntries] = useState<ModuleUpdateEntry[]>([]);
     const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+    // 承認済みモジュール更新の進行バナー（本体更新後の起動時のみ発生。非モーダル）
+    const [moduleApplyBanner, setModuleApplyBanner] = useState<'applying' | 'done' | 'partialFailed' | null>(null);
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
@@ -222,6 +234,39 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         };
     }, []);
 
+    // 支援状態・モジュール配置の変化後に機能フラグを取り直す（画面更新なしで
+    // 画像生成設定などの導線を追随させる。取得失敗時は既存値を保持）。
+    const refreshFeatures = React.useCallback(async () => {
+        try {
+            const health = await fetchSystemHealth(BACKEND_URL);
+            setEnabledFeatures(health.features ?? null);
+        } catch {
+            // 既存の表示条件を保つ（次の変化時に再取得される）。
+        }
+    }, []);
+
+    // ComfyUI連携モジュールの連携状態（会話設定の画像生成設定欄の表示条件に使用）。
+    // ComfyUI機能が有効な支援レベルのときだけ確認する。
+    const [comfyModuleActive, setComfyModuleActive] = useState(false);
+    useEffect(() => {
+        if (!isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)) {
+            setComfyModuleActive(false);
+            return;
+        }
+        let disposed = false;
+        (async () => {
+            try {
+                const modules = await fetchModulesStatus(BACKEND_URL);
+                if (!disposed) {
+                    setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                }
+            } catch {
+                if (!disposed) setComfyModuleActive(false);
+            }
+        })();
+        return () => { disposed = true; };
+    }, [enabledFeatures]);
+
     // 本体アップデートの起動時チェック（起動時1回のみ。失敗は静かに無視する。01番 4章）。
     // スキップ済みバージョン・自動確認OFFはバックエンドの応答値で判定する。
     useEffect(() => {
@@ -230,9 +275,17 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
             try {
                 const check = await fetchUpdateCheck(BACKEND_URL);
                 if (disposed) return;
-                if (check.autoCheck && check.app.enabled && check.app.hasUpdate
-                    && !check.app.skipped && !check.app.postponedToday) {
-                    setAppUpdateInfo(check.app);
+                if (!check.autoCheck) return;
+                // 本体・モジュールとも更新のあるものだけを 1 画面の統合モーダルで告知する。
+                // 本体分の表示可否は既存どおり（スキップ済み・「後で」当日は出さない）。
+                const appHasUpdate = check.app.enabled && check.app.hasUpdate
+                    && !check.app.skipped && !check.app.postponedToday;
+                const moduleEntries = check.modules.filter(
+                    (m) => m.hasUpdate || m.companionPackUpdate,
+                );
+                if (appHasUpdate || moduleEntries.length > 0) {
+                    setAppUpdateInfo(appHasUpdate ? check.app : null);
+                    setModuleUpdateEntries(moduleEntries);
                     setIsUpdateModalOpen(true);
                 }
             } catch {
@@ -241,6 +294,61 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         })();
         return () => {
             disposed = true;
+        };
+    }, []);
+
+    // 承認済みモジュール更新の進行バナー（一括全更新→本体更新→再起動の続き）。
+    // 適用中なら「更新中」を表示して完了までポーリングし、完了で完了報告に切り替える。
+    // 完了報告は 8 秒で自動的に消え、× でいつでも閉じられる（操作はブロックしない）。
+    // 初期化時点で完了済みの場合も、直近 5 分以内なら完了報告を出す（再読み込み対策）。
+    useEffect(() => {
+        let disposed = false;
+        let pollTimer: number | null = null;
+        let hideTimer: number | null = null;
+        const showDone = (failed: boolean) => {
+            if (disposed) return;
+            setModuleApplyBanner(failed ? 'partialFailed' : 'done');
+            hideTimer = window.setTimeout(() => {
+                if (!disposed) setModuleApplyBanner(null);
+            }, 8000);
+        };
+        (async () => {
+            try {
+                const status = await fetchUpdateApplyStatus(BACKEND_URL);
+                if (disposed) return;
+                const moduleApply = status.moduleApply;
+                if (!moduleApply) return;
+                if (moduleApply.applying) {
+                    setModuleApplyBanner('applying');
+                    pollTimer = window.setInterval(async () => {
+                        try {
+                            const latest = await fetchUpdateApplyStatus(BACKEND_URL);
+                            const current = latest.moduleApply;
+                            if (current && !current.applying) {
+                                if (pollTimer !== null) {
+                                    window.clearInterval(pollTimer);
+                                    pollTimer = null;
+                                }
+                                showDone((current.failedIds ?? []).length > 0);
+                            }
+                        } catch {
+                            // 一時的な取得失敗はポーリング継続
+                        }
+                    }, 1000);
+                } else if (moduleApply.done && moduleApply.completedAt) {
+                    const elapsed = Date.now() - new Date(moduleApply.completedAt).getTime();
+                    if (elapsed >= 0 && elapsed < 5 * 60 * 1000) {
+                        showDone((moduleApply.failedIds ?? []).length > 0);
+                    }
+                }
+            } catch {
+                // 進行が取得できないだけで更新自体には影響しない（表示なし）
+            }
+        })();
+        return () => {
+            disposed = true;
+            if (pollTimer !== null) window.clearInterval(pollTimer);
+            if (hideTimer !== null) window.clearTimeout(hideTimer);
         };
     }, []);
 
@@ -894,6 +1002,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
                 imageGenEnabled={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)}
+                comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
             />
@@ -908,22 +1017,30 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 uiCatalog={uiCatalog}
                 enabledFeatures={enabledFeatures}
                 onModelsChanged={refreshModels}
+                onModulesChanged={modules => {
+                    setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                    void refreshFeatures();
+                }}
                 onOpenApiProviderInstruction={target => {
                     setOpenApiProviderInstruction(target);
                     setIsConfigEditorOpen(true);
                 }}
             />
 
-            {/* 本体アップデート告知モーダル（起動時チェックで新バージョン検知時のみ） */}
+            {/* 本体・モジュール統合の更新告知モーダル（起動時チェックで更新検知時のみ） */}
             <UpdateModal
                 isOpen={isUpdateModalOpen}
                 app={appUpdateInfo}
+                modules={moduleUpdateEntries}
                 uiCatalog={uiCatalog}
                 backendUrl={BACKEND_URL}
                 onLater={() => {
-                    // 「後で」は当日中の再表示を抑止する（保存失敗しても閉じる。
-                    // 翌日以降は再表示されるだけで実害なし）
-                    saveUpdateSettings(BACKEND_URL, { postponeToday: true }).catch(() => {});
+                    // 「後で」は本体告知の当日中の再表示を抑止する（保存失敗しても閉じる。
+                    // 翌日以降は再表示されるだけで実害なし）。モジュールのみの表示では
+                    // 単に閉じる。
+                    if (appUpdateInfo) {
+                        saveUpdateSettings(BACKEND_URL, { postponeToday: true }).catch(() => {});
+                    }
                     setIsUpdateModalOpen(false);
                 }}
                 onSkip={() => {
@@ -934,6 +1051,33 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     setIsUpdateModalOpen(false);
                 }}
             />
+
+            {/* 承認済みモジュール更新の進行バナー（非モーダル。操作をブロックしない） */}
+            {moduleApplyBanner && (
+                <div
+                    className={`fixed top-2 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-4 py-2 rounded-lg border shadow-lg text-sm ${
+                        moduleApplyBanner === 'applying'
+                            ? 'bg-gray-900/95 border-amber-700 text-amber-200'
+                            : moduleApplyBanner === 'done'
+                                ? 'bg-gray-900/95 border-emerald-700 text-emerald-300'
+                                : 'bg-gray-900/95 border-red-800 text-red-300'
+                    }`}
+                >
+                    <span>
+                        {moduleApplyBanner === 'applying' && resolveMessage(uiCatalog, UPDATE_I18N_KEYS.moduleApplying, UPDATE_TEXT_FALLBACK_JA[UPDATE_I18N_KEYS.moduleApplying])}
+                        {moduleApplyBanner === 'done' && resolveMessage(uiCatalog, UPDATE_I18N_KEYS.moduleApplyDone, UPDATE_TEXT_FALLBACK_JA[UPDATE_I18N_KEYS.moduleApplyDone])}
+                        {moduleApplyBanner === 'partialFailed' && resolveMessage(uiCatalog, UPDATE_I18N_KEYS.moduleApplyPartialFailed, UPDATE_TEXT_FALLBACK_JA[UPDATE_I18N_KEYS.moduleApplyPartialFailed])}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setModuleApplyBanner(null)}
+                        className="text-gray-400 hover:text-gray-200 transition-colors"
+                        aria-label="close"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+            )}
 
             {/* AIモデル設定モーダル（チャット欄のモデル選択右のアイコンボタンから直接開く） */}
             <AIModelSettingsModal
@@ -1402,6 +1546,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             isLoading={isLoading}
                             backendUrl={BACKEND_URL}
                             sessionId={currentSessionId || undefined}
+                            characterPaths={currentSessionConfig?.characters || []}
                             onActiveBackgroundChange={setChatBackgroundUrl}
                             uiCatalog={uiCatalog}
                             enabledFeatures={enabledFeatures}
@@ -1454,6 +1599,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     onRestoreSessionSettings={handleRestoreSessionSettings}
                     fallbackDirectiveMode={'C'}
                     defaultUserNameSetting={settings.defaultUserName}
+                    imageGenSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                     uiCatalog={uiCatalog}
                     canApplyToSession={!!currentSessionId && isSSRPDirty}
                     onApplyToSession={handleApplyToSession}

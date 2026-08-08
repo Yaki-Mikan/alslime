@@ -81,15 +81,16 @@ export const modelDisplayLabel = (model: Model): string => {
  * TURNタグ内のコンテンツを置換するヘルパー関数
  */
 export const replaceTurnContent = (fullContent: string, turnIndex: number, newTurnContent: string): string => {
-    // emotion/scene属性（オプショナル）＋未知の属性に対応した正規表現
-    const TURN_REGEX = /\[TURN\s+character="([^"]+)"(?:\s+emotion="([^"]+)")?(?:\s+scene="([^"]+)")?(?:\s+\w+="[^"]*")*\]([\s\S]*?)\[\/TURN\]/g;
+    // character以降の属性部（emotion/scene/id/未知属性）を丸ごとキャプチャして保持する。
+    // 個別属性を組み直す方式だとid等が編集で消え、画像添付との紐づけが切れるため。
+    const TURN_REGEX = /\[TURN\s+character="([^"]+)"((?:\s+\w+="[^"]*")*)\]([\s\S]*?)\[\/TURN\]/g;
 
     // TURNタグが存在するか確認
     if (TURN_REGEX.test(fullContent)) {
         TURN_REGEX.lastIndex = 0; // Reset
         let currentValidIndex = 0; // 空でないTURNのカウント用
 
-        return fullContent.replace(TURN_REGEX, (match, charName, emotion, scene, content) => {
+        return fullContent.replace(TURN_REGEX, (match, charName, attrs, content) => {
             // パーサー(multiCharacterParser.ts)と同様に、空白のみのコンテンツはスキップしてカウントしない
             if (content.trim().length === 0) {
                 return match;
@@ -97,10 +98,8 @@ export const replaceTurnContent = (fullContent: string, turnIndex: number, newTu
 
             if (currentValidIndex === turnIndex) {
                 currentValidIndex++;
-                // emotion/sceneがある場合は保持する
-                const emotionAttr = emotion ? ` emotion="${emotion}"` : '';
-                const sceneAttr = scene ? ` scene="${scene}"` : '';
-                return `[TURN character="${charName}"${emotionAttr}${sceneAttr}]
+                // 属性部（emotion/scene/id等）は丸ごと保持する
+                return `[TURN character="${charName}"${attrs}]
 ${newTurnContent}
 [/TURN]`;
             }

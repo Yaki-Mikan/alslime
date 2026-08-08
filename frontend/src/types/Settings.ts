@@ -34,6 +34,8 @@ export interface Settings {
 
     // キャラクターアイコン表示サイズ（px）
     characterIconSize: number;
+    // アイコンをチャットバブルの左へ置く（アイコンサイズ100px以上でのみ適用）
+    characterIconOnBubbleLeft: boolean;
 
     // セッション内背景画像
     enableBackgroundImage: boolean;
@@ -63,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
     enableFirstResponseBackup: false,
     enableResponseBackup: false,
     characterIconSize: 40,
+    characterIconOnBubbleLeft: false,
     enableBackgroundImage: false,
     backgroundImageOpacity: 1.0,
     backgroundImageFit: 'cover',

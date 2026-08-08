@@ -15,6 +15,8 @@ export interface SSRPSettings {
     parameterSchemaId?: string; // 選択されたパラメータスキーマID
     dateTimeSettings?: any; // 日付時刻設定（セッション時刻、インクリメント設定など）
     imageGenerationNotes?: string; // 画像生成時の分析に渡す補足事項
+    imageGenWorkflowId?: string; // 画像生成設定: 使用ワークフロー（''/未設定 = グローバルに従う）
+    imageGenDirectiveMode?: string; // 画像生成設定: 分析指示のdirectiveMode（''/未設定 = グローバルに従う）
 }
 
 // SSRP設定のセッション反映APIのレスポンス

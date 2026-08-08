@@ -69,9 +69,14 @@ GitHub Sponsors支援者向けのComfyUI連携では、AIが会話の流れを�
 
 ### 配布版
 
-GitHub Releasesでの配布は準備中です。
+[GitHub Releases](https://github.com/Yaki-Mikan/alslime/releases) から、お使いのOS向けのファイルをダウンロードして展開します。**すべての機能を含むのは配布版です。**
+
+- **Windows**: `alslime-X.Y.Z-windows-amd64.zip` を展開し、`alslime.exe` をダブルクリックで起動します
+- **Linux**: `alslime-X.Y.Z-linux-amd64.tar.gz` を展開（`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`）し、`./alslime` で起動します（実行権限は付与済みです）
 
 ### ソースからビルドする
+
+ソースからのビルドには、AIとの会話実行など中核機能の実装が含まれません（該当機能は未対応エラーになります）。UIやコードの確認・改変用としてご利用いただき、フル機能は配布版をお使いください。
 
 ビルド済みフロントエンドが同梱されているため、Goだけでビルドできます。Go 1.26以降をご用意ください。
 

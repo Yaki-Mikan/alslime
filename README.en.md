@@ -69,9 +69,14 @@ Each AI CLI may require a separate plan or subscription with its provider. Plans
 
 ### Prebuilt Release
 
-Distribution through GitHub Releases is currently in preparation.
+Download the file for your OS from [GitHub Releases](https://github.com/Yaki-Mikan/alslime/releases) and extract it. **The prebuilt release is the full-featured edition.**
+
+- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip` and double-click `alslime.exe`
+- **Linux**: extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`) and run `./alslime` (the binary is already executable)
 
 ### Build from Source
+
+A source build does not include the implementation of the core features such as AI conversation execution (those features return a "not implemented" error). Use it for inspecting or modifying the UI and code; for the full feature set, use the prebuilt release.
 
 The prebuilt frontend is included, so Go alone is enough to build AlSlime. Go 1.26 or later is required.
 

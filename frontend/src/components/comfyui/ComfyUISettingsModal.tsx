@@ -85,6 +85,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [lightweightImageLossless, setLightweightImageLossless] = useState(false);
     const [lightweightImageEffort, setLightweightImageEffort] = useState(4);
     const [directiveMode, setDirectiveMode] = useState<DirectiveMode>('danbooru_only');
+    // 形式（directiveMode）ごとの使用ワークフロー名。キー未登録・空値は共通（defaultTemplateId）
+    const [workflowByDirectiveMode, setWorkflowByDirectiveMode] = useState<Record<string, string>>({});
     const [danbooruTagFormat, setDanbooruTagFormat] = useState<DanbooruTagFormat>('underscore');
     const [triggerWordFormat, setTriggerWordFormat] = useState<TriggerWordFormat>('raw');
     const [tagJudgeProvider, setTagJudgeProvider] = useState<TagJudgeProvider>('gemini');
@@ -192,6 +194,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             ]);
             setConnectionUrl(config.connectionUrl || 'http://127.0.0.1:8188');
             setDirectiveMode(config.directiveMode || 'danbooru_only');
+            setWorkflowByDirectiveMode(config.workflowByDirectiveMode || {});
             setDanbooruTagFormat(config.danbooruTagFormat || 'underscore');
             setTriggerWordFormat(config.triggerWordFormat || 'raw');
             setTagJudgeProvider(config.tagJudgeProvider || 'gemini');
@@ -356,13 +359,21 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     };
 
     // テスト生成
+    // テスト生成で使うワークフロー: 選択中形式の紐づけ（実在するもの）→ 共通。
+    // 実行時（image_job）の形式マップ解決と同じ結果を確認できるようにする。
+    const resolvedTestTemplateId = (() => {
+        const mapped = workflowByDirectiveMode[directiveMode];
+        if (mapped && templates.some(t => t.name === mapped && t.hasWorkflow)) return mapped;
+        return defaultTemplateId;
+    })();
+
     const handleTestGenerate = async () => {
-        if (!defaultTemplateId || !connectionUrl) return;
+        if (!resolvedTestTemplateId || !connectionUrl) return;
         setIsGenerating(true);
         setGeneratedImage(null);
         setGenerateError(null);
         try {
-            const result = await testGenerateComfyUI(backendUrl, defaultTemplateId, connectionUrl, {
+            const result = await testGenerateComfyUI(backendUrl, resolvedTestTemplateId, connectionUrl, {
                 enabled: lightweightImageSaveEnabled,
                 format: lightweightImageFormat,
                 quality: lightweightImageQuality,
@@ -391,6 +402,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 connectionUrl,
                 defaultTemplateId,
                 directiveMode,
+                workflowByDirectiveMode,
                 danbooruTagFormat,
                 triggerWordFormat,
                 tagJudgeProvider,
@@ -498,30 +510,17 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                         </p>
                     </div>
 
-                    {/* タグ判定プロンプト設定（開閉・デフォルト閉） */}
+                    {/* タグ判定・ワークフロー設定（開閉・デフォルト閉）:
+                        分析AI / 形式×ワークフロー対応表 / 共通ワークフロー / DD領域 / 生成テスト / 軽量画像保存 */}
                     <div className="pt-4 border-t border-gray-700">
                         <CollapsibleSection
                             title={
                                 <>
                                     <FileText size={16} className="text-green-400" />
-                                    {SECTION_NAMES.TAG_JUDGE_SETTINGS}
+                                    {SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
                                 </>
                             }
                         >
-                        <label className="space-y-1 block">
-                            <span className="text-xs text-gray-500">{SECTION_NAMES.TAG_JUDGE_PROMPT_FORMAT}</span>
-                            <select
-                                value={directiveMode}
-                                onChange={(e) => setDirectiveMode(e.target.value as DirectiveMode)}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                            >
-                                <option value="danbooru_only">{DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY}</option>
-                                <option value="natural_language">{DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE}</option>
-                            </select>
-                        </label>
-                        <p className="text-xs text-gray-500">
-                            {COMMON.MESSAGES.DIRECTIVE_MODE_DESC}
-                        </p>
                         <label className="space-y-1 block">
                             <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_AI}</span>
                             <select
@@ -596,19 +595,117 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
                             />
                         </label>
-                        </CollapsibleSection>
-                    </div>
 
-                    {/* ワークフロー設定（開閉・デフォルト閉）: DD領域 / テンプレート選択 / 生成テスト / 軽量画像保存 */}
-                    <div className="pt-4 border-t border-gray-700">
-                        <CollapsibleSection
-                            title={
-                                <>
-                                    <Workflow size={16} className="text-green-400" />
-                                    {SECTION_NAMES.WORKFLOW_SETTINGS}
-                                </>
-                            }
-                        >
+                        {/* 形式×ワークフロー対応表: ラジオが使用形式（directiveMode）、
+                            各行のセレクトがその形式に紐づくワークフロー */}
+                        <div className="space-y-2 pt-3 border-t border-gray-700">
+                            <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                                <Workflow size={16} className="text-green-400" />
+                                {COMMON.MESSAGES.FORMAT_WORKFLOW_HEADING}
+                            </h4>
+                            <p className="text-xs text-gray-500">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
+                            <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
+                            {([
+                                { value: 'natural_language', label: DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE },
+                                { value: 'natural_language_third_person', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD },
+                                { value: 'danbooru_only', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY },
+                                { value: 'danbooru_third_person', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_THIRD },
+                            ] as { value: DirectiveMode; label: string }[]).map((row) => {
+                                const mappedName = workflowByDirectiveMode[row.value] ?? '';
+                                const templateNames = templates.filter(t => t.hasWorkflow).map(t => t.name);
+                                // 保存済みの紐づけ先が一覧から消えている場合（削除済み等）も選択肢に
+                                // 出して選択状態を維持する（実行時はバックエンドが共通へフォールバック）。
+                                const rowOptions = mappedName && !templateNames.includes(mappedName)
+                                    ? [...templateNames, mappedName]
+                                    : templateNames;
+                                return (
+                                    <div key={row.value} className="flex items-center gap-2">
+                                        <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="directiveMode"
+                                                checked={directiveMode === row.value}
+                                                onChange={() => setDirectiveMode(row.value)}
+                                                className="accent-green-500 shrink-0"
+                                            />
+                                            <span className="text-sm text-gray-300">{row.label}</span>
+                                        </label>
+                                        <select
+                                            value={mappedName}
+                                            onChange={(e) => {
+                                                const next = { ...workflowByDirectiveMode };
+                                                if (e.target.value === '') {
+                                                    delete next[row.value];
+                                                } else {
+                                                    next[row.value] = e.target.value;
+                                                }
+                                                setWorkflowByDirectiveMode(next);
+                                            }}
+                                            className="w-40 shrink-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                        >
+                                            <option value="">{COMMON.MESSAGES.COMMON_WORKFLOW_OPTION}</option>
+                                            {rowOptions.map(name => (
+                                                <option key={name} value={name}>{name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                );
+                            })}
+
+                            {/* 共通ワークフロー（「共通」を選んだ形式が使う既定。DL/削除の対象） */}
+                            {templates.length > 0 ? (
+                                <div className="space-y-2 pt-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
+                                        <select
+                                            value={defaultTemplateId}
+                                            onChange={(e) => setDefaultTemplateId(e.target.value)}
+                                            className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                                        >
+                                            {templates.map((t) => (
+                                                <option key={t.name} value={t.name}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={handleDownloadTemplate}
+                                            disabled={
+                                                !defaultTemplateId
+                                                || isDownloadingTemplate
+                                                || !templates.some(t => t.name === defaultTemplateId && t.hasWorkflow)
+                                            }
+                                            className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30"
+                                            title={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                                            aria-label={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
+                                        >
+                                            {isDownloadingTemplate
+                                                ? <Loader2 size={16} className="animate-spin" />
+                                                : <Download size={16} />}
+                                        </button>
+                                        <button
+                                            onClick={() => defaultTemplateId && handleDeleteTemplate(defaultTemplateId)}
+                                            disabled={!defaultTemplateId}
+                                            className="p-2 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30"
+                                            title={COMMON.MESSAGES.DELETE_SELECTED_TEMPLATE_TOOLTIP}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-500">
+                                        {COMMON.MESSAGES.TEMPLATE_SELECT_DESC}
+                                    </p>
+                                    {downloadError && (
+                                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                                            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                                            <span>{downloadError}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-gray-600 text-center py-2">
+                                    {COMMON.MESSAGES.NO_TEMPLATE}
+                                </p>
+                            )}
+                        </div>
 
                         {/* ドラッグ&ドロップ領域 */}
                         <div
@@ -689,57 +786,13 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             </div>
                         )}
 
-                        {/* 使用テンプレート選択 + 一覧 */}
-                        {templates.length > 0 ? (
+                        {/* テスト生成（テンプレート登録済みのときのみ。
+                            選択中形式に解決されるワークフローで実行する） */}
+                        {templates.length > 0 && (
                             <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        value={defaultTemplateId}
-                                        onChange={(e) => setDefaultTemplateId(e.target.value)}
-                                        className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
-                                    >
-                                        {templates.map((t) => (
-                                            <option key={t.name} value={t.name}>{t.name}</option>
-                                        ))}
-                                    </select>
-                                    <button
-                                        onClick={handleDownloadTemplate}
-                                        disabled={
-                                            !defaultTemplateId
-                                            || isDownloadingTemplate
-                                            || !templates.some(t => t.name === defaultTemplateId && t.hasWorkflow)
-                                        }
-                                        className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30"
-                                        title={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
-                                        aria-label={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
-                                    >
-                                        {isDownloadingTemplate
-                                            ? <Loader2 size={16} className="animate-spin" />
-                                            : <Download size={16} />}
-                                    </button>
-                                    <button
-                                        onClick={() => defaultTemplateId && handleDeleteTemplate(defaultTemplateId)}
-                                        disabled={!defaultTemplateId}
-                                        className="p-2 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30"
-                                        title={COMMON.MESSAGES.DELETE_SELECTED_TEMPLATE_TOOLTIP}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                                <p className="text-xs text-gray-500">
-                                    {COMMON.MESSAGES.TEMPLATE_SELECT_DESC}
-                                </p>
-                                {downloadError && (
-                                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
-                                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                                        <span>{downloadError}</span>
-                                    </div>
-                                )}
-
-                                {/* テスト生成ボタン */}
                                 <button
                                     onClick={handleTestGenerate}
-                                    disabled={isGenerating || !defaultTemplateId || !connectionUrl}
+                                    disabled={isGenerating || !resolvedTestTemplateId || !connectionUrl}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-green-600/50 rounded-lg text-sm text-green-400 hover:text-green-300 transition-colors disabled:opacity-40"
                                 >
                                     {isGenerating ? (
@@ -777,10 +830,6 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                     </div>
                                 )}
                             </div>
-                        ) : (
-                            <p className="text-xs text-gray-600 text-center py-2">
-                                {COMMON.MESSAGES.NO_TEMPLATE}
-                            </p>
                         )}
 
                         {/* 軽量画像保存ノード設定 */}

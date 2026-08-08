@@ -10,14 +10,15 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, MessageSquare, CalendarDays, FileText, RefreshCw, User, Keyboard } from 'lucide-react';
+import { X, MessageSquare, CalendarDays, FileText, RefreshCw, User, Keyboard, Smile } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { BasicSettings } from './BasicSettings';
 import { ParameterSchemaEditorModal } from './ParameterSchemaEditorModal';
 import { ReplacementConfigModal } from '../SSRP/ReplacementConfigModal';
+import { EmotionCatalogModal } from './EmotionCatalogModal';
 import { CHAT_SEND_KEYS, DEFAULT_CHAT_SEND_KEY, type ChatSendKey, type Settings } from '../../types/Settings';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { DEFAULT_UI_LANGUAGE, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { DEFAULT_UI_LANGUAGE, EMOTION_CATALOG_I18N_KEYS, EMOTION_CATALOG_TEXT_FALLBACK_JA, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { BACKEND_URL } from '../../api/base-url';
 
 interface ChatBasicSettingsModalProps {
@@ -35,7 +36,7 @@ export const ChatBasicSettingsModal: React.FC<ChatBasicSettingsModalProps> = ({
     onSave,
     uiCatalog,
 }) => {
-    const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || key);
+    const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || EMOTION_CATALOG_TEXT_FALLBACK_JA[key] || key);
 
     // 編集中の設定（ローカル状態）
     const [localSettings, setLocalSettings] = useState<Settings>(settings);
@@ -45,6 +46,7 @@ export const ChatBasicSettingsModal: React.FC<ChatBasicSettingsModalProps> = ({
     const [isSchemaEditorOpen, setIsSchemaEditorOpen] = useState(false);
     // 置換設定モーダルの開閉状態
     const [isReplacementConfigOpen, setIsReplacementConfigOpen] = useState(false);
+    const [isEmotionCatalogOpen, setIsEmotionCatalogOpen] = useState(false);
 
     // モーダルが開いたときに最新の設定を反映
     useEffect(() => {
@@ -202,6 +204,38 @@ export const ChatBasicSettingsModal: React.FC<ChatBasicSettingsModalProps> = ({
                                 <p className="text-xs text-gray-500 px-1">
                                     {t(SETTINGS_I18N_KEYS.characterDisplayDescription)}
                                 </p>
+                                <div>
+                                    <ToggleSwitch
+                                        checked={localSettings.characterIconOnBubbleLeft ?? false}
+                                        onChange={(on) => setLocalSettings(prev => ({
+                                            ...prev,
+                                            characterIconOnBubbleLeft: on,
+                                        }))}
+                                        label={
+                                            <span className="text-sm text-gray-300">
+                                                {t(SETTINGS_I18N_KEYS.characterIconOnBubbleLeftLabel)}
+                                            </span>
+                                        }
+                                        accent="blue"
+                                        className="w-full justify-between px-1"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-2 px-1">
+                                        {t(SETTINGS_I18N_KEYS.characterIconOnBubbleLeftDescription)}
+                                    </p>
+                                </div>
+                                {/* 表情種別管理 */}
+                                <div className="pt-2">
+                                    <button
+                                        onClick={() => setIsEmotionCatalogOpen(true)}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-purple-600 rounded-lg text-sm text-gray-300 transition-colors"
+                                    >
+                                        <Smile size={16} className="text-purple-400" />
+                                        {t(EMOTION_CATALOG_I18N_KEYS.manageButton)}
+                                    </button>
+                                    <p className="text-xs text-gray-500 mt-2 text-center">
+                                        {t(EMOTION_CATALOG_I18N_KEYS.manageDescription)}
+                                    </p>
+                                </div>
                             </div>
                         </div>
 
@@ -257,6 +291,14 @@ export const ChatBasicSettingsModal: React.FC<ChatBasicSettingsModalProps> = ({
             <ParameterSchemaEditorModal
                 isOpen={isSchemaEditorOpen}
                 onClose={() => setIsSchemaEditorOpen(false)}
+                uiCatalog={uiCatalog}
+            />
+
+            {/* 表情種別管理モーダル */}
+            <EmotionCatalogModal
+                isOpen={isEmotionCatalogOpen}
+                onClose={() => setIsEmotionCatalogOpen(false)}
+                backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
             />
 

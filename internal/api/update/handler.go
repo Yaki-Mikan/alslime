@@ -31,6 +31,13 @@ type checkResponse struct {
 	Modules   []sponsorsvc.ModuleUpdateEntry `json:"modules"`
 }
 
+// statusResponse は本体適用の進捗に、承認済みモジュール更新の適用進行を同梱する
+// （本体更新後の起動時にフロントが「サイドカー更新中／完了」を表示するため）。
+type statusResponse struct {
+	updatesvc.ApplyStatus
+	ModuleApply updatesvc.ModuleApplyStatus `json:"moduleApply"`
+}
+
 // Register は update 系ルートを mux へ登録する。
 func Register(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET "+config.APIPrefix+"/update/check", func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +89,10 @@ func Register(mux *http.ServeMux, deps Deps) {
 	})
 
 	mux.HandleFunc("GET "+config.APIPrefix+"/update/status", func(w http.ResponseWriter, _ *http.Request) {
-		apiresponse.WriteJSON(w, http.StatusOK, deps.Update.ApplyState())
+		apiresponse.WriteJSON(w, http.StatusOK, statusResponse{
+			ApplyStatus: deps.Update.ApplyState(),
+			ModuleApply: deps.Update.ModuleApplyState(),
+		})
 	})
 
 	mux.HandleFunc("GET "+config.APIPrefix+"/update/settings", func(w http.ResponseWriter, _ *http.Request) {

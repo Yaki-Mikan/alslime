@@ -70,17 +70,28 @@ export const fetchCleanPreview = async (backendUrl: string, moduleId: string): P
     return response.data;
 };
 
+// ModuleInstallResponse はモジュール配置系 API（install / clean）の応答。
+export interface ModuleInstallResponse {
+    success: boolean;
+    version: string;
+    // 有効化に AlSlime 本体の再起動が必要か（サイドカー再起動済みなら false）。
+    restartRequired: boolean;
+    // 配置後にサイドカーを再起動して即時有効化できたか。
+    sidecarRestarted: boolean;
+    // 実行ファイルが無い状態からの導入か（更新との文言出し分け用）。
+    firstInstall: boolean;
+    companionPackConfigured: boolean;
+    companionPackInstalled: boolean;
+    companionPackWorkflowTemplates: string[];
+    modules: ModuleStatusEntry[];
+}
+
 // 配布物一式（テンプレート → exe → レシート）を削除して最新版を入れ直す。
 export const cleanModule = async (
     backendUrl: string,
     moduleId: string,
     reinstall = true
-): Promise<{
-    success: boolean;
-    version: string;
-    restartRequired: boolean;
-    modules: ModuleStatusEntry[];
-}> => {
+): Promise<ModuleInstallResponse> => {
     const response = await axios.post(`${backendUrl}/api/sponsor/module/clean`, {
         module: moduleId,
         reinstall,
@@ -91,15 +102,7 @@ export const cleanModule = async (
 export const installModule = async (
     backendUrl: string,
     moduleId: string
-): Promise<{
-    success: boolean;
-    version: string;
-    restartRequired: boolean;
-    companionPackConfigured: boolean;
-    companionPackInstalled: boolean;
-    companionPackWorkflowTemplates: string[];
-    modules: ModuleStatusEntry[];
-}> => {
+): Promise<ModuleInstallResponse> => {
     const response = await axios.post(`${backendUrl}/api/sponsor/module/install`, { module: moduleId });
     return response.data;
 };

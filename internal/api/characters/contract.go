@@ -9,6 +9,8 @@ const (
 	routeCharacterFilters        = "/character-filters"
 	routeCharacterFiltersRebuild = "/character-filters/rebuild"
 	routeCharacterEmotions       = "/characters/emotions"
+	routeEmotionCatalog          = "/characters/emotion-catalog"
+	routeEmotionImagePrune       = "/characters/emotion-images/prune"
 	routeCharacterImages         = "/characters/{name}/images"
 	routeCharacterImageUpload    = "/characters/{name}/images/upload"
 	routeCharacterImageCrop      = "/characters/{name}/images/crop"
@@ -39,6 +41,10 @@ const (
 	errKeyUnsupportedImageType     = i18n.KeyErrorUnsupportedImageType
 	errKeyInvalidImagePath         = i18n.KeyErrorInvalidImagePath
 	errKeyInvalidName              = i18n.KeyErrorInvalidName
+	errKeyEmotionNameInvalid       = i18n.KeyErrorEmotionNameInvalid
+	errKeyEmotionNameDuplicate     = i18n.KeyErrorEmotionNameDuplicate
+	errKeyEmotionDefaultRequired   = i18n.KeyErrorEmotionDefaultRequired
+	errKeyEmotionCatalogMissing    = i18n.KeyErrorEmotionCatalogMissing
 )
 
 // multipartReaderOverheadBytes は multipart の境界・ヘッダ分を許容する余白。

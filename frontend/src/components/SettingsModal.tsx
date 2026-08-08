@@ -23,10 +23,11 @@ import { ComfyUISettingsModal } from './comfyui/ComfyUISettingsModal';
 import { ProcessLimitsModal } from './ProcessLimitsModal';
 import { SystemDiagnosticsModal } from './SystemDiagnosticsModal';
 import { SponsorModal } from './SponsorModal';
+import type { ModuleStatusEntry } from '../api/sponsor';
 import { SettingsPackModal } from './settings/SettingsPackModal';
 import { ManualModal } from './ManualModal';
 import { UpdateModal } from './UpdateModal';
-import { fetchUpdateCheck, fetchUpdateSettings, saveUpdateSettings, type AppUpdateInfo } from '../api/update';
+import { fetchUpdateCheck, fetchUpdateSettings, saveUpdateSettings, type AppUpdateInfo, type ModuleUpdateEntry } from '../api/update';
 import { rebuildCharacterFilters } from '../api/files';
 import { fetchI18NLanguages, resolveMessage, type I18NCatalog } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
@@ -45,6 +46,8 @@ interface SettingsModalProps {
     enabledFeatures?: Record<string, boolean> | null;
     // モデル一覧編集の保存後にチャット側のモデル一覧を再取得させる（useChat.refreshModels）。
     onModelsChanged?: () => void;
+    // モジュール配置状態の変化をチャット側へ中継する（SponsorModal 由来）。
+    onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
     onOpenApiProviderInstruction?: (target: ApiProviderInstructionTarget) => void;
 }
 
@@ -57,6 +60,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     uiCatalog,
     enabledFeatures = null,
     onModelsChanged,
+    onModulesChanged,
     onOpenApiProviderInstruction,
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || key);
@@ -88,6 +92,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [updateChecking, setUpdateChecking] = useState(false);
     const [updateResult, setUpdateResult] = useState<'none' | 'latest' | 'failed'>('none');
     const [manualUpdateApp, setManualUpdateApp] = useState<AppUpdateInfo | null>(null);
+    // 手動確認で検知したモジュール（サイドカー）更新（空でないときモーダル表示）
+    const [moduleUpdateEntries, setModuleUpdateEntries] = useState<ModuleUpdateEntry[]>([]);
     const [updateAutoCheck, setUpdateAutoCheck] = useState(true);
 
     const handleCheckUpdate = async () => {
@@ -95,8 +101,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setUpdateResult('none');
         try {
             const check = await fetchUpdateCheck(BACKEND_URL);
+            // モジュール（サイドカー）の更新有無も同じ応答で判定し、本体分と 1 画面の
+            // 統合モーダルで表示する（更新のあるモジュールのみ。01番 6.2）。
+            const moduleEntries = check.modules.filter(
+                (m) => m.hasUpdate || m.companionPackUpdate,
+            );
             if (check.app.enabled && check.app.hasUpdate) {
                 setManualUpdateApp(check.app);
+                setModuleUpdateEntries(moduleEntries);
+            } else if (moduleEntries.length > 0) {
+                // 本体が最新（または確認不可）でもモジュール更新は通知する
+                setManualUpdateApp(null);
+                setModuleUpdateEntries(moduleEntries);
             } else if (!check.app.enabled || check.app.checkFailed) {
                 setUpdateResult('failed');
             } else {
@@ -485,18 +501,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 uiCatalog={uiCatalog}
             />
 
-            {/* 手動更新確認の結果モーダル（新バージョン検知時のみ。スキップ設定は無視） */}
+            {/* 手動更新確認の結果モーダル（本体・モジュール統合。更新検知時のみ。
+                本体のスキップ設定は無視して常に結果を出す） */}
             <UpdateModal
-                isOpen={manualUpdateApp !== null}
+                isOpen={manualUpdateApp !== null || moduleUpdateEntries.length > 0}
                 app={manualUpdateApp}
+                modules={moduleUpdateEntries}
                 uiCatalog={uiCatalog}
                 backendUrl={BACKEND_URL}
-                onLater={() => setManualUpdateApp(null)}
+                onLater={() => {
+                    setManualUpdateApp(null);
+                    setModuleUpdateEntries([]);
+                }}
                 onSkip={() => {
                     if (manualUpdateApp) {
                         saveUpdateSettings(BACKEND_URL, { skippedVersion: manualUpdateApp.latest }).catch(() => {});
                     }
                     setManualUpdateApp(null);
+                    setModuleUpdateEntries([]);
                 }}
             />
 
@@ -506,6 +528,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClose={() => setIsSponsorOpen(false)}
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
+                onModulesChanged={onModulesChanged}
             />
 
             {/* 操作マニュアルモーダル */}

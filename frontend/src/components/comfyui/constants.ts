@@ -18,12 +18,10 @@ export const SECTION_NAMES = {
     RESOLVED_PROMPT: '解決済みプロンプト',
     SETTINGS: 'ComfyUI 画像生成設定',
     CONNECTION_SETTINGS: '接続設定',
-    TAG_JUDGE_SETTINGS: 'タグ判定プロンプト設定',
-    TAG_JUDGE_PROMPT_FORMAT: 'タグ判定プロンプト形式',
-    WORKFLOW_SETTINGS: 'ワークフロー設定',
     DANBOORU_FORMAT: 'Danbooruタグ取得形式',
     TRIGGER_FORMAT: 'トリガーワード取得形式',
     TAG_TRIGGER_FORMAT: 'タグ・トリガーワード形式',
+    TAG_JUDGE_WORKFLOW_SETTINGS: 'タグ判定・ワークフロー設定',
     LIGHTWEIGHT_SAVE: 'Yakimikan軽量画像保存',
     WORKFLOW_TEMPLATE: 'ワークフローテンプレート',
     WORKFLOW_SELECT: 'ワークフロー選択',
@@ -33,8 +31,10 @@ export const SECTION_NAMES = {
 } as const;
 
 export const DIRECTIVE_MODE_OPTIONS = {
-    DANBOORU_ONLY: 'Danbooruタグのみ',
-    NATURAL_LANGUAGE: '自然言語混在（Anima等向け）',
+    DANBOORU_ONLY: 'Danbooruタグのみ（一人称視点）',
+    NATURAL_LANGUAGE: '自然言語混在（Anima等向け・一人称視点）',
+    DANBOORU_THIRD: 'Danbooruタグのみ（三人称視点）',
+    NATURAL_THIRD: '自然言語混在（Anima等向け・三人称視点）',
 } as const;
 
 // ===== 統合設定画面固有 =====
@@ -338,6 +338,10 @@ export const COMMON = {
         DELETE_TEMPLATE_CONFIRM: 'テンプレート「{{name}}」を削除しますか？',
         DEFAULT_PORT_DESC: 'ComfyUIのデフォルトポートは 8188 です。',
         DIRECTIVE_MODE_DESC: 'チャット履歴分析時にAIへ渡す指示文の形式を選択します。自然言語混在はAnimaなど自然言語追従性の高いモデル向けです。',
+        FORMAT_WORKFLOW_HEADING: 'タグ判定プロンプト形式と使用ワークフロー',
+        FORMAT_WORKFLOW_DESC: '使用する形式を選び、形式ごとに使うワークフローを指定します。「共通」を選んだ形式は共通ワークフローを使用します。',
+        COMMON_WORKFLOW_LABEL: '共通ワークフロー',
+        COMMON_WORKFLOW_OPTION: '共通',
         TAG_JUDGE_DESC: 'チャット履歴から画像生成タグを判定するAIとモデルを選択します。',
         DANBOORU_FORMAT_DESC: 'Danbooru検索結果のコピーと、取得タグを欄へ追加するときの区切り形式に使用します。',
         TRIGGER_FORMAT_DESC: 'トリガーワードを行コピーするときの変換形式です。「そのまま」は元の表記を変更しません。',

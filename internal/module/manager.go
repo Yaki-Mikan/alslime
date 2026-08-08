@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -26,6 +27,9 @@ import (
 
 // startupTimeout はモジュールのポート報告を待つ上限。
 const startupTimeout = 15 * time.Second
+
+// stopTimeout は stdin クローズによる自主終了を待つ上限（超過で Kill）。
+const stopTimeout = 5 * time.Second
 
 // Config はモジュール起動設定。
 type Config struct {
@@ -46,6 +50,21 @@ type Manager struct {
 
 	mu      sync.RWMutex
 	baseURL *url.URL
+	// runCtx は Run に渡された生存管理 ctx（Restart が再 start に使う）。
+	runCtx context.Context
+	// proc は現在のモジュールプロセス（未起動・停止済みは nil）。
+	proc *moduleProcess
+
+	// restartMu は停止→再起動の直列化（並行 Restart による二重起動を防ぐ）。
+	restartMu sync.Mutex
+}
+
+// moduleProcess は起動中プロセスの操作ハンドル。
+type moduleProcess struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	// done はプロセス終了（Wait 回収完了）で close される。
+	done chan struct{}
 }
 
 // NewManager は Manager を生成する（起動はまだしない）。
@@ -77,11 +96,83 @@ func (m *Manager) Secret() string {
 // 起動失敗・異常終了はログへ残し、本体は落とさない（ComfyUI 機能が 503 になるだけ）。
 // 再起動ポリシー（回数・バックオフ）は 12番 8章の宿題5。Phase B では自動再起動なし。
 func (m *Manager) Run(ctx context.Context) {
-	if err := m.start(ctx); err != nil {
+	m.mu.Lock()
+	m.runCtx = ctx
+	m.mu.Unlock()
+	// 起動フェーズの更新適用（Restart）と直列化する（二重起動の防止）。
+	m.restartMu.Lock()
+	err := m.start(ctx)
+	m.restartMu.Unlock()
+	if err != nil {
 		logging.Error("module: start failed: %v", err)
 		return
 	}
 	<-ctx.Done()
+}
+
+// Restart は実行中のモジュールを停止し、更新後の実行ファイルで起動し直す
+// （サイドカー更新の即時有効化用。ファイル自動更新、確認 01番 6.3）。
+// Run 前・本体シャットダウン後はエラー。起動失敗時も接続先は解決されないまま
+// （BaseURL が nil）で、本体再起動で復旧できる。
+func (m *Manager) Restart() error {
+	m.restartMu.Lock()
+	defer m.restartMu.Unlock()
+	m.mu.RLock()
+	ctx := m.runCtx
+	m.mu.RUnlock()
+	if ctx == nil {
+		// Run 実行前（起動フェーズ中の更新適用）。この後の Run が配置済みの
+		// 新実体を起動するため、停止・再起動は不要（成功扱い）。
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	m.stop()
+	return m.start(ctx)
+}
+
+// StartInstalled は配置直後のモジュールを起動する（初回導入の即時有効化用）。
+// Run が呼ばれないプロセス（未配置で起動した本体）では ctx をここで預かり、
+// 以後の再取得・更新もこの経路の停止→起動で即時有効化できる。起動失敗時は
+// 接続先が解決されないまま（BaseURL が nil）で、本体再起動で復旧できる。
+func (m *Manager) StartInstalled(ctx context.Context) error {
+	m.restartMu.Lock()
+	defer m.restartMu.Unlock()
+	m.mu.Lock()
+	if m.runCtx == nil {
+		m.runCtx = ctx
+	}
+	runCtx := m.runCtx
+	m.mu.Unlock()
+	if runCtx.Err() != nil {
+		return runCtx.Err()
+	}
+	m.stop()
+	return m.start(runCtx)
+}
+
+// stop は現在のプロセスを停止し、終了の回収まで待つ（未起動なら何もしない）。
+// stdin を閉じるとモジュールは EOF 検知で自主終了する（孤児プロセス防止と同じ経路）。
+// 猶予内に終了しなければ Kill する。
+func (m *Manager) stop() {
+	m.mu.Lock()
+	proc := m.proc
+	m.proc = nil
+	m.baseURL = nil
+	m.mu.Unlock()
+	if proc == nil {
+		return
+	}
+	_ = proc.stdin.Close()
+	select {
+	case <-proc.done:
+	case <-time.After(stopTimeout):
+		if proc.cmd.Process != nil {
+			_ = proc.cmd.Process.Kill()
+		}
+		<-proc.done
+	}
 }
 
 func (m *Manager) start(ctx context.Context) error {
@@ -109,14 +200,23 @@ func (m *Manager) start(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	proc := &moduleProcess{cmd: cmd, stdin: stdin, done: make(chan struct{})}
+	m.mu.Lock()
+	m.proc = proc
+	m.mu.Unlock()
 	go func() {
 		// プロセス終了で stdin パイプを解放し、待機ステータスを回収する。
+		defer close(proc.done)
 		defer func() { _ = stdin.Close() }()
 		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
 			logging.Error("module: process exited: %v", err)
 		}
 		m.mu.Lock()
-		m.baseURL = nil
+		// stop による世代交代後は新プロセスの接続先を消さない（自プロセス分のみ解除）。
+		if m.proc == proc {
+			m.baseURL = nil
+			m.proc = nil
+		}
 		m.mu.Unlock()
 	}()
 

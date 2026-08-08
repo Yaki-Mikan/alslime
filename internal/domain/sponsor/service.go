@@ -117,8 +117,9 @@ type ModuleTarget struct {
 	// ReceiptPath は配置レシートの絶対パス（module.ReceiptPath。
 	// 空の場合はレシートを書かない・読まない）。
 	ReceiptPath string
-	// Active は現在プロセスで当該サイドカーが起動しているか。
-	Active bool
+	// Active は現在プロセスで当該サイドカーが起動しているかを都度返す
+	//（接続先解決済みかの実測。nil は常に未起動扱い）。
+	Active func() bool
 	// InstallCompanionPack は署名・ハッシュ検証済み付属パックの適用口。
 	// 戻り値は付属パックによって利用可能になった ComfyUI workflow
 	// テンプレート名。nil のモジュールは付属パックを取得しない。
@@ -128,6 +129,9 @@ type ModuleTarget struct {
 	// クリーン再導入がレシートのテンプレート名から削除先を組み立てるのに使う。
 	// 空のモジュールはテンプレート削除を行わない（01番 7章）。
 	WorkflowTemplateDir string
+	// Restart は配置後にサイドカーを停止→新実体で起動し直す（更新の即時有効化）。
+	// nil のモジュール（サイドカー未起動）は従来通り本体再起動で有効化する。
+	Restart func() error
 }
 
 // ConfigureModules はサイドカーモジュール取得・配置の依存を注入する（複数対応）。

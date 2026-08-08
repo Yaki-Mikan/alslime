@@ -26,10 +26,12 @@ const (
 	pathParamProviderID       = "providerId"
 
 	// タグ判定指示ファイル（固定ファイル機構の流用。設計 §9）。
-	// D 分類のため FeatureComfyUI の gate を通す。こちらも GET/POST のみ。
-	routeComfyDirectives = "/comfy-directives"
-	routeComfyDirective  = "/comfy-directive/{directiveId}"
-	pathParamDirectiveID = "directiveId"
+	// D 分類のため FeatureComfyUI の gate を通す。こちらも GET/POST のみ
+	// （reset は同梱デフォルトでの上書きであり、DELETE は存在させない）。
+	routeComfyDirectives     = "/comfy-directives"
+	routeComfyDirective      = "/comfy-directive/{directiveId}"
+	routeComfyDirectiveReset = "/comfy-directive/{directiveId}/reset"
+	pathParamDirectiveID     = "directiveId"
 )
 
 // Config Editor API が返す利用者向けエラーの i18n キー。

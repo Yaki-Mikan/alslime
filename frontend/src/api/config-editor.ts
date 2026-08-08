@@ -95,6 +95,12 @@ export async function saveComfyDirective(backendUrl: string, id: string, content
     await axios.post(`${backendUrl}/api/config-editor/comfy-directive/${id}`, { content });
 }
 
+// resetComfyDirective は指示ファイルを同梱デフォルトの内容へ上書きし、復元後の本文を返す。
+export async function resetComfyDirective(backendUrl: string, id: string): Promise<string> {
+    const res = await axios.post(`${backendUrl}/api/config-editor/comfy-directive/${id}/reset`);
+    return res.data.content;
+}
+
 export async function listTemplates(backendUrl: string, categoryId: string): Promise<string[]> {
     const res = await axios.get(`${backendUrl}/api/config-editor/templates/${categoryId}`);
     return res.data;

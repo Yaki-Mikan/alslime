@@ -29,12 +29,16 @@ import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings'
 import type { EntitlementState } from '../api/system';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
 import { fetchUpdateCheck, type ModuleUpdateEntry } from '../api/update';
+import { SPONSOR_MODULE_LABELS } from '../constants/i18n';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // モジュール配置状態の変化を親へ伝える（会話設定の画像生成設定欄など、
+    // モーダル外の表示条件を画面更新なしで追随させる）。
+    onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
 }
 
 // 状態別のバッジ色（SystemDiagnosticsModal の STATUS_CLASSES と同系統）。
@@ -61,13 +65,8 @@ const LOGIN_POLL_LIMIT_MS = 5 * 60 * 1000;
 // GitHub Sponsors の支援ページ（「支援者になる」ボタンの飛び先）。
 const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
 
-// モジュールID → 表示名（i18nキーとJAフォールバック）。
-const MODULE_LABELS: Record<string, { key: string; fallback: string }> = {
-    comfy: { key: 'sponsor.module.name.comfy', fallback: 'ComfyUI 連携モジュール（画像生成）' },
-    actionchoice: { key: 'sponsor.module.name.actionchoice', fallback: '行動選択肢モジュール' },
-};
 
-export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null }) => {
+export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, onModulesChanged }) => {
     const [status, setStatus] = useState<SponsorStatus | null>(null);
     const [authUrl, setAuthUrl] = useState<string | null>(null);
     const [isBusy, setIsBusy] = useState(false);
@@ -101,8 +100,11 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             setStatus(next);
             // モジュール状態・機能トグルは付随情報。取得失敗しても支援状態の表示は続ける。
             try {
-                setModules(await fetchModulesStatus(backendUrl));
+                const nextModules = await fetchModulesStatus(backendUrl);
+                setModules(nextModules);
+                onModulesChanged?.(nextModules);
             } catch {
+                // 取得失敗はモーダル内の表示だけ空にする（親の表示条件は既存値を保持）。
                 setModules([]);
             }
             try {
@@ -128,7 +130,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             setError(t('systemDiagnostics.fetchError', '診断情報の取得に失敗しました。'));
             return null;
         }
-    }, [backendUrl, t]);
+    }, [backendUrl, t, onModulesChanged]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -150,16 +152,33 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         try {
             const result = await installModule(backendUrl, moduleId);
             setModules(result.modules ?? []);
+            onModulesChanged?.(result.modules ?? []);
+            // 最新版を配置し終えたので「更新あり」表示を消す（次回の確認で再判定される）。
+            setModuleUpdates((prev) => {
+                const next = { ...prev };
+                delete next[moduleId];
+                return next;
+            });
             if (result.companionPackConfigured && !result.companionPackInstalled) {
                 setError(t(
                     'sponsor.module.companionPackFailed',
                     'モジュールは配置しましたが、付属ファイルの取得・配置に失敗しました。再度ダウンロードしてください。'
                 ));
             } else {
-                const restartNotice = t(
-                    'sponsor.module.installedNotice',
-                    'モジュールを配置しました。AlSlime を再起動すると有効になります。'
-                );
+                const restartNotice = result.sidecarRestarted
+                    ? (result.firstInstall
+                        ? t(
+                            'sponsor.module.installedStarted',
+                            'モジュールを配置し、サイドカーを起動して有効化しました。'
+                        )
+                        : t(
+                            'update.module.updatedRestarted',
+                            '更新が完了し、サイドカーを再起動して有効化しました。'
+                        ))
+                    : t(
+                        'sponsor.module.installedNotice',
+                        'モジュールを配置しました。AlSlime を再起動すると有効になります。'
+                    );
                 const workflowTemplates = moduleId === MODULE_COMFY && result.companionPackInstalled
                     ? (result.companionPackWorkflowTemplates ?? []).filter((name) => name.trim() !== '')
                     : [];
@@ -227,11 +246,16 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         setCleanTarget(null);
         setInstallingId(moduleId);
         try {
-            await cleanModule(backendUrl, moduleId, true);
-            setInstallNotice(t(
-                'sponsor.module.clean.done',
-                'クリーン再導入が完了しました。反映には AlSlime の再起動が必要です。'
-            ));
+            const result = await cleanModule(backendUrl, moduleId, true);
+            setInstallNotice(result.sidecarRestarted
+                ? t(
+                    'sponsor.module.clean.doneRestarted',
+                    'クリーン再導入が完了し、サイドカーを再起動して有効化しました。'
+                )
+                : t(
+                    'sponsor.module.clean.done',
+                    'クリーン再導入が完了しました。反映には AlSlime の再起動が必要です。'
+                ));
             void load();
         } catch (err: unknown) {
             const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
@@ -313,6 +337,8 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         setError(null);
         try {
             setStatus(await sponsorLogout(backendUrl));
+            // 機能フラグが変わる操作のため、モジュール状態と併せて親の表示条件も追随させる。
+            void load();
         } catch {
             setError(t('sponsor.error.server_error', 'サーバーでエラーが発生しました。時間をおいて再試行してください。'));
         } finally {
@@ -325,6 +351,8 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         setError(null);
         try {
             setStatus(await refreshSponsorToken(backendUrl));
+            // 失効からの復帰などで機能フラグが変わり得るため、親の表示条件も追随させる。
+            void load();
         } catch (err: unknown) {
             // backend は messageKey を返す。未知の失敗は汎用文言へ丸める。
             const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
@@ -361,7 +389,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             : t('sponsor.module.restartRequired', '配置済み（再起動後に有効になります）'))
         : t('sponsor.module.notInstalled', '未配置');
     const moduleLabel = (id: string) => {
-        const label = MODULE_LABELS[id];
+        const label = SPONSOR_MODULE_LABELS[id];
         return label ? t(label.key, label.fallback) : id;
     };
 

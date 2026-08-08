@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Save, Trash2, Plus, FilePlus, BookTemplate, FileDown, Search } from 'lucide-react';
+import { X, Save, Trash2, Plus, FilePlus, BookTemplate, FileDown, Search, RotateCcw } from 'lucide-react';
 import { SearchPickerModal } from '../common/SearchPickerModal';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ToggleSwitch } from '../common/ToggleSwitch';
@@ -20,8 +20,12 @@ import {
     listProviderInstructions,
     getProviderInstruction,
     saveProviderInstruction,
+    listComfyDirectives,
+    getComfyDirective,
+    saveComfyDirective,
+    resetComfyDirective,
 } from '../../api/config-editor';
-import type { CategoryDef, ConfigFileEntry, ProviderInstruction } from '../../api/config-editor';
+import type { CategoryDef, ConfigFileEntry, ProviderInstruction, ComfyDirective } from '../../api/config-editor';
 import {
     fetchApiProviders,
     fetchApiProviderSystemPrompt,
@@ -58,6 +62,11 @@ interface Props {
     onOpenFileRequestConsumed?: () => void;
     openApiProviderInstruction?: ApiProviderInstructionTarget | null;
     onOpenApiProviderInstructionConsumed?: () => void;
+    /**
+     * 種別「画像生成分析指示」の表示可否。判定（ComfyUI機能が有効な支援レベル
+     * かつ ComfyUI連携モジュール連携済み）は呼び出し側で行い結果だけを受け取る。
+     */
+    comfyDirectiveVisible?: boolean;
 }
 
 type ConfirmKind =
@@ -68,6 +77,8 @@ type ConfirmKind =
 
 // AIプロバイダ指示ファイル種別の疑似カテゴリ ID（フロント内のみ。backend カテゴリとは別系統）。
 const PROVIDER_CATEGORY_ID = '__provider__';
+// 画像生成分析指示種別の疑似カテゴリ ID（同上。4ファイルのプルダウン選択と上書き保存のみ）。
+const COMFY_DIRECTIVE_CATEGORY_ID = '__comfyDirective__';
 const API_CONNECTION_INSTRUCTION_PREFIX = 'openai-compat-connection:';
 
 interface EditableProviderInstruction extends ProviderInstruction {
@@ -93,6 +104,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
     onOpenFileRequestConsumed,
     openApiProviderInstruction = null,
     onOpenApiProviderInstructionConsumed,
+    comfyDirectiveVisible = false,
 }) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
@@ -133,6 +145,10 @@ export const ConfigEditorModal: React.FC<Props> = ({
     const [providerFiles, setProviderFiles] = useState<EditableProviderInstruction[]>([]);
     const [selectedProviderId, setSelectedProviderId] = useState('');
 
+    // 画像生成分析指示種別（固定4ファイル。プルダウン選択と上書き保存のみ）
+    const [comfyDirectiveFiles, setComfyDirectiveFiles] = useState<ComfyDirective[]>([]);
+    const [selectedComfyDirectiveId, setSelectedComfyDirectiveId] = useState('');
+
     // D&D 個別インポート
     const [isDragOver, setIsDragOver] = useState(false);
 
@@ -145,6 +161,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
     const consumedApiProviderInstructionRef = useRef('');
 
     const isProviderCategory = selectedCategoryId === PROVIDER_CATEGORY_ID;
+    const isComfyDirectiveCategory = selectedCategoryId === COMFY_DIRECTIVE_CATEGORY_ID;
 
     const loadProviderFiles = useCallback(async () => {
         const [fixedFiles, connections] = await Promise.all([
@@ -212,6 +229,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
         setSelectedExistingFile(null);
         setSelectedTemplate('');
         setSelectedProviderId('');
+        setSelectedComfyDirectiveId('');
         setTitle('');
         setIsDirty(false);
 
@@ -224,6 +242,17 @@ export const ConfigEditorModal: React.FC<Props> = ({
             setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
             setIsSimpleMode(false);
             loadProviderFiles().catch(() => {});
+            return;
+        }
+
+        // 画像生成分析指示種別: 固定4ファイルのプルダウン選択と上書き保存のみ。
+        if (selectedCategoryId === COMFY_DIRECTIVE_CATEGORY_ID) {
+            setExistingFiles([]);
+            setTemplates([]);
+            setContent('');
+            setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
+            setIsSimpleMode(false);
+            listComfyDirectives(backendUrl).then(setComfyDirectiveFiles).catch(() => {});
             return;
         }
 
@@ -387,6 +416,42 @@ export const ConfigEditorModal: React.FC<Props> = ({
         onOpenApiProviderInstructionConsumed?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, openApiProviderInstruction, selectedCategoryId, providerFiles]);
+
+    // 画像生成分析指示ファイル選択（編集のみ。未作成は空から書き始める）
+    const handleSelectComfyDirective = async (id: string) => {
+        setSelectedComfyDirectiveId(id);
+        if (!id) { setContent(''); setIsDirty(false); return; }
+        try {
+            setContent(await getComfyDirective(backendUrl, id));
+            setIsDirty(false);
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed)); }
+    };
+
+    // 画像生成分析指示ファイル保存（上書きのみ）
+    const handleSaveComfyDirective = async () => {
+        if (!selectedComfyDirectiveId) return;
+        setIsSaving(true);
+        try {
+            await saveComfyDirective(backendUrl, selectedComfyDirectiveId, content);
+            setIsDirty(false);
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.saved));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.saveFailed)); }
+        finally { setIsSaving(false); }
+    };
+
+    // 画像生成分析指示ファイルを同梱デフォルトへ戻す（編集内容破棄のため確認を挟む）
+    const handleResetComfyDirective = async () => {
+        if (!selectedComfyDirectiveId) return;
+        if (!window.confirm(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetConfirm))) return;
+        setIsSaving(true);
+        try {
+            const restored = await resetComfyDirective(backendUrl, selectedComfyDirectiveId);
+            setContent(restored);
+            setIsDirty(false);
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetDone));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetFailed)); }
+        finally { setIsSaving(false); }
+    };
 
     // AIプロバイダ指示ファイル保存（上書きのみ）
     const handleSaveProvider = async () => {
@@ -563,16 +628,18 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 <div className="flex flex-1 overflow-hidden">
                     {/* 左パネル */}
                     <div className="flex flex-col flex-1 overflow-hidden border-r border-gray-700">
-                        {/* タイトル入力（AIプロバイダ指示は固定名表示・編集不可） */}
+                        {/* タイトル入力（AIプロバイダ指示・画像生成分析指示は固定名表示・編集不可） */}
                         <div className="px-4 py-3 border-b border-gray-700 shrink-0">
                             <input
                                 type="text"
                                 value={isProviderCategory
                                     ? (providerFiles.find(p => p.id === selectedProviderId)?.file ?? '')
-                                    : title}
+                                    : isComfyDirectiveCategory
+                                        ? (comfyDirectiveFiles.find(d => d.id === selectedComfyDirectiveId)?.file ?? '')
+                                        : title}
                                 onChange={e => { setTitle(e.target.value); setIsDirty(true); }}
                                 placeholder={t(CONFIG_EDITOR_I18N_KEYS.titlePlaceholder)}
-                                disabled={isProviderCategory}
+                                disabled={isProviderCategory || isComfyDirectiveCategory}
                                 className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500 disabled:opacity-60"
                             />
                         </div>
@@ -610,6 +677,9 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     <option key={c.id} value={c.id}>{c.label}</option>
                                 ))}
                                 <option value={PROVIDER_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.providerCategory)}</option>
+                                {comfyDirectiveVisible && (
+                                    <option value={COMFY_DIRECTIVE_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveCategory)}</option>
+                                )}
                             </select>
                         </div>
 
@@ -630,6 +700,28 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     </select>
                                     <p className="text-xs text-gray-500 mt-2">
                                         {t(CONFIG_EDITOR_I18N_KEYS.providerDescription)}
+                                    </p>
+                                </div>
+
+                                <hr className="border-gray-700" />
+                            </>
+                        ) : isComfyDirectiveCategory ? (
+                            <>
+                                {/* 画像生成分析指示（4ファイルのプルダウン選択のみ。テンプレート・新規・削除・D&Dなし） */}
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">{t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveCategory)}</label>
+                                    <select
+                                        value={selectedComfyDirectiveId}
+                                        onChange={e => handleSelectComfyDirective(e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                    >
+                                        <option value="">{t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveSelect)}</option>
+                                        {comfyDirectiveFiles.map(d => (
+                                            <option key={d.id} value={d.id}>{d.label}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        {t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveDescription)}
                                     </p>
                                 </div>
 
@@ -720,8 +812,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             </div>
                         )}
 
-                        {/* 新規作成（AIプロバイダ指示では不可） */}
-                        {!isProviderCategory && (
+                        {/* 新規作成（AIプロバイダ指示・画像生成分析指示では不可） */}
+                        {!isProviderCategory && !isComfyDirectiveCategory && (
                             <>
                                 <button
                                     onClick={handleNewFile}
@@ -741,23 +833,36 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             <button
                                 onClick={() => {
                                     if (isProviderCategory) { handleSaveProvider(); return; }
+                                    if (isComfyDirectiveCategory) { handleSaveComfyDirective(); return; }
                                     handleSave(
                                         saveMode === 'new'
                                             ? { kind: 'new', name: title }
                                             : { kind: 'overwrite', entry: selectedExistingFile! }
                                     );
                                 }}
-                                disabled={isSaving || (isProviderCategory && !selectedProviderId)}
+                                disabled={isSaving || (isProviderCategory && !selectedProviderId) || (isComfyDirectiveCategory && !selectedComfyDirectiveId)}
                                 className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-white bg-blue-700 rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save size={14} />
-                                {isProviderCategory || saveMode !== 'new'
+                                {isProviderCategory || isComfyDirectiveCategory || saveMode !== 'new'
                                     ? t(CONFIG_EDITOR_I18N_KEYS.overwriteSave)
                                     : t(CONFIG_EDITOR_I18N_KEYS.newSave)}
                             </button>
 
+                            {/* デフォルトに戻す（画像生成分析指示のみ。同梱デフォルトで上書き） */}
+                            {isComfyDirectiveCategory && (
+                                <button
+                                    onClick={handleResetComfyDirective}
+                                    disabled={isSaving || !selectedComfyDirectiveId}
+                                    className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-gray-200 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <RotateCcw size={14} />
+                                    {t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveReset)}
+                                </button>
+                            )}
+
                             {/* 別ファイルとして保存（タイトル変更時のみ） */}
-                            {!isProviderCategory && saveMode === 'both' && (
+                            {!isProviderCategory && !isComfyDirectiveCategory && saveMode === 'both' && (
                                 <button
                                     onClick={() => handleSave({ kind: 'new', name: title })}
                                     disabled={isSaving}

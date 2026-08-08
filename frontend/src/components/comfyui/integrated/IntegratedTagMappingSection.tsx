@@ -129,23 +129,18 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                 setMappingData({ categoryId: selectedCategoryId, tags: [] });
             }
 
-            const cat = categories.find(c => c.id === selectedCategoryId);
-            if (cat && cat.loraPrefixes.length > 0) {
-                try {
-                    const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
-                    setLoraList(loras);
-                } catch (e) {
-                    // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
-                    // 読み込み済みのタグマッピングを破棄しない。
-                    setLoraList([]);
-                    console.error('[IntegratedTagMappingSection] lora list load failed:', e);
-                }
-            } else {
+            try {
+                const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
+                setLoraList(loras);
+            } catch (e) {
+                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
+                // 読み込み済みのタグマッピングを破棄しない。
                 setLoraList([]);
+                console.error('[IntegratedTagMappingSection] lora list load failed:', e);
             }
             setIsLoading(false);
         })();
-    }, [selectedCategoryId, categories, backendUrl]);
+    }, [selectedCategoryId, backendUrl]);
 
     // 外側クリックでLoRAドロップダウン閉じる
     useEffect(() => {
@@ -158,8 +153,6 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         return () => document.removeEventListener('mousedown', handleClick);
     }, []);
 
-    const selectedCategory = categories.find(c => c.id === selectedCategoryId);
-    const hasLoraPrefixes = selectedCategory ? selectedCategory.loraPrefixes.length > 0 : false;
     const selectedTag = mappingData && selectedTagIndex !== null ? mappingData.tags[selectedTagIndex] : null;
 
     const currentLoraDirValue = loraDirConfig
@@ -391,7 +384,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                     {sortOrder === 'asc' ? <ArrowUp size={10} /> : sortOrder === 'desc' ? <ArrowDown size={10} /> : <ArrowUpDown size={10} className="opacity-40" />}
                                 </button>
                                 <span className="flex-1">{TAG_MAPPING.LABELS.DANBOORU_PROMPT_SHORT}</span>
-                                {hasLoraPrefixes && <span className="w-16 text-center">{TAG_MAPPING.LABELS.LORA}</span>}
+                                <span className="w-16 text-center">{TAG_MAPPING.LABELS.LORA}</span>
                                 <span className="w-8" />
                             </div>
                             <div className="max-h-40 overflow-y-auto custom-scrollbar">
@@ -407,11 +400,9 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                         >
                                             <span className="flex-1 truncate">{tag.key || TAG_MAPPING.MESSAGES.NOT_SET}</span>
                                             <span className="flex-1 truncate text-gray-400">{tag.prompt || COMMON.EMPTY_MARKER}</span>
-                                            {hasLoraPrefixes && (
-                                                <span className="w-16 text-center text-xs">
-                                                    {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
-                                                </span>
-                                            )}
+                                            <span className="w-16 text-center text-xs">
+                                                {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                            </span>
                                             <button onClick={e => { e.stopPropagation(); deleteTag(idx); }}
                                                 className="w-8 flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors">
                                                 <Trash2 size={12} />
@@ -536,8 +527,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                             )}
 
                             {/* LoRA */}
-                            {hasLoraPrefixes && (
-                                <div className="space-y-1" ref={loraDropdownRef}>
+                            <div className="space-y-1" ref={loraDropdownRef}>
                                     <div className="flex items-center justify-between">
                                         <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.LORA}</label>
                                         <button
@@ -652,8 +642,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                             </div>
                                         );
                                     })}
-                                </div>
-                            )}
+                            </div>
                         </div>
                     )}
                 </>

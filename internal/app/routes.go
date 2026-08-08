@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	apiprovidersapi "alslime/internal/api/apiproviders"
@@ -313,6 +315,11 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Token:     entitlementSvc.Current,
 	})
 	sidecarMode := moduleMgr.Available()
+	// 配布ビルド（in-process 供給なし）でモジュール未配置のまま起動した場合の
+	// 初回導入用結線。プロキシルートの後付け登録はルート組み立て部で代入し、
+	// 生存管理 ctx は background 起動時（listen 開始前）に確定する。
+	var registerComfyProxyLate func()
+	var moduleRunCtx context.Context
 	// モジュール取得（14番 6章の本体側受け口。複数モジュール対応）: レジストリの
 	// 全モジュールの配置先・起動状態と、署名検証（core に閉じた埋め込み鍵）を
 	// sponsor サービスへ注入する。
@@ -321,8 +328,34 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		target := sponsorsvc.ModuleTarget{
 			InstallPath: module.ExePath(resolver.Root(), def.ID),
 			ReceiptPath: module.ReceiptPath(resolver.Root(), def.ID),
-			Active: (def.ID == module.ModuleComfy && sidecarMode) ||
-				(def.ID == module.ModuleActionChoice && choiceHook != nil),
+		}
+		// 起動状態は接続先が解決済みかの実測を都度返す（初回導入の自動起動や
+		// 更新の起こし直しを一覧へ即時反映する）。
+		switch def.ID {
+		case module.ModuleComfy:
+			target.Active = func() bool { return moduleMgr.BaseURL() != nil }
+		case module.ModuleActionChoice:
+			hooked := choiceHook != nil
+			target.Active = func() bool { return hooked && choiceMgr.BaseURL() != nil }
+		}
+		// 配置後のプロセス起動。起動中の更新は起こし直し、未配置起動からの
+		// 初回導入はプロキシ登録＋初回起動で、どちらも本体再起動なしで有効化する
+		//（in-process 供給ビルドの ComfyUI はサイドカーを使わないため対象外）。
+		if def.ID == module.ModuleComfy {
+			if sidecarMode {
+				target.Restart = moduleMgr.Restart
+			} else if !core.Comfy().InProcess() {
+				target.Restart = func() error {
+					if registerComfyProxyLate == nil || moduleRunCtx == nil {
+						return errors.New("comfyui sidecar start deps not ready")
+					}
+					registerComfyProxyLate()
+					return moduleMgr.StartInstalled(moduleRunCtx)
+				}
+			}
+		}
+		if def.ID == module.ModuleActionChoice && choiceHook != nil {
+			target.Restart = choiceMgr.Restart
 		}
 		if def.CompanionPack {
 			// クリーン再導入がレシートのテンプレート名から削除先を組み立てる（01番 7章）。
@@ -347,7 +380,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	updateSvc := updatesvc.New(updatesettingsstore.New(resolver, locs.MustPath(locations.UpdateSettingsFile)))
 	updateapi.Register(mux, updateapi.Deps{Update: updateSvc, Sponsor: sponsorSvc})
 	var imageRunner jobsqueue.Runner
-	if sidecarMode {
+	if sidecarMode || !core.Comfy().InProcess() {
+		// サイドカー委譲（未起動なら実行時に接続先未解決エラー）。配布ビルドは
+		// 初回導入の自動起動後、本体再起動なしでジョブが通る。
 		imageRunner = module.ImageRunner{Manager: moduleMgr}
 	} else {
 		imageRunner = core.Comfy().ImageRunner()
@@ -436,15 +471,25 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// ComfyUI（Phase 13 / 12番 Phase C）。
 	// サイドカーモード: generate-from-chat（ジョブ投入）以外をモジュールへプロキシ（comfyuigate）。
 	// in-process モード: core 供給のルート一式を登録（従来動作）。
-	if sidecarMode {
+	// どちらでもない（配布ビルドで未配置のまま起動）: 初回導入の成功時に一度だけ
+	// プロキシを登録し、本体再起動なしで有効化する。
+	registerComfyProxy := func() {
 		comfyuigate.RegisterProxy(mux, comfyuigate.Deps{
 			Gate:         core.Features(),
 			Queue:        jobQueue,
 			TagJudgeKind: core.Comfy().TagJudgeKind,
 			Module:       moduleMgr,
 		})
-	} else {
+	}
+	switch {
+	case sidecarMode:
+		registerComfyProxy()
+	case core.Comfy().InProcess():
 		core.Comfy().RegisterRoutes(mux, jobQueue, core.Features())
+	default:
+		// ServeMux は配信中の登録も並行安全だが、二重登録は panic するため Once で括る。
+		var once sync.Once
+		registerComfyProxyLate = func() { once.Do(registerComfyProxy) }
 	}
 
 	// 残る大きな未完了は、ComfyUI実生成疎通、実CLI疎通確認、
@@ -456,6 +501,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// ネイティブ掃除の実装は core 側のため、組み立てが可能な本関数で合成する）。
 	housekeeper := housekeeping.New(resolver, core.NativeSweeper())
 	return func(ctx context.Context) {
+		// サイドカー初回起動（StartInstalled）の生存管理 ctx。listen 開始前に
+		// 確定するため、API 経由の初回導入時には必ず設定済み。
+		moduleRunCtx = ctx
 		go jobQueue.RunCleanup(ctx)
 		go housekeeper.Run(ctx)
 		// import_inbox の起動時取り込み（設計 §5）。起動時に1回だけ実行し、
@@ -465,6 +513,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		go sponsorSvc.RunAutoRefresh(ctx)
 		// サイドカー更新の待避残骸（modules/*.old）の起動時掃除（01番 6.3）。
 		go module.CleanupStaleFiles(resolver.Root())
+		// 一括全更新でユーザーが承認済みのモジュール更新の適用（本体更新後の
+		// 起動時に一度だけ。承認記録が無ければ何もしない。適用後は InstallModule
+		// 内のサイドカー再起動で有効化され、進行状態は /api/update/status が返す）。
+		updateSvc.RunApprovedModuleUpdates(ctx, func(ctx context.Context, id string) error {
+			_, err := sponsorSvc.InstallModule(ctx, id)
+			return err
+		})
 		// 本体更新の入れ替え残骸（alslime.exe.old / .new）の起動時掃除（01番 5.1）。
 		go updateSvc.CleanupStagedBinaries()
 		if sidecarMode {

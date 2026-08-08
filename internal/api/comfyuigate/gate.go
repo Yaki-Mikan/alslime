@@ -85,8 +85,11 @@ func requireGate(gate coreapi.FeatureGate, next http.HandlerFunc) http.HandlerFu
 }
 
 type generateFromChatRequest struct {
-	SessionID     string            `json:"sessionId"`
-	MessageID     string            `json:"messageId"`
+	SessionID string `json:"sessionId"`
+	MessageID string `json:"messageId"`
+	// TurnID / TurnIndex は生成対象のチャットバブル指定（省略時は従来動作）。
+	TurnID        string            `json:"turnId,omitempty"`
+	TurnIndex     *int              `json:"turnIndex,omitempty"`
 	CharacterName string            `json:"characterName,omitempty"`
 	TemplateName  string            `json:"templateName,omitempty"`
 	AITags        map[string]string `json:"aiTags,omitempty"`
@@ -131,6 +134,10 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 			})
 			return
 		}
+		if req.TurnIndex != nil && *req.TurnIndex < 0 {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
 		kind := models.KindGemini
 		if deps.TagJudgeKind != nil {
 			kind = deps.TagJudgeKind()
@@ -140,10 +147,12 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 			Kind:      kind,
 			Label:     i18n.KeyLabelImageGeneration,
 			SessionID: req.SessionID,
-			DedupeKey: req.SessionID + "\x00" + req.MessageID,
+			DedupeKey: coreapi.ImageGenDedupeKey(req.SessionID, req.MessageID, req.TurnID, req.TurnIndex),
 			Payload: coreapi.ImageGeneratePayload{
 				SessionID:     req.SessionID,
 				MessageID:     req.MessageID,
+				TurnID:        req.TurnID,
+				TurnIndex:     req.TurnIndex,
 				CharacterName: req.CharacterName,
 				TemplateName:  req.TemplateName,
 				AITags:        req.AITags,

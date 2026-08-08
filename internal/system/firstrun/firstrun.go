@@ -108,6 +108,14 @@ func writeDefaults(workspaceRoot string) error {
 	})
 }
 
+// DefaultContent は同梱デフォルトの書き出し内容を返す（rel は WORKSPACE_ROOT
+// 相対・"/" 区切り）。初回書き出しと同一の内容を返すため、「デフォルトへ戻す」
+// 系の機能はこれを正本として利用者ファイルを上書きできる。
+func DefaultContent(rel string) ([]byte, error) {
+	data, _, err := materializeDefault(defaultsRoot+"/"+rel, rel)
+	return data, err
+}
+
 // materializeDefault は埋め込みデフォルトの書き出し内容を返す。
 // 固定3プリセットは、埋め込み側に保持する旧「追加指示」を API 共通基本指示の
 // 後ろへ結合し、各ファイル単体で基本指示として成立させる。

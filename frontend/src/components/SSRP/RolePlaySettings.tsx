@@ -26,6 +26,7 @@ import type { DateTimeSettingsState } from '../../types/datetime';
 import { getDefaultDateTimeSettings } from '../../types/datetime';
 import { getGlobalSettings, updateGlobalSettings } from '../../api/global-settings';
 import { WORKSPACE_PATHS, CHARACTER_SUBDIRS } from '../../constants/workspacePaths';
+import { extractCharacterDirectoryName } from '../chat/characterImagePath';
 import {
     listSSRPAllPresets,
     getSSRPAllPreset,
@@ -39,6 +40,7 @@ import {
 import type { SSRPAllPreset, SSRPParamPreset } from '../../api/datetime-presets';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { SSRP_I18N_KEYS, SSRP_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { ImageGenerationSettings, getDefaultImageGenSettings, type ImageGenSettingsState } from './ImageGenerationSettings';
 
 
 interface RolePlaySettingsProps {
@@ -58,6 +60,11 @@ interface RolePlaySettingsProps {
     fallbackDirectiveMode?: 'A' | 'B' | 'C';
     /** 基本チャット設定のデフォルトユーザー名（空なら言語別デフォルト名を使用） */
     defaultUserNameSetting?: string;
+    /**
+     * 画像生成設定欄の表示可否。判定（ComfyUI機能が有効な支援レベル かつ
+     * ComfyUI連携モジュール連携済み）は Chat 側で行い結果だけを受け取る。
+     */
+    imageGenSettingsVisible?: boolean;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -71,6 +78,8 @@ export interface RolePlaySettingsHandlers {
 interface Option {
     label: string;
     value: string;
+    /** キャラクター設定だけが持つ、画像等の保存先となる物理ディレクトリ名。 */
+    dirName?: string;
 }
 
 /**
@@ -158,7 +167,8 @@ async function fetchSSRPOptions(backendUrl: string): Promise<SSRPOptionsData> {
     return {
         charOptions: charTagsResult.characters.map((c: CharacterTagInfo) => ({
             label: c.name,
-            value: c.path
+            value: c.path,
+            dirName: c.dirName
         })),
         tagMap,
         filterWorks: filtersResult.works || [],
@@ -217,7 +227,14 @@ function listWithDelete(idx: number, list: string[]): string[] {
     return next;
 }
 
+// キャラクター設定パスから、画像・画像生成設定の保存先となる
+// 物理キャラクターディレクトリ名を得る。
+// 設定ファイル名は `キャラ名_v3.md` のように版が付くことがあり、
+// ファイル名をそのまま渡すと存在しないキャラクターディレクトリが作られる。
 function getCharacterNameFromPath(charPath: string): string {
+    const directoryName = extractCharacterDirectoryName(charPath);
+    if (directoryName) return directoryName;
+
     return charPath.split('/').pop()?.replace(/\.md$/, '') || charPath;
 }
 
@@ -409,6 +426,7 @@ SelectSection.displayName = 'SelectSection';
 // 追加設定テキスト入力では detail の参照が変わらず再レンダーがスキップされる。
 interface CharacterDetailPanelProps {
     charPath: string;
+    characterDirName: string;
     detail: CharacterDetail;
     parameterSchema: ParameterSchema | null;
     uiCatalog: I18NCatalog | null;
@@ -433,8 +451,9 @@ interface CharacterDetailPanelProps {
     onUpdateParamValue: (charPath: string, groupId: string, elementId: string, value: any) => void;
 }
 
-const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
+const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({ 
     charPath,
+    characterDirName,
     detail,
     parameterSchema,
     uiCatalog,
@@ -830,7 +849,7 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
 
                     {/* キャラクター画像管理パネル */}
                     <CharacterImagePanel
-                        characterName={getCharacterNameFromPath(charPath)}
+                        characterName={characterDirName}
                         backendUrl={backendUrl}
                         uiCatalog={uiCatalog}
                     />
@@ -855,6 +874,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     applyToSessionState = 'idle',
     fallbackDirectiveMode: _fallbackDirectiveMode,
     defaultUserNameSetting,
+    imageGenSettingsVisible = false,
     uiCatalog
 }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
@@ -941,6 +961,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [additionalWritingStyleEnabled, setAdditionalWritingStyleEnabled] = useState(false);
     const [additionalWritingStyleText, setAdditionalWritingStyleText] = useState('');
     const [imageGenerationNotes, setImageGenerationNotes] = useState('');
+    // 画像生成設定（ワークフロー・分析指示のセッション選択。空=Default）
+    const [imageGenSettings, setImageGenSettings] = useState<ImageGenSettingsState>(() => getDefaultImageGenSettings());
     const [additionalSituationEnabled, setAdditionalSituationEnabled] = useState(false);
     const [additionalSituationText, setAdditionalSituationText] = useState('');
     const [additionalUserEnabled, setAdditionalUserEnabled] = useState(false);
@@ -1147,6 +1169,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         if (settings.additionalWritingStyleEnabled !== undefined) setAdditionalWritingStyleEnabled(settings.additionalWritingStyleEnabled);
         if (settings.additionalWritingStyleText !== undefined) setAdditionalWritingStyleText(settings.additionalWritingStyleText);
         setImageGenerationNotes(settings.imageGenerationNotes || '');
+        setImageGenSettings({
+            workflowId: settings.imageGenWorkflowId || '',
+            directiveMode: settings.imageGenDirectiveMode || '',
+        });
         if (settings.additionalSituationEnabled !== undefined) setAdditionalSituationEnabled(settings.additionalSituationEnabled);
         if (settings.additionalSituationText !== undefined) setAdditionalSituationText(settings.additionalSituationText);
         if (settings.additionalUserEnabled !== undefined) setAdditionalUserEnabled(settings.additionalUserEnabled);
@@ -1282,6 +1308,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     // キャラパス→表示名の索引（選択表示ボタンでのスロット数×キャラ数の線形検索を避ける）
     const characterLabelMap = useMemo(
         () => new Map(characterOptions.map(o => [o.value, o.label])),
+        [characterOptions]
+    );
+    const characterDirNameMap = useMemo(
+        () => new Map(characterOptions.map(o => [o.value, o.dirName])),
         [characterOptions]
     );
 
@@ -1525,6 +1555,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 additionalWritingStyleEnabled,
                 additionalWritingStyleText,
                 imageGenerationNotes,
+                imageGenWorkflowId: imageGenSettings.workflowId,
+                imageGenDirectiveMode: imageGenSettings.directiveMode,
                 additionalSituationEnabled,
                 additionalSituationText,
                 additionalUserEnabled,
@@ -1571,6 +1603,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             additionalWritingStyleEnabled,
             additionalWritingStyleText,
             imageGenerationNotes,
+            imageGenWorkflowId: imageGenSettings.workflowId,
+            imageGenDirectiveMode: imageGenSettings.directiveMode,
             additionalSituationEnabled,
             additionalSituationText,
             additionalUserEnabled,
@@ -1648,6 +1682,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 additionalWritingStyleEnabled,
                 additionalWritingStyleText,
                 imageGenerationNotes,
+                imageGenWorkflowId: imageGenSettings.workflowId,
+                imageGenDirectiveMode: imageGenSettings.directiveMode,
                 additionalSituationEnabled,
                 additionalSituationText,
                 additionalUserEnabled,
@@ -2106,6 +2142,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                 {val && characterDetails[val] && (
                                                     <CharacterDetailPanel
                                                         charPath={val}
+                                                        characterDirName={characterDirNameMap.get(val) || getCharacterNameFromPath(val)}
                                                         detail={characterDetails[val]}
                                                         parameterSchema={parameterSchema}
                                                         uiCatalog={uiCatalog}
@@ -2268,6 +2305,18 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                         uiCatalog={uiCatalog}
                     />
                         </div>
+
+                        {/* 画像生成設定（ComfyUI機能が有効な支援レベル かつ モジュール連携済みのみ） */}
+                        {imageGenSettingsVisible && (
+                            <div className="border-t border-gray-800 pt-4">
+                                <ImageGenerationSettings
+                                    settings={imageGenSettings}
+                                    onChange={setImageGenSettings}
+                                    backendUrl={backendUrl}
+                                    uiCatalog={uiCatalog}
+                                />
+                            </div>
+                        )}
 
                     </div>
                 </div>

@@ -12,9 +12,9 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Settings as SettingsType } from '../../types/Settings';
 import { parseMultiCharacterResponse } from '../../lib/multiCharacterParser';
 import type { Message } from '../../hooks/useChat';
-import { Edit2, RefreshCw, Palette, Loader2, FileText, X, ImageIcon, Clock } from 'lucide-react';
+import { Edit2, RefreshCw, Palette, Loader2, FileText, X, ImageIcon, Clock, Trash2 } from 'lucide-react';
 import axiosLib from '../../lib/axios';
-import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl } from '../../api/comfyui';
+import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment } from '../../api/comfyui';
 import type { ImageAttachment } from '../../api/comfyui';
 import { FEATURE_ACTION_CHOICE, FEATURE_COMFYUI, isFeatureEnabled } from '../../constants/features';
 import { Toast, useToast } from '../common/Toast';
@@ -26,6 +26,17 @@ import {
     MESSAGE_LIST_TEXT_FALLBACK_JA,
 } from '../../constants/i18n';
 import { resolvePersistedChatMessage } from './messageError';
+import {
+    buildCharacterImageDirectoryMap,
+    resolveCharacterImageDirectory,
+} from './characterImagePath';
+import {
+    buildCharacterIconUrlMap,
+    resolveCharacterIconUrl,
+    type CharacterIconUrlsByDirectory,
+} from './characterIconUrls';
+import { authFetch } from '../../lib/authFetch';
+import { CHARACTER_IMAGES_UPDATED_EVENT } from '../../lib/characterImageEvents';
 
 interface MessageListProps {
     messages: Message[];
@@ -43,6 +54,8 @@ interface MessageListProps {
     isLoading: boolean;
     backendUrl?: string;
     sessionId?: string;
+    /** セッションで選択中のキャラクター設定ファイルパス。画像の物理保存先解決に使う。 */
+    characterPaths?: string[];
     onActiveBackgroundChange?: (url: string | null) => void;
     uiCatalog?: I18NCatalog | null;
     // backend の tier gate（機能フラグ）。Chat が一度だけ取得して配布する
@@ -93,7 +106,9 @@ const CharacterIconWithFallback: React.FC<{
     characterName: string;
     emotion: string;
     size?: number;  // px単位のサイズ
-}> = ({ iconUrl, defaultIconUrl, characterName, emotion, size = 40 }) => {
+    /** 心情名の表示を呼び出し側から抑止する（バブル左配置では出さない） */
+    hideEmotionBadge?: boolean;
+}> = ({ iconUrl, defaultIconUrl, characterName, emotion, size = 40, hideEmotionBadge = false }) => {
     const [currentUrl, setCurrentUrl] = useState(iconUrl);
     const [errorCount, setErrorCount] = useState(0);
     const [isHidden, setIsHidden] = useState(false);
@@ -126,26 +141,29 @@ const CharacterIconWithFallback: React.FC<{
         ? 'rounded-full border-2 border-indigo-500/50 bg-gray-800'
         : 'rounded-lg border-2 border-indigo-500/50 bg-gray-800';
 
-    // バッジスタイル（サイズに応じて調整）
+    // バッジスタイル（サイズに応じて調整）。アイコンの右隣に置くため位置指定は持たせない。
     const getBadgeStyles = () => {
-        if (size <= 40) return 'absolute -bottom-1 -right-1 text-[10px] bg-gray-900 px-1 rounded text-gray-400 border border-gray-700';
-        if (size <= 100) return 'absolute bottom-0.5 right-0.5 text-[10px] bg-gray-900/90 px-1 py-0.5 rounded text-gray-300 border border-gray-600';
-        if (size <= 200) return 'absolute bottom-1 right-1 text-xs bg-gray-900/90 px-1.5 py-0.5 rounded text-gray-300 border border-gray-600';
-        return 'absolute bottom-2 right-2 text-sm bg-gray-900/90 px-2 py-1 rounded text-gray-200 border border-gray-600';
+        if (size <= 100) return 'text-[10px] bg-gray-900/90 px-1 py-0.5 rounded text-gray-300 border border-gray-600';
+        if (size <= 200) return 'text-xs bg-gray-900/90 px-1.5 py-0.5 rounded text-gray-300 border border-gray-600';
+        return 'text-sm bg-gray-900/90 px-2 py-1 rounded text-gray-200 border border-gray-600';
     };
 
+    // 心情バッジはアイコンの右隣、下端に揃えて出す。
+    // アイコン小（40px以下）では文字が窮屈になるため出さない。
+    const showEmotionBadge = emotion !== 'default' && !isSmall && !hideEmotionBadge;
+
     return (
-        <div className="relative group/icon">
+        <div className="flex items-end gap-1.5 group/icon">
             <img
                 src={currentUrl}
                 alt={`${characterName} - ${emotion}`}
-                className={`object-cover ${baseStyles}`}
+                className={`object-cover shrink-0 ${baseStyles}`}
                 style={{ width: `${size}px`, height: `${size}px` }}
                 onError={handleError}
             />
             {/* 心情のバッジ */}
-            {emotion !== 'default' && (
-                <span className={getBadgeStyles()}>
+            {showEmotionBadge && (
+                <span className={`whitespace-nowrap ${getBadgeStyles()}`}>
                     {emotion}
                 </span>
             )}
@@ -216,13 +234,9 @@ const parseMessage = (content: string | null | undefined) => {
     return { files, text: text.trim() };
 };
 
-/** キャラクターアイコンURL生成（純関数） */
-const getCharacterIconUrl = (backendUrl: string, characterName: string, emotion: string): string => {
-    if (!backendUrl || !characterName) {
-        return '/assets/default/no-image-female.png';
-    }
-    return `${backendUrl}/images/characters/${encodeURIComponent(characterName)}/images/icons/${emotion}.png`;
-};
+// キャラクターアイコンURLの決定は characterIconUrls.ts に集約する。
+// チャット側で拡張子とキャッシュ更新を独自に組み立てると、
+// 会話設定で差し替えた画像が反映されないため。
 
 /**
  * 常に最新の関数を呼ぶ安定参照ラッパー（useEventCallbackパターン）
@@ -249,15 +263,18 @@ interface MessageItemProps {
     /** このメッセージが編集対象の場合のみ非null（親で絞り込み済み） */
     editingState: EditingState | null;
     attachments: ImageAttachment[] | undefined;
-    /** このメッセージの画像を生成中か */
-    isGenerating: boolean;
-    /** いずれかのメッセージで画像生成中か（ボタンdisabled用） */
+    /** 生成中のTURNキー（`${msgId}::${turnId ?? turnIndex}`）。非生成中はnull */
+    generatingKey: string | null;
+    /** いずれかのバブルで画像生成中か（ボタンdisabled用） */
     generateDisabled: boolean;
     /** ComfyUI 画像生成機能が有効か */
     canUseComfyUI: boolean;
     isLoading: boolean;
     backendUrl: string;
     sessionId?: string;
+    characterImageDirectoryMap: ReadonlyMap<string, string>;
+    /** 物理ディレクトリ名→心情ごとのアイコンURL（バックエンド解決済み）。 */
+    characterIconUrls: CharacterIconUrlsByDirectory;
     /** 背景画像が表示中か（バブルの塗り分けに使用。URL自体には依存させない） */
     hasActiveBackground: boolean;
     onEditStart: (msgId: string, turnIndex: number, content: string) => void;
@@ -265,9 +282,9 @@ interface MessageItemProps {
     onEditSave: () => void;
     onEditChange: (content: string) => void;
     onRegenerate: () => void;
-    onGenerate: (msgId: string) => void;
-    onOpenImage: (att: ImageAttachment, msgId?: string) => void;
-    onSetRef: (msgId: string, el: HTMLDivElement | null) => void;
+    onGenerate: (msgId: string, turnId: string | null, turnIndex: number) => void;
+    /** turnKey は画像が属するチャットバブルのキー（`${msgId}::${turnId ?? turnIndex}`）。背景の手動選択に使う */
+    onOpenImage: (att: ImageAttachment, msgId?: string, turnKey?: string) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -282,12 +299,14 @@ const MessageItem = React.memo<MessageItemProps>(({
     settings,
     editingState,
     attachments,
-    isGenerating,
+    generatingKey,
     generateDisabled,
     canUseComfyUI,
     isLoading,
     backendUrl,
     sessionId,
+    characterImageDirectoryMap,
+    characterIconUrls,
     hasActiveBackground,
     onEditStart,
     onEditCancel,
@@ -296,7 +315,6 @@ const MessageItem = React.memo<MessageItemProps>(({
     onRegenerate,
     onGenerate,
     onOpenImage,
-    onSetRef,
     uiCatalog
 }) => {
     const t = (key: string) => resolveMessage(
@@ -331,9 +349,38 @@ const MessageItem = React.memo<MessageItemProps>(({
         });
     }, [msg.role, text, settings.collapseEmptyLines]);
 
+    // 添付画像を表示先TURNへ解決する（turnId優先→turnIndex→未照合は末尾表示）。
+    const { attachmentsByTurn, unresolvedAttachments } = React.useMemo(() => {
+        const byTurn = new Map<number, ImageAttachment[]>();
+        const unresolved: ImageAttachment[] = [];
+        for (const att of attachments ?? []) {
+            let resolved: number | null = null;
+            if (att.turnId && processedTurns) {
+                const hit = processedTurns.find(pt => pt.turn.turnId === att.turnId);
+                if (hit) resolved = hit.turn.index;
+            }
+            if (resolved === null && typeof att.turnIndex === 'number' && processedTurns) {
+                const hit = processedTurns.find(pt => pt.turn.index === att.turnIndex);
+                if (hit) resolved = hit.turn.index;
+            }
+            if (resolved === null) {
+                unresolved.push(att);
+            } else {
+                byTurn.set(resolved, [...(byTurn.get(resolved) ?? []), att]);
+            }
+        }
+        return { attachmentsByTurn: byTurn, unresolvedAttachments: unresolved };
+    }, [attachments, processedTurns]);
+
+    // TURNへ照合できなかった添付は末尾TURN扱い（背景の手動選択キーも末尾TURNへ揃える）
+    const lastTurnKey = React.useMemo(() => {
+        if (!msg.id || !processedTurns || processedTurns.length === 0) return undefined;
+        const last = processedTurns[processedTurns.length - 1].turn;
+        return `${msg.id}::${last.turnId ?? last.index}`;
+    }, [msg.id, processedTurns]);
+
     return (
         <div
-            ref={(el) => msg.id ? onSetRef(msg.id, el) : undefined}
             data-msg-id={msg.id}
             className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} relative z-[1]`}
         >
@@ -374,12 +421,21 @@ const MessageItem = React.memo<MessageItemProps>(({
                     return (
                         <div className="flex flex-col gap-3 w-full">
                             {processedTurns.map(({ turn, lines }, turnIdx) => {
+                                // 背景画像判定用のバブル識別キー（生成中キーと同じ規約）
+                                const turnKey = msg.id ? `${msg.id}::${turn.turnId ?? turn.index}` : undefined;
                                 // 編集モード判定（editingStateは親でこのメッセージ分のみに絞り込み済み）
                                 const isEditing = editingState !== null && editingState.turnIndex === turn.index;
 
                                 if (isEditing && editingState) {
                                     return (
-                                        <div key={turnIdx} className="w-full max-w-[85%] bg-gray-800 p-3 rounded-lg border border-blue-500/50">
+                                        <div
+                                            key={turnIdx}
+                                            data-turn-key={turnKey}
+                                            data-msg-id={msg.id}
+                                            data-turn-id={turn.turnId ?? undefined}
+                                            data-turn-index={turn.index}
+                                            className="w-full max-w-[85%] bg-gray-800 p-3 rounded-lg border border-blue-500/50"
+                                        >
                                             <textarea
                                                 className="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-blue-500 outline-none resize-none font-sans text-sm leading-relaxed"
                                                 value={editingState.content}
@@ -407,61 +463,66 @@ const MessageItem = React.memo<MessageItemProps>(({
 
                                 // 各TURNの時刻: turnTimes[turnIdx]を優先、無ければsessionTimeにフォールバック（後方互換）
                                 const turnTime = msg.turnTimes?.[turnIdx] ?? msg.sessionTime;
-                                return (
-                                    <div key={turnIdx} className="flex flex-col w-fit max-w-[85%]">
-                                        {/* セッション時刻（各TURN個別の絶対時刻） */}
-                                        {turnTime && (
-                                            <div className="flex items-center gap-1.5 text-sm text-blue-400/80 mb-1 ml-1 font-mono">
-                                                <Clock size={14} />
-                                                {turnTime.year}/{String(turnTime.month).padStart(2, '0')}/{String(turnTime.day).padStart(2, '0')} {String(turnTime.hour).padStart(2, '0')}:{String(turnTime.minute).padStart(2, '0')}:{String(turnTime.second || 0).padStart(2, '0')}
-                                            </div>
-                                        )}
-                                        {/* キャラクター名ラベル（バブル外、アイコン付き） */}
-                                        {turn.character && (() => {
-                                            // TURNタグのemotion属性から心情を取得（未指定ならdefault）
-                                            const emotion = turn.emotion || 'default';
-                                            const iconUrl = getCharacterIconUrl(backendUrl, turn.character, emotion);
-                                            const defaultIconUrl = emotion !== 'default'
-                                                ? getCharacterIconUrl(backendUrl, turn.character, 'default')
-                                                : null;
-                                            const iconSize = settings.characterIconSize || 40;
+                                const emotion = turn.emotion || 'default';
+                                const iconSize = settings.characterIconSize || 40;
+                                // アイコンをバブル左へ置くのは 100px 以上のときだけ。
+                                // 小サイズでは横幅を取られてバブルが潰れるため適用しない。
+                                const iconOnBubbleLeft = !!settings.characterIconOnBubbleLeft && iconSize >= 100;
 
-                                            // 小サイズ（40以下）: 横並び、それ以外: 縦並び
-                                            if (iconSize > 40) {
-                                                return (
-                                                    <div className="flex flex-col items-start mb-2">
-                                                        <div className="text-base font-bold text-indigo-300 tracking-wide mb-1">
-                                                            {turn.character}
-                                                        </div>
-                                                        <CharacterIconWithFallback
-                                                            iconUrl={iconUrl}
-                                                            defaultIconUrl={defaultIconUrl}
-                                                            characterName={turn.character}
-                                                            emotion={emotion}
-                                                            size={iconSize}
-                                                        />
-                                                    </div>
-                                                );
-                                            }
+                                const timeLabel = turnTime ? (
+                                    <div className="flex items-center gap-1.5 text-sm text-blue-400/80 mb-1 ml-1 font-mono">
+                                        <Clock size={14} />
+                                        {turnTime.year}/{String(turnTime.month).padStart(2, '0')}/{String(turnTime.day).padStart(2, '0')} {String(turnTime.hour).padStart(2, '0')}:{String(turnTime.minute).padStart(2, '0')}:{String(turnTime.second || 0).padStart(2, '0')}
+                                    </div>
+                                ) : null;
 
-                                            // 小サイズ（デフォルト）: 横並び
-                                            return (
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <CharacterIconWithFallback
-                                                        iconUrl={iconUrl}
-                                                        defaultIconUrl={defaultIconUrl}
-                                                        characterName={turn.character}
-                                                        emotion={emotion}
-                                                        size={iconSize}
-                                                    />
-                                                    <div className="text-base font-bold text-indigo-300 tracking-wide">
-                                                        {turn.character}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
+                                // このバブルが生成中かどうか（スピナー表示用）
+                                const isTurnGenerating = generatingKey !== null && generatingKey === `${msg.id}::${turn.turnId ?? turn.index}`;
+                                // このTURNに紐づく生成画像（バブル直下へ表示）
+                                const turnAttachments = attachmentsByTurn.get(turn.index);
+                                const turnAttachmentRow = msg.id && turnAttachments && turnAttachments.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2 ml-1 mt-1">
+                                        {turnAttachments.map((att) => (
+                                            <AuthImg
+                                                key={att.id}
+                                                backendUrl={backendUrl}
+                                                sessionId={sessionId!}
+                                                filename={att.filename}
+                                                alt={t(MESSAGE_LIST_I18N_KEYS.generatedImageAlt)}
+                                                className="w-24 h-24 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
+                                                onClick={() => onOpenImage(att, msg.id, turnKey)}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : null;
 
-                                        {/* メッセージバブル */}
+                                const characterName = turn.character;
+                                const characterIcon = characterName ? (() => {
+                                    const imageDirectory = resolveCharacterImageDirectory(characterName, characterImageDirectoryMap);
+                                    const iconUrlsForCharacter = characterIconUrls[imageDirectory];
+                                    const iconUrl = resolveCharacterIconUrl(backendUrl, imageDirectory, emotion, iconUrlsForCharacter);
+                                    const defaultIconUrl = emotion !== 'default'
+                                        ? resolveCharacterIconUrl(backendUrl, imageDirectory, 'default', iconUrlsForCharacter)
+                                        : null;
+                                    return (
+                                        <CharacterIconWithFallback
+                                            iconUrl={iconUrl}
+                                            defaultIconUrl={defaultIconUrl}
+                                            characterName={characterName}
+                                            emotion={emotion}
+                                            size={iconSize}
+                                            hideEmotionBadge={iconOnBubbleLeft}
+                                        />
+                                    );
+                                })() : null;
+
+                                const characterNameLabel = characterName ? (
+                                    <div className="text-base font-bold text-indigo-300 tracking-wide">
+                                        {characterName}
+                                    </div>
+                                ) : null;
+
+                                const bubble = (
                                         <div
                                             className={`group relative p-4 rounded-xl shadow-md border transition-all ${turn.character
                                                 ? 'border-indigo-600/40 text-gray-100'
@@ -507,14 +568,92 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 })}
                                             </div>
                                         </div>
+                                );
+
+                                // 画像生成ボタン（TURN毎。バブル直下に文字ラベル付きで常時表示。timeLabelの有無とは独立）
+                                const generateButtonRow = canUseComfyUI && msg.id && sessionId && !isLoading ? (
+                                    <div className="mt-1.5 flex justify-end">
+                                        <button
+                                            onClick={() => onGenerate(msg.id!, turn.turnId, turn.index)}
+                                            disabled={generateDisabled}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/20 hover:bg-purple-800/50 border border-purple-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                            title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
+                                        >
+                                            {isTurnGenerating ? (
+                                                <Loader2 size={14} className="animate-spin" />
+                                            ) : (
+                                                <Palette size={14} />
+                                            )}
+                                            <span>{t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
+                                        </button>
+                                    </div>
+                                ) : null;
+
+                                // アイコンをバブル左へ置く配置。アイコンとバブルの下端を揃える。
+                                if (iconOnBubbleLeft && characterName) {
+                                    return (
+                                        <div
+                                            key={turnIdx}
+                                            data-turn-key={turnKey}
+                                            data-msg-id={msg.id}
+                                            data-turn-id={turn.turnId ?? undefined}
+                                            data-turn-index={turn.index}
+                                            className="flex flex-col w-fit max-w-[85%]"
+                                        >
+                                            {timeLabel}
+                                            <div className="flex items-end gap-2">
+                                                <div className="shrink-0">{characterIcon}</div>
+                                                <div className="flex flex-col min-w-0">
+                                                    <div className="mb-1">{characterNameLabel}</div>
+                                                    {bubble}
+                                                </div>
+                                            </div>
+                                            {generateButtonRow}
+                                            {turnAttachmentRow}
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div
+                                        key={turnIdx}
+                                        data-turn-key={turnKey}
+                                        data-msg-id={msg.id}
+                                        data-turn-id={turn.turnId ?? undefined}
+                                        data-turn-index={turn.index}
+                                        className="flex flex-col w-fit max-w-[85%]"
+                                    >
+                                        {/* セッション時刻（各TURN個別の絶対時刻） */}
+                                        {timeLabel}
+                                        {/* キャラクター名ラベル（バブル外、アイコン付き） */}
+                                        {characterName && (
+                                            iconSize > 40 ? (
+                                                // 大サイズ: キャラ名の下にアイコン
+                                                <div className="flex flex-col items-start mb-2">
+                                                    <div className="mb-1">{characterNameLabel}</div>
+                                                    {characterIcon}
+                                                </div>
+                                            ) : (
+                                                // 小サイズ（デフォルト）: 横並び
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    {characterIcon}
+                                                    {characterNameLabel}
+                                                </div>
+                                            )
+                                        )}
+
+                                        {/* メッセージバブル */}
+                                        {bubble}
+                                        {generateButtonRow}
+                                        {turnAttachmentRow}
                                     </div>
                                 );
                             })}
 
-                            {/* 画像添付サムネイル */}
-                            {msg.id && attachments && attachments.length > 0 && (
+                            {/* 画像添付サムネイル（TURNへ照合できなかった分: 旧データ・編集でTURN消失分） */}
+                            {msg.id && unresolvedAttachments.length > 0 && (
                                 <div className="flex flex-wrap gap-2 ml-1 mt-1">
-                                    {attachments.map((att) => (
+                                    {unresolvedAttachments.map((att) => (
                                         <AuthImg
                                             key={att.id}
                                             backendUrl={backendUrl}
@@ -522,39 +661,18 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             filename={att.filename}
                                             alt={t(MESSAGE_LIST_I18N_KEYS.generatedImageAlt)}
                                             className="w-24 h-24 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
-                                            onClick={() => onOpenImage(att, msg.id)}
+                                            onClick={() => onOpenImage(att, msg.id, lastTurnKey)}
                                         />
                                     ))}
                                 </div>
                             )}
 
-                            {/* モデル名と再生成/画像生成ボタン (横並び) */}
+                            {/* モデル名と再生成ボタン (横並び。画像生成ボタンはTURN毎のバブル内へ移設) */}
                             <div className="flex items-center gap-3 ml-1 mt-[-4px]">
                                 {msg.model && (
                                     <div className="text-[10px] text-gray-500">
                                         Generated by {msg.model}
                                     </div>
-                                )}
-                                {/* 画像生成ボタン */}
-                                {canUseComfyUI && msg.id && sessionId && !isLoading && (
-                                    <button
-                                        onClick={() => onGenerate(msg.id!)}
-                                        disabled={generateDisabled}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-white hover:bg-purple-800/50 rounded-full transition-colors disabled:opacity-40"
-                                        title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
-                                    >
-                                        {isGenerating ? (
-                                            <>
-                                                <Loader2 size={12} className="animate-spin" />
-                                                <span>{t(MESSAGE_LIST_I18N_KEYS.generating)}</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Palette size={12} />
-                                                <span>{t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
-                                            </>
-                                        )}
-                                    </button>
                                 )}
                                 {isLast && !isLoading && (
                                     <button
@@ -576,7 +694,11 @@ const MessageItem = React.memo<MessageItemProps>(({
 
                 if (isUserEditing && editingState) {
                     return (
-                        <div className="w-full max-w-[85%] bg-blue-800 p-3 rounded-lg border border-blue-500/50">
+                        <div
+                            data-turn-key={msg.id ? `${msg.id}::0` : undefined}
+                            data-msg-id={msg.id}
+                            className="w-full max-w-[85%] bg-blue-800 p-3 rounded-lg border border-blue-500/50"
+                        >
                             <textarea
                                 className="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-blue-500 outline-none resize-none font-sans text-sm leading-relaxed"
                                 value={editingState.content}
@@ -604,6 +726,8 @@ const MessageItem = React.memo<MessageItemProps>(({
 
                 return (
                     <div
+                        data-turn-key={msg.id ? `${msg.id}::0` : undefined}
+                        data-msg-id={msg.id}
                         className="group relative p-4 rounded-xl max-w-[85%] shadow-md border border-blue-500/40 text-gray-100"
                         style={{
                             backgroundColor: `rgba(30, 58, 138, ${hasActiveBackground ? (settings.messageBubbleOpacity ?? 0.8) : 0.7})`,
@@ -646,6 +770,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     isLoading,
     backendUrl = '',
     sessionId,
+    characterPaths = [],
     onActiveBackgroundChange,
     uiCatalog = null,
     enabledFeatures = null,
@@ -659,12 +784,75 @@ export const MessageList: React.FC<MessageListProps> = ({
         MESSAGE_LIST_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const characterImageDirectoryMap = React.useMemo(
+        () => buildCharacterImageDirectoryMap(characterPaths),
+        [characterPaths]
+    );
+    // 画像を取得すべき物理ディレクトリ名。参照が毎回変わると再取得が止まらないため
+    // 並びを固定したキーに畳んでから配列へ戻す。
+    const characterImageDirectoriesKey = React.useMemo(
+        () => Array.from(new Set(characterImageDirectoryMap.values())).sort().join('\n'),
+        [characterImageDirectoryMap]
+    );
+    // 物理ディレクトリ名→心情ごとのアイコンURL。
+    // 拡張子の実在解決とハッシュ付与はバックエンドの /api/characters/{name}/images に任せる。
+    const [characterIconUrls, setCharacterIconUrls] = useState<CharacterIconUrlsByDirectory>({});
+    // 画像管理側での差し替え通知を受けてアイコンURLを取り直すための再取得キー
+    const [iconRefreshKey, setIconRefreshKey] = useState(0);
+
+    useEffect(() => {
+        const handler = () => setIconRefreshKey(k => k + 1);
+        window.addEventListener(CHARACTER_IMAGES_UPDATED_EVENT, handler);
+        return () => window.removeEventListener(CHARACTER_IMAGES_UPDATED_EVENT, handler);
+    }, []);
+
+    useEffect(() => {
+        // backendUrl の空文字は同一オリジン（Go 同梱フロント）を意味するため、
+        // 未設定扱いにして取得を止めない。
+        const directories = characterImageDirectoriesKey ? characterImageDirectoriesKey.split('\n') : [];
+        if (directories.length === 0) {
+            setCharacterIconUrls({});
+            return;
+        }
+
+        let cancelled = false;
+        (async () => {
+            const entries = await Promise.all(directories.map(async (directory) => {
+                try {
+                    const response = await authFetch(
+                        `${backendUrl}/api/characters/${encodeURIComponent(directory)}/images`
+                    );
+                    const data = await response.json();
+                    if (!data?.success) return null;
+                    return [directory, buildCharacterIconUrlMap(data.data?.images)] as const;
+                } catch (error) {
+                    console.error('[MessageList] Failed to fetch character icon URLs:', directory, error);
+                    return null;
+                }
+            }));
+            if (cancelled) return;
+
+            const next: CharacterIconUrlsByDirectory = {};
+            for (const entry of entries) {
+                if (entry) next[entry[0]] = entry[1];
+            }
+            setCharacterIconUrls(next);
+        })();
+
+        return () => { cancelled = true; };
+    }, [characterImageDirectoriesKey, backendUrl, iconRefreshKey]);
 
     // 画像生成
-    const [generatingMsgId, setGeneratingMsgId] = useState<string | null>(null);
+    // 生成中バブルのキー（`${msgId}::${turnId ?? turnIndex}`）。セッション内同時1件を維持。
+    const [generatingKey, setGeneratingKey] = useState<string | null>(null);
     const [imageAttachments, setImageAttachments] = useState<Record<string, ImageAttachment[]>>({});
     const [expandedAttachment, setExpandedAttachment] = useState<ImageAttachment | null>(null);
     const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
+    // 拡大表示中の画像が属するバブルキー（背景の手動選択をTURN単位で保存するため）
+    const [expandedTurnKey, setExpandedTurnKey] = useState<string | null>(null);
+    // 拡大表示中の画像の削除確認モーダル表示・削除実行中
+    const [confirmingDeleteImage, setConfirmingDeleteImage] = useState(false);
+    const [deletingImage, setDeletingImage] = useState(false);
     const [showExpandedPrompt, setShowExpandedPrompt] = useState(false);
     // アンマウント後のポーリング継続・setState を止めるフラグ（04調査 中#3）。
     const disposedRef = useRef(false);
@@ -678,8 +866,9 @@ export const MessageList: React.FC<MessageListProps> = ({
 
     // 背景画像用state
     const [activeBackgroundUrl, setActiveBackgroundUrl] = useState<string | null>(null);
-    const [visibleMsgIds, setVisibleMsgIds] = useState<Set<string>>(new Set());
-    // メッセージごとの背景画像手動選択（msgId → attachmentのfilename）- sessionId単位でlocalStorageに永続化
+    // 可視中のチャットバブル（TURN）キー集合（`${msgId}::${turnId ?? turnIndex}`）
+    const [visibleTurnKeys, setVisibleTurnKeys] = useState<Set<string>>(new Set());
+    // バブルごとの背景画像手動選択（turnKey → attachmentのfilename。旧データはmsgIdキー）- sessionId単位でlocalStorageに永続化
     const [backgroundOverrides, setBackgroundOverrides] = useState<Record<string, string>>({});
 
     // sessionId変更時にlocalStorageから背景オーバーライドを読み込む
@@ -696,7 +885,6 @@ export const MessageList: React.FC<MessageListProps> = ({
         }
     }, [sessionId]);
     const containerRef = useRef<HTMLDivElement>(null);
-    const msgElementRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const useChatAreaBackground =
         settings.enableBackgroundImage &&
         (settings.backgroundImageFit ?? 'cover') === 'cover' &&
@@ -730,7 +918,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         })();
     }, [sessionId, backendUrl, canUseComfyUI]);
 
-    // IntersectionObserver: 画像付きメッセージの可視判定
+    // IntersectionObserver: チャットバブル（TURN）の可視判定
     useEffect(() => {
         if (!settings.enableBackgroundImage) {
             setActiveBackgroundUrl(null);
@@ -741,15 +929,15 @@ export const MessageList: React.FC<MessageListProps> = ({
 
         const observer = new IntersectionObserver(
             (entries) => {
-                setVisibleMsgIds(prev => {
+                setVisibleTurnKeys(prev => {
                     const next = new Set(prev);
                     for (const entry of entries) {
-                        const msgId = (entry.target as HTMLElement).dataset.msgId;
-                        if (!msgId) continue;
+                        const turnKey = (entry.target as HTMLElement).dataset.turnKey;
+                        if (!turnKey) continue;
                         if (entry.isIntersecting) {
-                            next.add(msgId);
+                            next.add(turnKey);
                         } else {
-                            next.delete(msgId);
+                            next.delete(turnKey);
                         }
                     }
                     return next;
@@ -758,17 +946,19 @@ export const MessageList: React.FC<MessageListProps> = ({
             { root: container, threshold: 0 }
         );
 
-        // 現在のメッセージ要素を全て監視
-        for (const [, el] of msgElementRefs.current) {
+        // 現在のバブル要素を全て監視
+        for (const el of container.querySelectorAll('[data-turn-key]')) {
             observer.observe(el);
         }
 
         return () => observer.disconnect();
     }, [settings.enableBackgroundImage, messages, imageAttachments]);
 
-    // 画面中央に最も近い画像付きメッセージを背景に設定
+    // 画面中央に最も近いチャットバブル（TURN）を基準に背景を設定。
+    // 中央バブルに画像がなければ、メッセージ境界を越えて上のバブルへ遡り、
+    // 最初に画像を持つバブルの画像を表示する（下方向へは探さない）。
     useEffect(() => {
-        if (!settings.enableBackgroundImage || visibleMsgIds.size === 0) {
+        if (!settings.enableBackgroundImage || visibleTurnKeys.size === 0) {
             setActiveBackgroundUrl(null);
             return;
         }
@@ -778,29 +968,65 @@ export const MessageList: React.FC<MessageListProps> = ({
         const containerRect = container.getBoundingClientRect();
         const containerCenter = containerRect.top + containerRect.height / 2;
 
-        let closestMsgId: string | null = null;
-        let closestDistance = Infinity;
+        // DOM順の全バブル要素（遡りは画面外のバブルも対象にするため全量を取る）
+        const turnEls = Array.from(container.querySelectorAll<HTMLElement>('[data-turn-key]'));
 
-        for (const msgId of visibleMsgIds) {
-            // このメッセージに画像があるか
-            if (!imageAttachments[msgId] || imageAttachments[msgId].length === 0) continue;
-
-            const el = msgElementRefs.current.get(msgId);
-            if (!el) continue;
-
-            const rect = el.getBoundingClientRect();
-            const msgCenter = rect.top + rect.height / 2;
-            const distance = Math.abs(msgCenter - containerCenter);
-
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestMsgId = msgId;
+        // 添付をバブルへ解決（縮小表示側と同じ優先順: turnId → turnIndex → 末尾TURN）
+        const turnElsByMsg = new Map<string, HTMLElement[]>();
+        for (const el of turnEls) {
+            const msgId = el.dataset.msgId;
+            if (!msgId) continue;
+            turnElsByMsg.set(msgId, [...(turnElsByMsg.get(msgId) ?? []), el]);
+        }
+        const attachmentsByTurnKey = new Map<string, ImageAttachment[]>();
+        for (const [msgId, atts] of Object.entries(imageAttachments)) {
+            const els = turnElsByMsg.get(msgId);
+            if (!els || els.length === 0) continue;
+            for (const att of atts) {
+                let target: HTMLElement | undefined;
+                if (att.turnId) target = els.find(e => e.dataset.turnId === att.turnId);
+                if (!target && typeof att.turnIndex === 'number') {
+                    target = els.find(e => e.dataset.turnIndex === String(att.turnIndex));
+                }
+                // 両方未照合は旧データ（末尾TURN扱い。縮小表示の末尾配置と揃える）
+                if (!target) target = els[els.length - 1];
+                const key = target.dataset.turnKey;
+                if (!key) continue;
+                attachmentsByTurnKey.set(key, [...(attachmentsByTurnKey.get(key) ?? []), att]);
             }
         }
 
-        if (closestMsgId && sessionId) {
-            const overrideFilename = backgroundOverrides[closestMsgId];
-            const attachments = imageAttachments[closestMsgId];
+        // 可視バブルのうち中央に最も近いもの（画像の有無は問わない）
+        let centerIdx = -1;
+        let closestDistance = Infinity;
+        for (let i = 0; i < turnEls.length; i++) {
+            const key = turnEls[i].dataset.turnKey;
+            if (!key || !visibleTurnKeys.has(key)) continue;
+            const rect = turnEls[i].getBoundingClientRect();
+            const distance = Math.abs(rect.top + rect.height / 2 - containerCenter);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                centerIdx = i;
+            }
+        }
+
+        // 中央バブルから上方向へ遡り、最初に画像を持つバブルを採用
+        let targetEl: HTMLElement | null = null;
+        for (let i = centerIdx; i >= 0; i--) {
+            const key = turnEls[i].dataset.turnKey;
+            if (key && (attachmentsByTurnKey.get(key)?.length ?? 0) > 0) {
+                targetEl = turnEls[i];
+                break;
+            }
+        }
+
+        const targetKey = targetEl?.dataset.turnKey;
+        if (targetKey && sessionId) {
+            const attachments = attachmentsByTurnKey.get(targetKey)!;
+            // 手動選択はバブルキー優先、旧形式（msgId単位）へフォールバック
+            const targetMsgId = targetEl?.dataset.msgId;
+            const overrideFilename = backgroundOverrides[targetKey]
+                ?? (targetMsgId ? backgroundOverrides[targetMsgId] : undefined);
             const targetAtt = overrideFilename
                 ? attachments.find(a => a.filename === overrideFilename) || attachments[0]
                 : attachments[0];
@@ -814,7 +1040,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         } else {
             setActiveBackgroundUrl(null);
         }
-    }, [visibleMsgIds, imageAttachments, settings.enableBackgroundImage, backendUrl, sessionId, backgroundOverrides]);
+    }, [visibleTurnKeys, imageAttachments, settings.enableBackgroundImage, backendUrl, sessionId, backgroundOverrides]);
 
     // スクロール時に背景を再評価（IntersectionObserverのコールバック外）
     useEffect(() => {
@@ -826,9 +1052,9 @@ export const MessageList: React.FC<MessageListProps> = ({
         const handleScroll = () => {
             if (!ticking) {
                 requestAnimationFrame(() => {
-                    // visibleMsgIdsの変更をトリガー（IntersectionObserverが処理）
+                    // visibleTurnKeysの変更をトリガー（IntersectionObserverが処理）
                     // ただし中央判定の再評価が必要なので、stateを微更新
-                    setVisibleMsgIds(prev => new Set(prev));
+                    setVisibleTurnKeys(prev => new Set(prev));
                     ticking = false;
                 });
                 ticking = true;
@@ -840,13 +1066,14 @@ export const MessageList: React.FC<MessageListProps> = ({
     }, [settings.enableBackgroundImage]);
 
     // 画像生成ハンドラ（ジョブキュー方式: submit → ポーリング）
-    const handleGenerate = useCallback(async (messageId: string) => {
+    // turnId / turnIndex は押下されたチャットバブル（TURN）の指定（turnId優先）。
+    const handleGenerate = useCallback(async (messageId: string, turnId: string | null, turnIndex: number) => {
         // backendUrl は同梱ビルドでは空文字（同一オリジン相対）なのでガード対象にしない
-        if (!canUseComfyUI || !sessionId || generatingMsgId) return;
-        setGeneratingMsgId(messageId);
+        if (!canUseComfyUI || !sessionId || generatingKey) return;
+        setGeneratingKey(`${messageId}::${turnId ?? turnIndex}`);
         try {
             // ジョブ送信（即座にjobIdが返る）
-            const submitted = await generateFromChat(backendUrl, sessionId, messageId);
+            const submitted = await generateFromChat(backendUrl, sessionId, messageId, turnId, turnIndex);
             const jobId = submitted.jobId;
             console.log('[Frontend] Image-generate job submitted:', jobId);
 
@@ -898,31 +1125,52 @@ export const MessageList: React.FC<MessageListProps> = ({
             }
         } finally {
             if (!disposedRef.current) {
-                setGeneratingMsgId(null);
+                setGeneratingKey(null);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canUseComfyUI, sessionId, backendUrl, generatingMsgId, showToast, uiCatalog]);
+    }, [canUseComfyUI, sessionId, backendUrl, generatingKey, showToast, uiCatalog]);
 
-    const openExpandedImage = (attachment: ImageAttachment, msgId?: string) => {
+    const openExpandedImage = (attachment: ImageAttachment, msgId?: string, turnKey?: string) => {
         setExpandedAttachment(attachment);
         setExpandedMsgId(msgId || null);
+        setExpandedTurnKey(turnKey || null);
         setShowExpandedPrompt(false);
     };
 
     const closeExpandedImage = () => {
         setExpandedAttachment(null);
         setShowExpandedPrompt(false);
+        setConfirmingDeleteImage(false);
     };
 
-    // メッセージ要素のref登録コールバック
-    const setMsgRef = useCallback((msgId: string, el: HTMLDivElement | null) => {
-        if (el) {
-            msgElementRefs.current.set(msgId, el);
-        } else {
-            msgElementRefs.current.delete(msgId);
+    // 拡大表示中の画像を削除（確認モーダルからの実行）
+    const handleDeleteExpandedImage = async () => {
+        if (!sessionId || !expandedMsgId || !expandedAttachment || deletingImage) return;
+        const msgId = expandedMsgId;
+        const attachmentId = expandedAttachment.id;
+        setDeletingImage(true);
+        try {
+            await deleteImageAttachment(backendUrl, sessionId, msgId, attachmentId);
+            // 一覧から除去（背景はimageAttachments変更で自動再評価される）
+            setImageAttachments(prev => {
+                const rest = (prev[msgId] ?? []).filter(a => a.id !== attachmentId);
+                const next = { ...prev };
+                if (rest.length === 0) {
+                    delete next[msgId];
+                } else {
+                    next[msgId] = rest;
+                }
+                return next;
+            });
+            closeExpandedImage();
+        } catch (e: any) {
+            console.error('[Frontend] Image-attachment delete failed:', e);
+            showToast(t(MESSAGE_LIST_I18N_KEYS.deleteImageFailed));
+        } finally {
+            setDeletingImage(false);
         }
-    }, []);
+    };
 
     // React.memo化したMessageItemに渡すコールバックの参照を安定化する
     // （親の再レンダーで関数が再生成されてもmemoが壊れないようにする）
@@ -963,12 +1211,14 @@ export const MessageList: React.FC<MessageListProps> = ({
                     settings={settings}
                     editingState={editingState && msg.id && editingState.messageId === msg.id ? editingState : null}
                     attachments={msg.id ? imageAttachments[msg.id] : undefined}
-                    isGenerating={generatingMsgId !== null && generatingMsgId === msg.id}
-                    generateDisabled={generatingMsgId !== null}
+                    generatingKey={generatingKey}
+                    generateDisabled={generatingKey !== null}
                     canUseComfyUI={canUseComfyUI}
                     isLoading={isLoading}
                     backendUrl={backendUrl}
                     sessionId={sessionId}
+                    characterImageDirectoryMap={characterImageDirectoryMap}
+                    characterIconUrls={characterIconUrls}
                     hasActiveBackground={!!activeBackgroundUrl}
                     onEditStart={stableOnEditStart}
                     onEditCancel={stableOnEditCancel}
@@ -977,7 +1227,6 @@ export const MessageList: React.FC<MessageListProps> = ({
                     onRegenerate={stableOnRegenerate}
                     onGenerate={stableOnGenerate}
                     onOpenImage={stableOnOpenImage}
-                    onSetRef={setMsgRef}
                     uiCatalog={uiCatalog}
                 />
             ))}
@@ -1029,14 +1278,15 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setBackgroundOverrides(prev => {
-                                        const next = { ...prev, [expandedMsgId]: expandedAttachment.filename };
+                                        // TURN単位のキーで保存（旧データのmsgIdキーは読み取り時にフォールバック参照）
+                                        const next = { ...prev, [expandedTurnKey ?? expandedMsgId]: expandedAttachment.filename };
                                         if (sessionId) {
                                             try { localStorage.setItem(`bg-overrides-${sessionId}`, JSON.stringify(next)); } catch {}
                                         }
                                         return next;
                                     });
                                     // 可視判定を再トリガー
-                                    setVisibleMsgIds(prev => new Set(prev));
+                                    setVisibleTurnKeys(prev => new Set(prev));
                                     closeExpandedImage();
                                 }}
                                 className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-blue-500 transition-colors"
@@ -1055,6 +1305,19 @@ export const MessageList: React.FC<MessageListProps> = ({
                         >
                             <FileText size={18} />
                         </button>
+                        {/* 削除ボタン（削除にはメッセージIDが必要） */}
+                        {expandedMsgId && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmingDeleteImage(true);
+                                }}
+                                className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-red-500 transition-colors"
+                                title={t(MESSAGE_LIST_I18N_KEYS.deleteImage)}
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        )}
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1092,6 +1355,44 @@ export const MessageList: React.FC<MessageListProps> = ({
                             <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-200 font-mono">
                                 {expandedAttachment.resolvedPrompt?.positive || t(MESSAGE_LIST_I18N_KEYS.noSavedPositivePrompt)}
                             </pre>
+                        </div>
+                    )}
+                    {/* 削除確認モーダル */}
+                    {confirmingDeleteImage && (
+                        <div
+                            className="absolute inset-0 z-40 flex items-center justify-center bg-black/60"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmingDeleteImage(false);
+                            }}
+                        >
+                            <div
+                                className="bg-gray-900 border border-gray-700 rounded-xl p-5 w-[min(90vw,360px)] shadow-2xl cursor-default"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="text-white font-bold mb-2">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmTitle)}</div>
+                                <div className="text-sm text-gray-300 mb-4">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmMessage)}</div>
+                                <div className="flex justify-end gap-2">
+                                    <button
+                                        onClick={() => setConfirmingDeleteImage(false)}
+                                        className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                                    >
+                                        {t(COMMON_I18N_KEYS.cancel)}
+                                    </button>
+                                    <button
+                                        onClick={handleDeleteExpandedImage}
+                                        disabled={deletingImage}
+                                        className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {deletingImage ? (
+                                            <Loader2 size={12} className="animate-spin" />
+                                        ) : (
+                                            <Trash2 size={12} />
+                                        )}
+                                        {t(COMMON_I18N_KEYS.delete)}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
