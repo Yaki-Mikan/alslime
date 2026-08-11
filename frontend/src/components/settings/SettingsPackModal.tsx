@@ -93,7 +93,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, FALLBACK_JA[key] || key);
 
-    const [tab, setTab] = useState<Tab>('export');
+    const [tab, setTab] = useState<Tab>('import');
     const [kinds, setKinds] = useState<SettingsPackKind[]>([]);
     const [error, setError] = useState<string | null>(null);
 
@@ -289,7 +289,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
 
                 {/* タブ */}
                 <div className="flex border-b border-gray-700 bg-gray-800/60">
-                    {([['export', t('settingsPack.exportTab'), Download], ['import', t('settingsPack.importTab'), Upload]] as const).map(([key, label, Icon]) => (
+                    {([['import', t('settingsPack.importTab'), Upload], ['export', t('settingsPack.exportTab'), Download]] as const).map(([key, label, Icon]) => (
                         <button
                             key={key}
                             onClick={() => { setTab(key); setError(null); }}

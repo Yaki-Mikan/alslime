@@ -333,7 +333,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		// 更新の起こし直しを一覧へ即時反映する）。
 		switch def.ID {
 		case module.ModuleComfy:
-			target.Active = func() bool { return moduleMgr.BaseURL() != nil }
+			if !sidecarMode && core.Comfy().InProcess() {
+				// in-process 供給ビルドはサイドカーを使わず内蔵実装が常駐する。
+				// 画像実行系の分岐（imageRunner）と同条件で常に連携済みとする。
+				target.Active = func() bool { return true }
+			} else {
+				target.Active = func() bool { return moduleMgr.BaseURL() != nil }
+			}
 		case module.ModuleActionChoice:
 			hooked := choiceHook != nil
 			target.Active = func() bool { return hooked && choiceMgr.BaseURL() != nil }

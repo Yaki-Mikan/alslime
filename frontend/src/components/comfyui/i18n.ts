@@ -36,6 +36,7 @@ const COMFYUI_TEXT_FALLBACK_EN: Record<string, string> = {
     'comfyui.section.LIGHTWEIGHT_SAVE': 'Yakimikan lightweight image save',
     'comfyui.section.WORKFLOW_TEMPLATE': 'Workflow template',
     'comfyui.section.WORKFLOW_SELECT': 'Workflow selection',
+    'comfyui.section.TEST_WORKFLOW_SELECT': 'Test generation workflow',
     'comfyui.section.WORKFLOW_IMPORT': 'Workflow import',
     'comfyui.section.OTHER_IMAGE_SETTINGS': 'Tag mapping settings',
     'comfyui.section.LORA_DIR_SETTINGS': 'LoRA directory settings',
@@ -264,6 +265,10 @@ const COMFYUI_TEXT_FALLBACK_EN: Record<string, string> = {
     'comfyui.common.MESSAGES.REFRESH_TOOLTIP': 'Reload LoRA list',
     'comfyui.common.MESSAGES.REFRESH_OUTFIT_TOOLTIP': 'Reload outfit LoRA list',
     'comfyui.common.MESSAGES.DELETE_OUTFIT_TOOLTIP': 'Delete outfit setting',
+    'comfyui.common.MESSAGES.LORA_UNREACHABLE': 'Cannot reach ComfyUI, so the LoRA list is unavailable. Items that do not use LoRA can still be edited and saved.',
+    'comfyui.common.MESSAGES.LORA_UNREACHABLE_SHORT': 'Cannot reach ComfyUI, so the LoRA list is unavailable',
+    'comfyui.common.MESSAGES.LORA_RETRY': 'Retry',
+    'comfyui.common.MESSAGES.TAG_JUDGE_WORKFLOW_AUTO_SAVE': 'Changes are saved automatically.',
     'comfyui.common.HAS_LORA': 'Yes',
 };
 

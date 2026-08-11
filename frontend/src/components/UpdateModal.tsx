@@ -9,7 +9,7 @@ import {
     type ModuleUpdateEntry,
     type UpdateApplyStatus,
 } from '../api/update';
-import { installModule } from '../api/sponsor';
+import { installModule, type ModuleStatusEntry } from '../api/sponsor';
 import { SPONSOR_MODULE_LABELS, UPDATE_I18N_KEYS, UPDATE_TEXT_FALLBACK_JA } from '../constants/i18n';
 
 // UpdateModal は本体とサイドカーモジュールの更新を 1 画面に統合した更新告知モーダル
@@ -34,6 +34,9 @@ interface UpdateModalProps {
     backendUrl: string;
     onLater: () => void;
     onSkip: () => void;
+    // モジュール配置状態の変化を親へ中継する（SponsorModal と同じ契約。
+    // これが無いと配置後も Chat 側の表示条件が古いままになる）。
+    onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
 }
 
 const STATUS_POLL_MS = 1000;
@@ -45,7 +48,7 @@ type ApplyUIPhase = UpdateApplyStatus['phase'] | 'modules';
 
 type ModuleOutcome = 'restarted' | 'restartRequired';
 
-export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLater, onSkip }: UpdateModalProps) => {
+export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLater, onSkip, onModulesChanged }: UpdateModalProps) => {
     const [phase, setPhase] = useState<ApplyUIPhase>('idle');
     const [percent, setPercent] = useState(0);
     const [errorKey, setErrorKey] = useState<string | null>(null);
@@ -111,6 +114,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLat
                 ...prev,
                 [moduleId]: result.sidecarRestarted ? 'restarted' : 'restartRequired',
             }));
+            onModulesChanged?.(result.modules ?? []);
         } catch (err: unknown) {
             const key = (err as { response?: { data?: { messageKey?: string } } })?.response?.data?.messageKey;
             setModuleErrors((prev) => ({

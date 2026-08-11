@@ -78,7 +78,8 @@ type ConfirmKind =
 // AIプロバイダ指示ファイル種別の疑似カテゴリ ID（フロント内のみ。backend カテゴリとは別系統）。
 const PROVIDER_CATEGORY_ID = '__provider__';
 // 画像生成分析指示種別の疑似カテゴリ ID（同上。4ファイルのプルダウン選択と上書き保存のみ）。
-const COMFY_DIRECTIVE_CATEGORY_ID = '__comfyDirective__';
+// openFileRequest でこの種別を開く場合は fileName に directive ID を渡す（Hub の中継用に公開）。
+export const COMFY_DIRECTIVE_CATEGORY_ID = '__comfyDirective__';
 const API_CONNECTION_INSTRUCTION_PREFIX = 'openai-compat-connection:';
 
 interface EditableProviderInstruction extends ProviderInstruction {
@@ -216,8 +217,10 @@ export const ConfigEditorModal: React.FC<Props> = ({
         if (!isOpen) return;
         getCategories(backendUrl).then(cats => {
             setCategories(cats);
-            if (cats.length > 0 && !selectedCategoryId) {
-                setSelectedCategoryId(cats[0].id);
+            // 開いた時点のクロージャ値でなく最新の選択状態で判定する（開くと同時に
+            // openFileRequest が種別を確定させた場合、ここで先頭種別へ上書きしない）。
+            if (cats.length > 0) {
+                setSelectedCategoryId(prev => prev || cats[0].id);
             }
         }).catch(() => {});
     }, [isOpen, backendUrl]);
@@ -290,6 +293,13 @@ export const ConfigEditorModal: React.FC<Props> = ({
         if (!openFileRequest) return;
         if (selectedCategoryId !== openFileRequest.categoryId) {
             setSelectedCategoryId(openFileRequest.categoryId);
+            return;
+        }
+        // 画像生成分析指示（固定ファイル種別）は fileName に directive ID が入る。
+        // 通常ファイルの getConfigFile 経路とは別に、専用の選択処理で本文を読み込む。
+        if (openFileRequest.categoryId === COMFY_DIRECTIVE_CATEGORY_ID) {
+            void handleSelectComfyDirective(openFileRequest.fileName);
+            onOpenFileRequestConsumed?.();
             return;
         }
         (async () => {

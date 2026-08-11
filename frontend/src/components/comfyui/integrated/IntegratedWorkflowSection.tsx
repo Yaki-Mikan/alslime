@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Workflow, Save, Trash2, Upload, Download, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { Workflow, Save, Trash2, Upload, Download, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import {
     getComfyUIConfig,
     saveComfyUIConfig,
@@ -41,6 +41,9 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
     uiCatalog = null,
 }) => {
     const { SECTION_NAMES, COMMON } = createComfyUIText(uiCatalog);
+
+    // セクション開閉（テスト生成の主要設定のためデフォルト開）
+    const [isSectionOpen, setIsSectionOpen] = useState(true);
 
     // デフォルト保存
     const [isSavingDefault, setIsSavingDefault] = useState(false);
@@ -176,11 +179,18 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
     );
 
     return (
-        <div className="border border-green-600/40 rounded-lg p-4 bg-gray-800/30 space-y-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-green-300">
+        <div className="border border-green-600/40 rounded-lg overflow-hidden bg-gray-800/30">
+            {/* 他セクションと同じ開閉ヘッダー（デフォルト開） */}
+            <button
+                onClick={() => setIsSectionOpen(!isSectionOpen)}
+                className="w-full flex items-center gap-2 px-4 py-3 bg-gray-800/80 hover:bg-gray-800 text-sm font-semibold text-green-300 transition-colors"
+            >
+                {isSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 <Workflow size={16} className="text-green-400" />
-                {SECTION_NAMES.WORKFLOW_SELECT}
-            </h3>
+                {SECTION_NAMES.TEST_WORKFLOW_SELECT}
+            </button>
+            {isSectionOpen && (
+            <div className="p-4 space-y-3">
 
             {/* ワークフロー選択 + 保存・削除 */}
             {templates.length > 0 ? (
@@ -337,6 +347,8 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     </div>
                 )}
             </CollapsibleSection>
+            </div>
+            )}
         </div>
     );
 };

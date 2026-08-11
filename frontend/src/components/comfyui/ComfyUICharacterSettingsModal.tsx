@@ -12,11 +12,11 @@ import { ToggleSwitch } from '../common/ToggleSwitch';
 import {
     getCharacterImageGenConfig,
     saveCharacterImageGenConfig,
-    getLorasByCategory,
-    refreshComfyUILoras,
     getLoraTriggerWords,
     searchDanbooruTags,
 } from '../../api/comfyui';
+import { useComfyLoras } from './useComfyLoras';
+import { LoraUnreachableNotice } from './LoraUnreachableNotice';
 import type { CharacterImageGenConfig, DanbooruTagFormat, DanbooruTagResult } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
@@ -72,8 +72,14 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
     const [config, setConfig] = useState<CharacterImageGenConfig>({ ...DEFAULT_CONFIG });
 
     // LoRA一覧
-    const [availableLoras, setAvailableLoras] = useState<string[]>([]);
-    const [availableOutfitLoras, setAvailableOutfitLoras] = useState<string[]>([]);
+    // LoRA一覧（未接続時の扱いは useComfyLoras に集約）
+    const {
+        lorasByCategory,
+        comfyUnreachable,
+        retry: handleRefreshLoras,
+    } = useComfyLoras(backendUrl, ['character', 'outfit'], isOpen);
+    const availableLoras = lorasByCategory['character'] ?? [];
+    const availableOutfitLoras = lorasByCategory['outfit'] ?? [];
     const [loraDropdownIdx, setLoraDropdownIdx] = useState<number | null>(null);
     const [loraSearchQuery, setLoraSearchQuery] = useState('');
     const [outfitLoraDropdown, setOutfitLoraDropdown] = useState<{ outfitIndex: number; loraIndex: number } | null>(null);
@@ -104,7 +110,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
     const effectiveDanbooruTagFormat = useDanbooruTagFormat(backendUrl, isOpen, danbooruTagFormat);
     const effectiveTriggerWordFormat = useTriggerWordFormat(backendUrl, isOpen);
 
-    // キャラ一覧 + LoRA一覧取得
+    // キャラ一覧取得（LoRA 一覧は useComfyLoras が isOpen に追従して取得する）
     useEffect(() => {
         if (!isOpen) return;
         (async () => {
@@ -113,20 +119,6 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                 setCharacters(charResult.characters);
             } catch (error) {
                 console.error('[ComfyUICharacterSettingsModal] character list load failed:', error);
-            }
-            try {
-                const [loras, outfitLoras] = await Promise.all([
-                    getLorasByCategory(backendUrl, 'character'),
-                    getLorasByCategory(backendUrl, 'outfit'),
-                ]);
-                setAvailableLoras(loras);
-                setAvailableOutfitLoras(outfitLoras);
-            } catch (error) {
-                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
-                // 取得済みのキャラクター一覧には影響させない。
-                setAvailableLoras([]);
-                setAvailableOutfitLoras([]);
-                console.error('[ComfyUICharacterSettingsModal] lora list load failed:', error);
             }
         })();
     }, [isOpen, backendUrl]);
@@ -644,11 +636,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                 <div className="flex items-center justify-between">
                                     <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.LORA}</label>
                                     <button
-                                        onClick={async () => {
-                                            await refreshComfyUILoras(backendUrl);
-                                            const loras = await getLorasByCategory(backendUrl, 'character');
-                                            setAvailableLoras(loras);
-                                        }}
+                                        onClick={() => { void handleRefreshLoras(); }}
                                         className="flex items-center gap-1 text-xs text-gray-500 hover:text-green-400 transition-colors"
                                         title={COMMON.MESSAGES.REFRESH_TOOLTIP}
                                     >
@@ -752,6 +740,8 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                                                     {loraName}
                                                                 </button>
                                                             ))
+                                                        ) : comfyUnreachable ? (
+                                                            <LoraUnreachableNotice visible compact onRetry={handleRefreshLoras} uiCatalog={uiCatalog} />
                                                         ) : (
                                                             <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
                                                         );
@@ -819,11 +809,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                     <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.OUTFIT_SETTINGS}</label>
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={async () => {
-                                                await refreshComfyUILoras(backendUrl);
-                                                const loras = await getLorasByCategory(backendUrl, 'outfit');
-                                                setAvailableOutfitLoras(loras);
-                                            }}
+                                            onClick={() => { void handleRefreshLoras(); }}
                                             className="flex items-center gap-1 text-xs text-gray-500 hover:text-green-400 transition-colors"
                                             title={COMMON.MESSAGES.REFRESH_OUTFIT_TOOLTIP}
                                         >
@@ -956,6 +942,8 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                                                                         {loraName}
                                                                                     </button>
                                                                                 ))
+                                                                            ) : comfyUnreachable ? (
+                                                                                <LoraUnreachableNotice visible compact onRetry={handleRefreshLoras} uiCatalog={uiCatalog} />
                                                                             ) : (
                                                                                 <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
                                                                             )}

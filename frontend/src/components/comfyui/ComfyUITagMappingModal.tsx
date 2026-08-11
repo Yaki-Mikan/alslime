@@ -11,13 +11,13 @@ import {
     getTagMapping,
     saveTagMapping,
     listComfyUITemplates,
-    getLorasByCategory,
     getLoraDirConfig,
     saveLoraDirConfig,
     getLoraTriggerWords,
     searchDanbooruTags,
-    refreshComfyUILoras,
 } from '../../api/comfyui';
+import { useComfyLoras } from './useComfyLoras';
+import { LoraUnreachableNotice } from './LoraUnreachableNotice';
 import type { DanbooruTagFormat, DanbooruTagResult } from '../../api/comfyui';
 import type {
     TagCategory,
@@ -62,8 +62,13 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
     const [selectedTagIndex, setSelectedTagIndex] = useState<number | null>(null);
     const [templates, setTemplates] = useState<TemplateInfo[]>([]);
 
-    // LoRA
-    const [loraList, setLoraList] = useState<string[]>([]);
+    // LoRA（一覧取得と未接続時の扱いは useComfyLoras に集約）
+    const {
+        lorasByCategory,
+        comfyUnreachable,
+        retry: handleRefreshLoras,
+    } = useComfyLoras(backendUrl, [selectedCategoryId], isOpen);
+    const loraList = lorasByCategory[selectedCategoryId] ?? [];
     const [loraDropdownIdx, setLoraDropdownIdx] = useState<number | null>(null);
     const [loraSearchQuery, setLoraSearchQuery] = useState('');
 
@@ -144,16 +149,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                 setMappingData({ categoryId: selectedCategoryId, tags: [] });
             }
 
-            // LoRA一覧も取得（カテゴリ別の絞り込みはバックエンドのディレクトリ設定で行う）
-            try {
-                const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
-                setLoraList(loras);
-            } catch (e) {
-                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
-                // 読み込み済みのタグマッピングを破棄しない。
-                setLoraList([]);
-                console.error('[ComfyUITagMappingModal] lora list load failed:', e);
-            }
+            // LoRA 一覧はカテゴリ変更に追従して useComfyLoras が取得する
             setIsLoading(false);
         })();
     }, [isOpen, selectedCategoryId, backendUrl]);
@@ -271,18 +267,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
         setTriggerWordsLoading(prev => ({ ...prev, [loraIdx]: false }));
     }, [backendUrl, triggerWords]);
 
-    // 現在カテゴリの LoRA 一覧を再取得する。
-    // 失敗時は既存一覧とタグマッピングを維持する。
-    const handleRefreshLoras = useCallback(async () => {
-        if (!selectedCategoryId) return;
-        try {
-            await refreshComfyUILoras(backendUrl);
-            const loras = await getLorasByCategory(backendUrl, selectedCategoryId);
-            setLoraList(loras);
-        } catch (e) {
-            console.error('[ComfyUITagMappingModal] lora refresh failed:', e);
-        }
-    }, [backendUrl, selectedCategoryId]);
+    // LoRA 再読込は useComfyLoras の retry（サーバー側キャッシュ破棄込み）を使う。
 
     // LoRA選択
     const selectLora = useCallback((loraIndex: number, loraName: string) => {
@@ -748,6 +733,8 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                                                                 {loraName}
                                                                             </button>
                                                                         ))
+                                                                    ) : comfyUnreachable ? (
+                                                                        <LoraUnreachableNotice visible compact onRetry={handleRefreshLoras} uiCatalog={uiCatalog} />
                                                                     ) : (
                                                                         <p className="text-xs text-gray-600 text-center py-3">{TAG_MAPPING.MESSAGES.NO_LORA_FOUND}</p>
                                                                     )}

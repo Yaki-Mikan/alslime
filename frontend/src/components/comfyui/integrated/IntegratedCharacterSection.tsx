@@ -12,6 +12,7 @@ import type { CharacterTagInfo } from '../../../api/files';
 import { createComfyUIText } from '../i18n';
 import type { I18NCatalog } from '../../../api/i18n';
 import { formatTriggerLine, appendTriggerLineDedup } from '../danbooru-format';
+import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
 
 interface Props {
     characters: CharacterTagInfo[];
@@ -24,6 +25,8 @@ interface Props {
     onSave: () => Promise<boolean | undefined>;
     availableLoras: string[];
     availableOutfitLoras: string[];
+    // ComfyUI 未接続で LoRA 一覧を取得できていないか（ドロップダウン内の通知表示用）
+    comfyUnreachable?: boolean;
     onRefreshLoras: () => Promise<void>;
     onFetchTriggerWords: (loraName: string) => Promise<{ words: string[]; lines: string[] } | null>;
     triggerWordFormat?: TriggerWordFormat;
@@ -44,6 +47,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     onSave,
     availableLoras,
     availableOutfitLoras,
+    comfyUnreachable = false,
     onRefreshLoras,
     onFetchTriggerWords,
     triggerWordFormat = 'raw',
@@ -468,6 +472,8 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                     {loraName}
                                                                 </button>
                                                             ))
+                                                        ) : comfyUnreachable ? (
+                                                            <LoraUnreachableNotice visible compact onRetry={onRefreshLoras} uiCatalog={uiCatalog} />
                                                         ) : (
                                                             <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
                                                         );
@@ -652,6 +658,8 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                                 {loraName}
                                                                             </button>
                                                                         ))
+                                                                    ) : comfyUnreachable ? (
+                                                                        <LoraUnreachableNotice visible compact onRetry={onRefreshLoras} uiCatalog={uiCatalog} />
                                                                     ) : (
                                                                         <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
                                                                     )}
