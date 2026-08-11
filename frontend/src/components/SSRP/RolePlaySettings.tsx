@@ -65,6 +65,12 @@ interface RolePlaySettingsProps {
      * ComfyUI連携モジュール連携済み）は Chat 側で行い結果だけを受け取る。
      */
     imageGenSettingsVisible?: boolean;
+    /**
+     * キャラ詳細設定横アイコンの画像生成統合設定を、設定メニュー経由と同じ
+     * ConfigEditorHub の imageGen タブで開く導線（引数は初期選択キャラクター名。
+     * 未指定なら従来どおり内蔵モーダルで開く。表示条件の判定は Chat 側で行う）。
+     */
+    onOpenIntegratedImageSettings?: (characterName: string) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -875,6 +881,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     fallbackDirectiveMode: _fallbackDirectiveMode,
     defaultUserNameSetting,
     imageGenSettingsVisible = false,
+    onOpenIntegratedImageSettings,
     uiCatalog
 }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
@@ -950,7 +957,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [ssrpParamPresets, setSSRPParamPresets] = useState<string[]>([]);
 
     // UI開閉状態
-    const [isCharacterSectionOpen, setIsCharacterSectionOpen] = useState(true); // キャラクター欄（デフォルト開）
+    const [isCharacterSectionOpen, setIsCharacterSectionOpen] = useState(true); // キャラクター設定（デフォルト開）
     const [isEnvironmentSectionOpen, setIsEnvironmentSectionOpen] = useState(false); // 環境グループ（デフォルト閉）
 
     // グローバル追加設定
@@ -1764,13 +1771,22 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     }, []);
 
     const openImageSettingsForCharacter = useCallback((charPath: string) => {
-        setImageSettingsTargetCharacter(getCharacterNameFromPath(charPath));
+        const characterName = getCharacterNameFromPath(charPath);
         if (window.innerWidth >= INTEGRATED.MIN_SCREEN_WIDTH) {
+            // 導線があれば設定メニュー経由と同じ ConfigEditorHub の imageGen タブへ
+            // 統一する（タブ・設定ファイルエディタで開くボタンを含めて同一画面）。
+            // 無い環境（支援者機能無効など）は従来どおり内蔵モーダルで開く。
+            if (onOpenIntegratedImageSettings) {
+                onOpenIntegratedImageSettings(characterName);
+                return;
+            }
+            setImageSettingsTargetCharacter(characterName);
             setIsIntegratedImageSettingsOpen(true);
         } else {
+            setImageSettingsTargetCharacter(characterName);
             setIsCharacterImageSettingsOpen(true);
         }
-    }, []);
+    }, [onOpenIntegratedImageSettings]);
 
     const updateCorrelation = useCallback((charPath: string, idx: number, field: keyof Correlation, val: any) => {
         updateDetail(charPath, d => {
@@ -2051,7 +2067,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
                     {/* メイン設定フォーム */}
                     <div className="space-y-4">
-                        {/* キャラクター欄（開閉可能、デフォルト開） */}
+                        {/* キャラクター設定（開閉可能、デフォルト開） */}
                         <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
                             <button
                                 onClick={() => setIsCharacterSectionOpen(!isCharacterSectionOpen)}

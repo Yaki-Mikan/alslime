@@ -140,10 +140,11 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
         };
     }, [isOpen, onOpenChange, embedded]);
 
-    // キャラクター名取得ヘルパー
+    // キャラクター名取得ヘルパー（表示用のため .md 拡張子は取り除く）
     const getCharacterName = (path: string): string => {
         if (!path) return '';
-        return path.split('/').pop() || path;
+        const base = path.split('/').pop() || path;
+        return base.replace(/\.md$/i, '');
     };
 
     // 編集中のキャラが選択解除された場合は編集を破棄

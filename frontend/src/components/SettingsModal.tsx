@@ -49,6 +49,9 @@ interface SettingsModalProps {
     // モジュール配置状態の変化をチャット側へ中継する（SponsorModal 由来）。
     onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
     onOpenApiProviderInstruction?: (target: ApiProviderInstructionTarget) => void;
+    // 画像生成統合設定を ConfigEditorHub のタブ付き表示で開く（Chat が Hub を開く）。
+    // 呼ぶ前に設定メニュー自身は閉じる。
+    onOpenImageGenSettings?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -62,6 +65,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onModelsChanged,
     onModulesChanged,
     onOpenApiProviderInstruction,
+    onOpenImageGenSettings,
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string | number>) => {
@@ -475,6 +479,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 uiCatalog={uiCatalog}
                 appSettings={settings}
                 onAppSettingsSave={onSave}
+                onOpenIntegrated={onOpenImageGenSettings
+                    ? () => {
+                        // 統合設定は ConfigEditorHub のタブ付き表示で開くため、
+                        // 設定メニュー自身も閉じてから Chat 側へ中継する。
+                        onClose();
+                        onOpenImageGenSettings();
+                    }
+                    : undefined}
             />
 
             {/* 同時実行数設定モーダル */}
@@ -509,6 +521,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 modules={moduleUpdateEntries}
                 uiCatalog={uiCatalog}
                 backendUrl={BACKEND_URL}
+                onModulesChanged={onModulesChanged}
                 onLater={() => {
                     setManualUpdateApp(null);
                     setModuleUpdateEntries([]);

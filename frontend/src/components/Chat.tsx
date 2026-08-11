@@ -21,7 +21,8 @@ import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
 import { DEFAULT_SETTINGS } from '../types/Settings';
 import type { Settings as SettingsType } from '../types/Settings';
 import { JobProgressModal } from './JobProgressModal';
-import { ConfigEditorHub } from './settings/ConfigEditorHub';
+import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHub';
+import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
 import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
 import { MODULE_COMFY, fetchModulesStatus } from '../api/sponsor';
@@ -117,7 +118,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
 
     const [isRolePlaySettingsOpen, setIsRolePlaySettingsOpen] = useState(false);
     const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
+    // ConfigEditorHub を開いた時に表示するタブ（設定メニューの画像生成設定からは imageGen 指定で開く）
+    const [configEditorInitialTab, setConfigEditorInitialTab] = useState<ConfigEditorTab>('config');
     const [openApiProviderInstruction, setOpenApiProviderInstruction] = useState<ApiProviderInstructionTarget | null>(null);
+    // 会話設定のキャラ詳細設定横アイコンから画像生成統合設定タブを開く時の初期選択キャラクター名
+    const [integratedInitialCharacter, setIntegratedInitialCharacter] = useState('');
 
     // 設定 State
     const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
@@ -986,6 +991,15 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         embedded
                     />
                 )}
+
+                {/* タグ判定・ワークフロー設定パネル（支援者機能が有効 かつ モジュール
+                    連携済みのときのみ表示。他の画像生成系 UI と同条件） */}
+                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                    <TagJudgeWorkflowDrawerPanel
+                        backendUrl={BACKEND_URL}
+                        uiCatalog={uiCatalog}
+                    />
+                )}
             </StatusDrawer>
 
             {/* ジョブ進行状況モーダル */}
@@ -998,13 +1012,20 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
             {/* 設定ファイルエディタ（支援者は画像生成統合設定とタブ切り替え可。設計 §9） */}
             <ConfigEditorHub
                 isOpen={isConfigEditorOpen}
-                onClose={() => setIsConfigEditorOpen(false)}
+                onClose={() => {
+                    setIsConfigEditorOpen(false);
+                    // キャラ詳細設定横アイコン経由の初期選択指定は開いている間だけ有効
+                    //（残すと次回、設定メニュー経由で開いた時にも初期選択されてしまう）
+                    setIntegratedInitialCharacter('');
+                }}
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
+                initialTab={configEditorInitialTab}
                 imageGenEnabled={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)}
                 comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
+                integratedInitialCharacter={integratedInitialCharacter}
             />
 
             {/* 設定モーダル */}
@@ -1023,6 +1044,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 }}
                 onOpenApiProviderInstruction={target => {
                     setOpenApiProviderInstruction(target);
+                    setConfigEditorInitialTab('config');
+                    setIsConfigEditorOpen(true);
+                }}
+                onOpenImageGenSettings={() => {
+                    setConfigEditorInitialTab('imageGen');
                     setIsConfigEditorOpen(true);
                 }}
             />
@@ -1034,6 +1060,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 modules={moduleUpdateEntries}
                 uiCatalog={uiCatalog}
                 backendUrl={BACKEND_URL}
+                onModulesChanged={modules => {
+                    setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                    void refreshFeatures();
+                }}
                 onLater={() => {
                     // 「後で」は本体告知の当日中の再表示を抑止する（保存失敗しても閉じる。
                     // 翌日以降は再表示されるだけで実害なし）。モジュールのみの表示では
@@ -1388,7 +1418,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             )}
                         </button>
                         <button
-                            onClick={() => setIsConfigEditorOpen(true)}
+                            onClick={() => { setConfigEditorInitialTab('config'); setIsConfigEditorOpen(true); }}
                             className="hidden sm:flex p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-purple-400 transition-colors"
                             title={t(CHAT_VIEW_I18N_KEYS.configEditor)}
                         >
@@ -1431,7 +1461,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         )}
                     </button>
                     <button
-                        onClick={() => setIsConfigEditorOpen(true)}
+                        onClick={() => { setConfigEditorInitialTab('config'); setIsConfigEditorOpen(true); }}
                         className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-purple-400 transition-colors"
                         title={t(CHAT_VIEW_I18N_KEYS.configEditor)}
                     >
@@ -1600,6 +1630,15 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     fallbackDirectiveMode={'C'}
                     defaultUserNameSetting={settings.defaultUserName}
                     imageGenSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
+                    onOpenIntegratedImageSettings={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive
+                        ? characterName => {
+                            // 設定メニュー経由と同じ ConfigEditorHub の imageGen タブで開く
+                            //（タブ・設定ファイルエディタで開くボタンを含めて同一画面に統一）
+                            setIntegratedInitialCharacter(characterName);
+                            setConfigEditorInitialTab('imageGen');
+                            setIsConfigEditorOpen(true);
+                        }
+                        : undefined}
                     uiCatalog={uiCatalog}
                     canApplyToSession={!!currentSessionId && isSSRPDirty}
                     onApplyToSession={handleApplyToSession}

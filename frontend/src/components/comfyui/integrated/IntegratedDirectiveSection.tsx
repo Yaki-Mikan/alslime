@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Save, FileText, RotateCcw } from 'lucide-react';
+import { Save, FileText, RotateCcw, ExternalLink } from 'lucide-react';
 import {
     listComfyDirectives,
     getComfyDirective,
@@ -23,6 +23,9 @@ import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // 選択中の指示ファイルを設定ファイルエディタで開く（Hub が config タブへ
+    // 切り替えて該当ファイルを開く。未指定ならボタンは表示しない）。
+    onOpenInEditor?: (directiveId: string) => void;
 }
 
 const FALLBACK_JA: Record<string, string> = {
@@ -38,9 +41,10 @@ const FALLBACK_JA: Record<string, string> = {
     'comfyDirective.resetConfirm': '指示ファイルを同梱デフォルトの内容に戻します。現在の内容は失われます。よろしいですか？',
     'comfyDirective.resetDone': 'デフォルトに戻しました',
     'comfyDirective.resetFailed': 'デフォルトへの復元に失敗しました',
+    'comfyDirective.openInEditor': '設定ファイルエディタで開く',
 };
 
-export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCatalog = null }) => {
+export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCatalog = null, onOpenInEditor }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, FALLBACK_JA[key] || key);
 
     const [directives, setDirectives] = useState<ComfyDirective[]>([]);
@@ -142,6 +146,15 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
                     <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded whitespace-nowrap">
                         {t('comfyDirective.inUseBadge')}
                     </span>
+                )}
+                {onOpenInEditor && selectedId && (
+                    <button
+                        onClick={() => onOpenInEditor(selectedId)}
+                        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-300 border border-gray-600 rounded hover:bg-gray-700 transition-colors whitespace-nowrap"
+                    >
+                        <ExternalLink size={12} />
+                        {t('comfyDirective.openInEditor')}
+                    </button>
                 )}
             </div>
 

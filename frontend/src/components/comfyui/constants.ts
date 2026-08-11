@@ -25,16 +25,17 @@ export const SECTION_NAMES = {
     LIGHTWEIGHT_SAVE: 'Yakimikan軽量画像保存',
     WORKFLOW_TEMPLATE: 'ワークフローテンプレート',
     WORKFLOW_SELECT: 'ワークフロー選択',
+    TEST_WORKFLOW_SELECT: 'テスト生成用ワークフロー',
     WORKFLOW_IMPORT: 'ワークフローインポート',
     OTHER_IMAGE_SETTINGS: 'タグマッピング設定',
     LORA_DIR_SETTINGS: 'LoRAディレクトリ設定',
 } as const;
 
 export const DIRECTIVE_MODE_OPTIONS = {
-    DANBOORU_ONLY: 'Danbooruタグのみ（一人称視点）',
     NATURAL_LANGUAGE: '自然言語混在（Anima等向け・一人称視点）',
-    DANBOORU_THIRD: 'Danbooruタグのみ（三人称視点）',
     NATURAL_THIRD: '自然言語混在（Anima等向け・三人称視点）',
+    DANBOORU_ONLY: 'Danbooruタグのみ（一人称視点）',
+    DANBOORU_THIRD: 'Danbooruタグのみ（三人称視点）',
 } as const;
 
 // ===== 統合設定画面固有 =====
@@ -369,6 +370,10 @@ export const COMMON = {
         REFRESH_TOOLTIP: 'LoRA一覧を再読み込み',
         REFRESH_OUTFIT_TOOLTIP: '服装LoRA一覧を再読み込み',
         DELETE_OUTFIT_TOOLTIP: '服装設定を削除',
+        LORA_UNREACHABLE: 'ComfyUIに接続できないため、LoRA一覧を取得できません。LoRAを使わない項目の編集・保存はそのまま行えます。',
+        LORA_UNREACHABLE_SHORT: 'ComfyUIに接続できないため、LoRA一覧を取得できません',
+        LORA_RETRY: '再試行',
+        TAG_JUDGE_WORKFLOW_AUTO_SAVE: '変更は自動で保存されます。',
     },
     /** 値なし表示 */
     EMPTY_MARKER: '-',

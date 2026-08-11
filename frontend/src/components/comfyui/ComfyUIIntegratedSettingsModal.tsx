@@ -6,18 +6,17 @@
  * PC環境専用（横幅1280px以上）。
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, ChevronDown, ChevronRight, Users, Tag, Palette, FileText } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { X, ChevronDown, ChevronRight, Users, Tag, Palette, FileText, Workflow } from 'lucide-react';
 import {
     getCharacterImageGenConfig,
     saveCharacterImageGenConfig,
-    getLorasByCategory,
-    refreshComfyUILoras,
     getLoraTriggerWords,
     getComfyUIConfig,
     saveComfyUIConfig,
     listComfyUITemplates,
 } from '../../api/comfyui';
+import { useComfyLoras } from './useComfyLoras';
 import type { CharacterImageGenConfig, TemplateInfo } from '../../api/comfyui';
 import type { DanbooruTagFormat, TriggerWordFormat } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
@@ -30,6 +29,8 @@ import { IntegratedTagMappingSection } from './integrated/IntegratedTagMappingSe
 import { IntegratedGenerateTestSection } from './integrated/IntegratedGenerateTestSection';
 import { IntegratedWorkflowSection } from './integrated/IntegratedWorkflowSection';
 import { IntegratedDirectiveSection } from './integrated/IntegratedDirectiveSection';
+import { TagJudgeWorkflowPanel } from './TagJudgeWorkflowPanel';
+import { CollapsibleSection } from '../settings/CollapsibleSection';
 import { resolveMessage } from '../../api/i18n';
 import { useDanbooruTagFormat } from './useDanbooruTagFormat';
 import { useTriggerWordFormat } from './useTriggerWordFormat';
@@ -44,6 +45,9 @@ interface Props {
     // タブ統合（設計 §9）: 設定ファイルエディタとのタブ切り替え UI をヘッダーへ差し込む。
     // 未指定なら従来どおり単独モーダルとして表示する。
     headerTabs?: React.ReactNode;
+    // タグ判定指示ファイルを設定ファイルエディタで開く（Hub が config タブへ切り替えて
+    // 該当ファイルを開いた状態にする。未指定ならボタンは表示しない）。
+    onOpenDirectiveInEditor?: (directiveId: string) => void;
 }
 
 const DEFAULT_CONFIG: CharacterImageGenConfig = {
@@ -66,6 +70,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
     danbooruTagFormat,
     uiCatalog = null,
     headerTabs,
+    onOpenDirectiveInEditor,
 }) => {
     const { INTEGRATED_SETTINGS_TITLE, COMMON, DANBOORU, SECTION_NAMES } = createComfyUIText(uiCatalog);
     // ===== セクション開閉 =====
@@ -80,9 +85,14 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
     const [charIsDirty, setCharIsDirty] = useState(false);
     const [charIsLoading, setCharIsLoading] = useState(false);
 
-    // ===== LoRA一覧 =====
-    const [availableLoras, setAvailableLoras] = useState<string[]>([]);
-    const [availableOutfitLoras, setAvailableOutfitLoras] = useState<string[]>([]);
+    // ===== LoRA一覧（未接続時の扱いは useComfyLoras に集約） =====
+    const {
+        lorasByCategory,
+        comfyUnreachable,
+        retry: handleRefreshLoras,
+    } = useComfyLoras(backendUrl, ['character', 'outfit'], isOpen);
+    const availableLoras = lorasByCategory['character'] ?? [];
+    const availableOutfitLoras = lorasByCategory['outfit'] ?? [];
 
     // ===== テスト生成連動 =====
     const [useLeftCharacter, setUseLeftCharacter] = useState(true);
@@ -151,7 +161,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
         void persistFormat({ triggerWordFormat: fmt });
     }, [persistFormat]);
 
-    // 初期データ取得
+    // 初期データ取得（LoRA 一覧は useComfyLoras が isOpen に追従して取得する）
     useEffect(() => {
         if (!isOpen) return;
         (async () => {
@@ -160,20 +170,6 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                 setCharacters(charResult.characters);
             } catch (error) {
                 console.error('[ComfyUIIntegratedSettingsModal] character list load failed:', error);
-            }
-            try {
-                const [loras, outfitLoras] = await Promise.all([
-                    getLorasByCategory(backendUrl, 'character'),
-                    getLorasByCategory(backendUrl, 'outfit'),
-                ]);
-                setAvailableLoras(loras);
-                setAvailableOutfitLoras(outfitLoras);
-            } catch (error) {
-                // ComfyUI 接続失敗は LoRA 一覧だけに限定し、
-                // 取得済みのキャラクター一覧には影響させない。
-                setAvailableLoras([]);
-                setAvailableOutfitLoras([]);
-                console.error('[ComfyUIIntegratedSettingsModal] lora list load failed:', error);
             }
         })();
         void reloadTemplates();
@@ -226,12 +222,21 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
         loadCharConfig(name);
     }, [loadCharConfig]);
 
+    // 指定キャラの初期選択は開くたびに一度だけ適用する（開いた後のユーザーの
+    // 選択変更を指定キャラへ引き戻さないため。閉じたら次回開く時に再適用）。
+    const initialCharacterAppliedRef = useRef(false);
     useEffect(() => {
-        if (!isOpen || !initialSelectedCharacter || characters.length === 0) return;
+        if (!isOpen) {
+            initialCharacterAppliedRef.current = false;
+            return;
+        }
+        if (initialCharacterAppliedRef.current) return;
+        if (!initialSelectedCharacter || characters.length === 0) return;
         const resolvedName = resolveCharacterName(initialSelectedCharacter);
         if (resolvedName && selectedCharacter !== resolvedName) {
             handleCharacterChange(resolvedName);
         }
+        initialCharacterAppliedRef.current = true;
     }, [isOpen, initialSelectedCharacter, characters, resolveCharacterName, selectedCharacter, handleCharacterChange]);
 
     const updateCharConfig = useCallback(<K extends keyof CharacterImageGenConfig>(
@@ -266,21 +271,6 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
             return false;
         }
     }, [backendUrl, selectedCharacter, charConfig, getCharDirName]);
-
-    // LoRA再読込
-    const handleRefreshLoras = useCallback(async () => {
-        try {
-            await refreshComfyUILoras(backendUrl);
-            const [loras, outfitLoras] = await Promise.all([
-                getLorasByCategory(backendUrl, 'character'),
-                getLorasByCategory(backendUrl, 'outfit'),
-            ]);
-            setAvailableLoras(loras);
-            setAvailableOutfitLoras(outfitLoras);
-        } catch (error) {
-            console.error('[ComfyUIIntegratedSettingsModal] lora refresh failed:', error);
-        }
-    }, [backendUrl]);
 
     // トリガーワード取得
     const handleFetchTriggerWords = useCallback(async (loraName: string) => {
@@ -400,6 +390,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                         onSave={handleSaveCharConfig}
                                         availableLoras={availableLoras}
                                         availableOutfitLoras={availableOutfitLoras}
+                                        comfyUnreachable={comfyUnreachable}
                                         onRefreshLoras={handleRefreshLoras}
                                         onFetchTriggerWords={handleFetchTriggerWords}
                                         triggerWordFormat={effectiveTriggerWordFormat}
@@ -409,19 +400,54 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                             )}
                         </div>
 
-                        {/* タグ判定指示ファイル（開閉可。設計 §9） */}
+                        {/* タグ判定・ワークフロー設定（開閉可）。
+                            形式×ワークフロー対応表と指示ファイル編集は同じタグ判定の設定のため
+                            1セクションへまとめて扱う */}
                         <div className="border border-amber-600/40 rounded-lg overflow-hidden">
                             <button
                                 onClick={() => setIsDirectiveOpen(!isDirectiveOpen)}
                                 className="w-full flex items-center gap-2 px-4 py-3 bg-gray-800/80 hover:bg-gray-800 text-sm font-medium text-amber-300 transition-colors"
                             >
                                 {isDirectiveOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                <FileText size={16} className="text-amber-400" />
-                                {resolveMessage(uiCatalog, 'comfyDirective.title', 'タグ判定指示ファイル')}
+                                <Workflow size={16} className="text-amber-400" />
+                                {SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
                             </button>
                             {isDirectiveOpen && (
-                                <div className="p-4">
-                                    <IntegratedDirectiveSection backendUrl={backendUrl} uiCatalog={uiCatalog} />
+                                <div className="p-4 space-y-3">
+                                    {/* 形式×ワークフロー対応表（個別開閉可） */}
+                                    <CollapsibleSection
+                                        defaultOpen
+                                        title={
+                                            <>
+                                                <Workflow size={16} className="text-green-400" />
+                                                {COMMON.MESSAGES.FORMAT_WORKFLOW_HEADING}
+                                            </>
+                                        }
+                                    >
+                                        <TagJudgeWorkflowPanel
+                                            backendUrl={backendUrl}
+                                            uiCatalog={uiCatalog}
+                                            templates={templates}
+                                            showHeading={false}
+                                        />
+                                    </CollapsibleSection>
+
+                                    {/* タグ判定指示ファイル編集（個別開閉可） */}
+                                    <CollapsibleSection
+                                        defaultOpen
+                                        title={
+                                            <>
+                                                <FileText size={16} className="text-amber-400" />
+                                                {resolveMessage(uiCatalog, 'comfyDirective.title', 'タグ判定指示ファイル')}
+                                            </>
+                                        }
+                                    >
+                                        <IntegratedDirectiveSection
+                                            backendUrl={backendUrl}
+                                            uiCatalog={uiCatalog}
+                                            onOpenInEditor={onOpenDirectiveInEditor}
+                                        />
+                                    </CollapsibleSection>
                                 </div>
                             )}
                         </div>

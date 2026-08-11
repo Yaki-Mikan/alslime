@@ -116,13 +116,14 @@ type ComfyDirective struct {
 	File  string // WORKSPACE_ROOT 相対の固定ファイル
 }
 
-// comfyDirectives はタグ判定指示ファイル定義の正本（順序維持）。
-// 既存2件のIDは互換のため変更しない（ラベルのみ視点表記を追加）。
+// comfyDirectives はタグ判定指示ファイル定義の正本（順序維持。一覧 API と
+// UI のプルダウンはこの順で表示される）。並びは自然文 → Danbooru、
+// それぞれ一人称 → 三人称の順。ID は互換のため変更しない。
 var comfyDirectives = []ComfyDirective{
-	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveDanbooruFile},
 	{ID: "natural", Label: "タグ判定指示（自然文形式・一人称視点）", File: config.ComfyUIDirectiveNaturalFile},
-	{ID: "danbooru_third", Label: "タグ判定指示（Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveDanbooruThirdFile},
 	{ID: "natural_third", Label: "タグ判定指示（自然文形式・三人称視点）", File: config.ComfyUIDirectiveNaturalThirdFile},
+	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveDanbooruFile},
+	{ID: "danbooru_third", Label: "タグ判定指示（Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveDanbooruThirdFile},
 }
 
 // ComfyDirectives は全定義を順序どおり返す（一覧 API 用）。

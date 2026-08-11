@@ -215,6 +215,19 @@ export async function getLorasByCategory(backendUrl: string, categoryId: string)
     return res.data.loras || [];
 }
 
+// LoRA一覧の取得結果。comfyUnreachable は ComfyUI 未接続で一覧を更新できなかった
+// ことを示す（loras はサーバー側キャッシュ済み一覧または空。HTTP 200 で返る）。
+export interface LorasResult {
+    loras: string[];
+    comfyUnreachable: boolean;
+}
+
+// カテゴリ指定でLoRA一覧取得（未接続フラグ付き。未接続時の表示制御用）
+export async function getLorasByCategoryDetailed(backendUrl: string, categoryId: string): Promise<LorasResult> {
+    const res = await axios.get(`${backendUrl}/api/comfyui/loras/category/${encodeURIComponent(categoryId)}`);
+    return { loras: res.data.loras || [], comfyUnreachable: !!res.data.comfyUnreachable };
+}
+
 // LoRA一覧取得
 export async function getComfyUILoras(backendUrl: string, prefixes?: string[]): Promise<string[]> {
     const params = prefixes && prefixes.length > 0 ? { prefixes: prefixes.join(',') } : {};

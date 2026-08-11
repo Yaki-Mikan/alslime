@@ -8,14 +8,17 @@
  * モーダルを閉じても継続する（レビュー002対応 7.2 の裏実行）。
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { FileText, Palette, Bot } from 'lucide-react';
-import { ConfigEditorModal } from './ConfigEditorModal';
+import { ConfigEditorModal, COMFY_DIRECTIVE_CATEGORY_ID } from './ConfigEditorModal';
 import type { OpenFileRequest } from './ConfigEditorModal';
 import { ConfigGenModal } from './ConfigGenModal';
 import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import type { ApiProviderInstructionTarget } from '../../api/api-providers';
+
+// ConfigEditorTab は Hub のタブ識別子（開き元が初期タブを指定する際にも使う）。
+export type ConfigEditorTab = 'config' | 'configGen' | 'imageGen';
 
 interface Props {
     isOpen: boolean;
@@ -27,11 +30,17 @@ interface Props {
     // 設定ファイルエディタの種別「画像生成分析指示」の表示可否
     //（ComfyUI機能が有効な支援レベル かつ モジュール連携済み。Chat 側で判定）。
     comfyDirectiveVisible?: boolean;
+    // 開いた時に表示するタブ（未指定は設定ファイル）。
+    // 設定メニューの画像生成設定からの導線が imageGen 指定で使う。
+    initialTab?: ConfigEditorTab;
     openApiProviderInstruction?: ApiProviderInstructionTarget | null;
     onOpenApiProviderInstructionConsumed?: () => void;
+    // 画像生成統合設定タブで初期選択するキャラクター名（会話設定のキャラ詳細
+    // 設定横アイコンから imageGen 指定で開く導線用。空なら初期選択なし）。
+    integratedInitialCharacter?: string;
 }
 
-type Tab = 'config' | 'configGen' | 'imageGen';
+type Tab = ConfigEditorTab;
 
 export const ConfigEditorHub: React.FC<Props> = ({
     isOpen,
@@ -40,17 +49,22 @@ export const ConfigEditorHub: React.FC<Props> = ({
     uiCatalog = null,
     imageGenEnabled,
     comfyDirectiveVisible = false,
+    initialTab = 'config',
     openApiProviderInstruction = null,
     onOpenApiProviderInstructionConsumed,
+    integratedInitialCharacter = '',
 }) => {
     const [tab, setTab] = useState<Tab>('config');
     // 設定自動生成 → 設定ファイルタブへの「このファイルを開いて」要求（消費後に null へ戻る）。
     const [openFileRequest, setOpenFileRequest] = useState<OpenFileRequest | null>(null);
 
-    // 開くたびに設定ファイルエディタ側から始める。
-    useEffect(() => {
-        if (isOpen) setTab('config');
-    }, [isOpen]);
+    // 開くたびに指定タブ（既定は設定ファイルエディタ）から始める
+    //（レンダー中の前回値比較で調整し、effect 内 setState による多段レンダーを避ける）。
+    const [prevIsOpen, setPrevIsOpen] = useState(false);
+    if (isOpen !== prevIsOpen) {
+        setPrevIsOpen(isOpen);
+        if (isOpen) setTab(initialTab);
+    }
 
     const t = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
 
@@ -108,6 +122,14 @@ export const ConfigEditorHub: React.FC<Props> = ({
                     backendUrl={backendUrl}
                     uiCatalog={uiCatalog}
                     headerTabs={headerTabs}
+                    initialSelectedCharacter={integratedInitialCharacter || undefined}
+                    onOpenDirectiveInEditor={comfyDirectiveVisible
+                        ? directiveId => {
+                            // 設定ファイルタブへ切り替え、画像生成分析指示種別の該当ファイルを開く
+                            setOpenFileRequest({ categoryId: COMFY_DIRECTIVE_CATEGORY_ID, dirName: '', fileName: directiveId });
+                            setTab('config');
+                        }
+                        : undefined}
                 />
             )}
         </>

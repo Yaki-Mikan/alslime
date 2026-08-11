@@ -18,7 +18,6 @@ import { ComfyUICharacterSettingsModal } from './ComfyUICharacterSettingsModal';
 import { ComfyUILoraDirModal } from './ComfyUILoraDirModal';
 import { ComfyUITagMappingModal } from './ComfyUITagMappingModal';
 import { ComfyUIGenerateTestModal } from './ComfyUIGenerateTestModal';
-import { ComfyUIIntegratedSettingsModal } from './ComfyUIIntegratedSettingsModal';
 import { createComfyUIText, formatComfyText } from './i18n';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { CLAUDE_EFFORT_VALUES, normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
@@ -55,6 +54,9 @@ interface ComfyUISettingsModalProps {
     // 保存ボタンで ComfyUI 設定と一緒に保存する（設定メニュー整理で基本チャット設定から移動）。
     appSettings?: Settings;
     onAppSettingsSave?: (settings: Settings) => Promise<void>;
+    // 画像生成統合設定を開く（ConfigEditorHub のタブ付き表示への中継。
+    // 呼ぶ前にこのモーダル自身は閉じる。未指定なら統合設定の導線は表示しない）。
+    onOpenIntegrated?: () => void;
 }
 
 // モデルオプションはAPIから動的取得（下記 useEffect 参照）
@@ -66,6 +68,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     uiCatalog = null,
     appSettings,
     onAppSettingsSave,
+    onOpenIntegrated,
 }) => {
     const { COMMON, DIRECTIVE_MODE_OPTIONS, GENERATE_TEST, INTEGRATED, SECTION_NAMES } = createComfyUIText(uiCatalog);
     const claudeEffortLabels: Record<ClaudeEffort, string> = {
@@ -131,8 +134,13 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [isTagMappingOpen, setIsTagMappingOpen] = useState(false);
     // 画像生成テストモーダル
     const [isGenerateTestOpen, setIsGenerateTestOpen] = useState(false);
-    // 画像生成統合設定モーダル
-    const [isIntegratedOpen, setIsIntegratedOpen] = useState(false);
+    // 画像生成統合設定は ConfigEditorHub のタブ付き表示で開く（このモーダルは閉じて中継する）
+    const openIntegrated = onOpenIntegrated
+        ? () => {
+            onClose();
+            onOpenIntegrated();
+        }
+        : undefined;
     const [isWideScreen, setIsWideScreen] = useState(false);
 
     // 保存中
@@ -902,10 +910,10 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                     </div>
 
                     {/* 画像生成設定（統合設定・PC幅以上のみ表示） */}
-                    {isWideScreen && (
+                    {isWideScreen && openIntegrated && (
                         <div className="pt-4 border-t border-gray-700">
                             <button
-                                onClick={() => setIsIntegratedOpen(true)}
+                                onClick={openIntegrated}
                                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-purple-600 rounded-lg text-sm text-gray-300 transition-colors"
                             >
                                 <Palette size={16} className="text-purple-400" />
@@ -1094,7 +1102,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 onClose={() => setIsCharacterSettingsOpen(false)}
                 backendUrl={backendUrl}
                 danbooruTagFormat={danbooruTagFormat}
-                onOpenIntegrated={isWideScreen ? () => setIsIntegratedOpen(true) : undefined}
+                onOpenIntegrated={isWideScreen ? openIntegrated : undefined}
                 uiCatalog={uiCatalog}
             />
 
@@ -1104,7 +1112,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 onClose={() => setIsTagMappingOpen(false)}
                 backendUrl={backendUrl}
                 danbooruTagFormat={danbooruTagFormat}
-                onOpenIntegrated={isWideScreen ? () => setIsIntegratedOpen(true) : undefined}
+                onOpenIntegrated={isWideScreen ? openIntegrated : undefined}
                 uiCatalog={uiCatalog}
             />
 
@@ -1121,18 +1129,10 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 isOpen={isGenerateTestOpen}
                 onClose={() => setIsGenerateTestOpen(false)}
                 backendUrl={backendUrl}
-                onOpenIntegrated={isWideScreen ? () => setIsIntegratedOpen(true) : undefined}
+                onOpenIntegrated={isWideScreen ? openIntegrated : undefined}
                 uiCatalog={uiCatalog}
             />
 
-            {/* 画像生成統合設定モーダル */}
-            <ComfyUIIntegratedSettingsModal
-                isOpen={isIntegratedOpen}
-                onClose={() => setIsIntegratedOpen(false)}
-                backendUrl={backendUrl}
-                danbooruTagFormat={danbooruTagFormat}
-                uiCatalog={uiCatalog}
-            />
         </div>
     );
 };
