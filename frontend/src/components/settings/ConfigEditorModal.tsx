@@ -24,8 +24,13 @@ import {
     getComfyDirective,
     saveComfyDirective,
     resetComfyDirective,
+    listConfigGenInstructions,
+    getConfigGenInstruction,
+    saveConfigGenInstruction,
+    resetConfigGenInstruction,
+    normalizeConfigGenInstructionLocale,
 } from '../../api/config-editor';
-import type { CategoryDef, ConfigFileEntry, ProviderInstruction, ComfyDirective } from '../../api/config-editor';
+import type { CategoryDef, ConfigFileEntry, ProviderInstruction, ComfyDirective, ConfigGenInstruction } from '../../api/config-editor';
 import {
     fetchApiProviders,
     fetchApiProviderSystemPrompt,
@@ -47,6 +52,9 @@ export interface OpenFileRequest {
     categoryId: string;
     dirName: string;
     fileName: string;
+    // 開き元で編集中だった本文。指定があればサーバー上の内容の代わりにこれを表示し、
+    // サーバー上の内容と異なれば未保存扱いにする（設定自動生成タブの編集内容を捨てないため）。
+    content?: string;
 }
 
 interface Props {
@@ -80,6 +88,9 @@ const PROVIDER_CATEGORY_ID = '__provider__';
 // 画像生成分析指示種別の疑似カテゴリ ID（同上。4ファイルのプルダウン選択と上書き保存のみ）。
 // openFileRequest でこの種別を開く場合は fileName に directive ID を渡す（Hub の中継用に公開）。
 export const COMFY_DIRECTIVE_CATEGORY_ID = '__comfyDirective__';
+// 設定自動生成指示種別の疑似カテゴリ ID（同上。対象→指示ファイルの2段プルダウンと上書き保存のみ）。
+// openFileRequest でこの種別を開く場合は fileName に instruction ID を渡す（Hub の中継用に公開）。
+export const CONFIG_GEN_INSTRUCTION_CATEGORY_ID = '__configGenInstruction__';
 const API_CONNECTION_INSTRUCTION_PREFIX = 'openai-compat-connection:';
 
 interface EditableProviderInstruction extends ProviderInstruction {
@@ -150,6 +161,11 @@ export const ConfigEditorModal: React.FC<Props> = ({
     const [comfyDirectiveFiles, setComfyDirectiveFiles] = useState<ComfyDirective[]>([]);
     const [selectedComfyDirectiveId, setSelectedComfyDirectiveId] = useState('');
 
+    // 設定自動生成指示種別（固定ファイル。対象→指示ファイルの2段プルダウンと上書き保存のみ）
+    const [configGenInstructionFiles, setConfigGenInstructionFiles] = useState<ConfigGenInstruction[]>([]);
+    const [selectedConfigGenTarget, setSelectedConfigGenTarget] = useState('');
+    const [selectedConfigGenInstructionId, setSelectedConfigGenInstructionId] = useState('');
+
     // D&D 個別インポート
     const [isDragOver, setIsDragOver] = useState(false);
 
@@ -163,6 +179,18 @@ export const ConfigEditorModal: React.FC<Props> = ({
 
     const isProviderCategory = selectedCategoryId === PROVIDER_CATEGORY_ID;
     const isComfyDirectiveCategory = selectedCategoryId === COMFY_DIRECTIVE_CATEGORY_ID;
+    const isConfigGenInstructionCategory = selectedCategoryId === CONFIG_GEN_INSTRUCTION_CATEGORY_ID;
+    // 設定自動生成指示は現在の UI 言語のファイルだけを見せる（実行時も同じ言語のファイルが使われる）。
+    const configGenLocale = normalizeConfigGenInstructionLocale(uiCatalog?.lang || 'ja');
+    const visibleConfigGenInstructionFiles = configGenInstructionFiles.filter(f => f.locale === configGenLocale);
+    const selectedConfigGenInstruction = configGenInstructionFiles.find(f => f.id === selectedConfigGenInstructionId) ?? null;
+    // 方式ラベルはフロントの i18n を優先し、無ければ API の label（日本語）を使う。
+    const configGenMethodLabel = (file: ConfigGenInstruction) => {
+        const key = `configEditor.configGenInstruction.method.${file.method}`;
+        return resolveMessage(uiCatalog, key, CONFIG_EDITOR_TEXT_FALLBACK_JA[key] || file.label);
+    };
+    // 固定ファイル種別（新規作成・削除・リネーム・テンプレート・D&D を持たず、上書き保存のみ）
+    const isFixedFileCategory = isProviderCategory || isComfyDirectiveCategory || isConfigGenInstructionCategory;
 
     const loadProviderFiles = useCallback(async () => {
         const [fixedFiles, connections] = await Promise.all([
@@ -233,6 +261,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
         setSelectedTemplate('');
         setSelectedProviderId('');
         setSelectedComfyDirectiveId('');
+        setSelectedConfigGenInstructionId('');
         setTitle('');
         setIsDirty(false);
 
@@ -259,6 +288,20 @@ export const ConfigEditorModal: React.FC<Props> = ({
             return;
         }
 
+        // 設定自動生成指示種別: 固定ファイルの一覧を取得し、対象は先頭を初期選択する。
+        if (selectedCategoryId === CONFIG_GEN_INSTRUCTION_CATEGORY_ID) {
+            setExistingFiles([]);
+            setTemplates([]);
+            setContent('');
+            setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
+            setIsSimpleMode(false);
+            listConfigGenInstructions(backendUrl).then(files => {
+                setConfigGenInstructionFiles(files);
+                setSelectedConfigGenTarget(prev => (prev && files.some(f => f.target === prev)) ? prev : (files[0]?.target ?? ''));
+            }).catch(() => {});
+            return;
+        }
+
         Promise.all([
             listConfigFiles(backendUrl, selectedCategoryId),
             listTemplates(backendUrl, selectedCategoryId),
@@ -280,7 +323,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
     // モーダルを開き直したとき、ファイル一覧・テンプレート一覧を最新化する
     // （設定自動生成タブや別画面で増えたファイルを取りこぼさない。編集中の本文は保持）。
     useEffect(() => {
-        if (!isOpen || !selectedCategoryId || selectedCategoryId === PROVIDER_CATEGORY_ID) return;
+        if (!isOpen || !selectedCategoryId || isFixedFileCategory) return;
         listConfigFiles(backendUrl, selectedCategoryId).then(setExistingFiles).catch(() => {});
         listTemplates(backendUrl, selectedCategoryId).then(setTemplates).catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,6 +345,13 @@ export const ConfigEditorModal: React.FC<Props> = ({
             onOpenFileRequestConsumed?.();
             return;
         }
+        // 設定自動生成指示（固定ファイル種別）も fileName に instruction ID が入る。
+        // 一覧取得（対象プルダウンの初期化）と並行して本文を読み、対象は ID から確定する。
+        if (openFileRequest.categoryId === CONFIG_GEN_INSTRUCTION_CATEGORY_ID) {
+            void handleSelectConfigGenInstruction(openFileRequest.fileName);
+            onOpenFileRequestConsumed?.();
+            return;
+        }
         (async () => {
             // 先行しているカテゴリ初期化を無効化し、その完了結果による本文上書きを防ぐ。
             const loadVersion = ++contentLoadVersion.current;
@@ -309,6 +359,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 dirName: openFileRequest.dirName,
                 name: openFileRequest.fileName,
             };
+            // 開き元の編集中本文（設定自動生成タブの左エディタ）。指定があれば優先表示する。
+            const carried = openFileRequest.content;
             const filesPromise = listConfigFiles(backendUrl, selectedCategoryId).catch(() => null);
             const templatesPromise = listTemplates(backendUrl, selectedCategoryId).catch(() => null);
             try {
@@ -316,13 +368,24 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 if (loadVersion !== contentLoadVersion.current) return;
                 setSelectedExistingFile(entry);
                 setTitle(entry.name);
-                setContent(c);
+                setContent(carried ?? c);
                 setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
                 setIsSimpleMode(false);
                 setSelectedTemplate('');
-                setIsDirty(false);
+                // 持ち込み本文がサーバー上の内容と異なる＝未保存の編集がある。
+                setIsDirty(carried !== undefined && carried !== c);
                 onOpenFileRequestConsumed?.();
             } catch {
+                if (carried !== undefined && loadVersion === contentLoadVersion.current) {
+                    // サーバーから読めなくても、持ち込んだ本文は捨てずに未保存として見せる。
+                    setSelectedExistingFile(entry);
+                    setTitle(entry.name);
+                    setContent(carried);
+                    setSimpleConfig({ ...EMPTY_SIMPLE_CHARACTER });
+                    setIsSimpleMode(false);
+                    setSelectedTemplate('');
+                    setIsDirty(true);
+                }
                 showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed));
                 onOpenFileRequestConsumed?.();
                 return;
@@ -456,6 +519,47 @@ export const ConfigEditorModal: React.FC<Props> = ({
         setIsSaving(true);
         try {
             const restored = await resetComfyDirective(backendUrl, selectedComfyDirectiveId);
+            setContent(restored);
+            setIsDirty(false);
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetDone));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetFailed)); }
+        finally { setIsSaving(false); }
+    };
+
+    // 設定自動生成指示ファイル選択（編集のみ。未作成時はサーバーが同梱デフォルトを返す）
+    // 対象プルダウンは選択 ID から逆引きして同期する（他タブからの直接遷移でも一致させる）。
+    const handleSelectConfigGenInstruction = async (id: string) => {
+        setSelectedConfigGenInstructionId(id);
+        if (!id) { setContent(''); setIsDirty(false); return; }
+        const target = id.split('-')[0];
+        if (target) setSelectedConfigGenTarget(target);
+        try {
+            setContent(await getConfigGenInstruction(backendUrl, id));
+            setIsDirty(false);
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed)); }
+    };
+
+    // 設定自動生成指示ファイル保存（上書きのみ）
+    const handleSaveConfigGenInstruction = async () => {
+        if (!selectedConfigGenInstructionId) return;
+        setIsSaving(true);
+        try {
+            await saveConfigGenInstruction(backendUrl, selectedConfigGenInstructionId, content);
+            setIsDirty(false);
+            // exists 表示の更新（初回保存後にファイルが生まれる）。
+            listConfigGenInstructions(backendUrl).then(setConfigGenInstructionFiles).catch(() => {});
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.saved));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.saveFailed)); }
+        finally { setIsSaving(false); }
+    };
+
+    // 設定自動生成指示ファイルを同梱デフォルトへ戻す（編集内容破棄のため確認を挟む）
+    const handleResetConfigGenInstruction = async () => {
+        if (!selectedConfigGenInstructionId) return;
+        if (!window.confirm(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetConfirm))) return;
+        setIsSaving(true);
+        try {
+            const restored = await resetConfigGenInstruction(backendUrl, selectedConfigGenInstructionId);
             setContent(restored);
             setIsDirty(false);
             showToast(t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetDone));
@@ -646,10 +750,12 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     ? (providerFiles.find(p => p.id === selectedProviderId)?.file ?? '')
                                     : isComfyDirectiveCategory
                                         ? (comfyDirectiveFiles.find(d => d.id === selectedComfyDirectiveId)?.file ?? '')
-                                        : title}
+                                        : isConfigGenInstructionCategory
+                                            ? (configGenInstructionFiles.find(d => d.id === selectedConfigGenInstructionId)?.file ?? '')
+                                            : title}
                                 onChange={e => { setTitle(e.target.value); setIsDirty(true); }}
                                 placeholder={t(CONFIG_EDITOR_I18N_KEYS.titlePlaceholder)}
-                                disabled={isProviderCategory || isComfyDirectiveCategory}
+                                disabled={isFixedFileCategory}
                                 className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500 disabled:opacity-60"
                             />
                         </div>
@@ -687,6 +793,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     <option key={c.id} value={c.id}>{c.label}</option>
                                 ))}
                                 <option value={PROVIDER_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.providerCategory)}</option>
+                                <option value={CONFIG_GEN_INSTRUCTION_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionCategory)}</option>
                                 {comfyDirectiveVisible && (
                                     <option value={COMFY_DIRECTIVE_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveCategory)}</option>
                                 )}
@@ -733,6 +840,53 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     <p className="text-xs text-gray-500 mt-2">
                                         {t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveDescription)}
                                     </p>
+                                </div>
+
+                                <hr className="border-gray-700" />
+                            </>
+                        ) : isConfigGenInstructionCategory ? (
+                            <>
+                                {/* 設定自動生成指示（対象 → 指示ファイルの2段プルダウンのみ。テンプレート・新規・削除・D&Dなし） */}
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionTarget)}</label>
+                                    <select
+                                        value={selectedConfigGenTarget}
+                                        onChange={e => {
+                                            setSelectedConfigGenTarget(e.target.value);
+                                            void handleSelectConfigGenInstruction('');
+                                        }}
+                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                    >
+                                        {Array.from(new Set(visibleConfigGenInstructionFiles.map(f => f.target))).map(target => (
+                                            <option key={target} value={target}>
+                                                {categories.find(c => c.id === target)?.label ?? target}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-1">{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionCategory)}</label>
+                                    <select
+                                        value={selectedConfigGenInstructionId}
+                                        onChange={e => handleSelectConfigGenInstruction(e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                    >
+                                        <option value="">{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionSelect)}</option>
+                                        {visibleConfigGenInstructionFiles.filter(f => f.target === selectedConfigGenTarget).map(f => (
+                                            // 作成指示（編集非推奨）はオレンジ字で警告する
+                                            <option key={f.id} value={f.id} className={f.kind === 'instruction' ? 'text-orange-400' : undefined}>
+                                                {configGenMethodLabel(f)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        {t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionDescription)}
+                                    </p>
+                                    {selectedConfigGenInstruction?.kind === 'instruction' && (
+                                        <p className="text-xs text-orange-400 mt-2">
+                                            {t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionEditNotRecommended)}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <hr className="border-gray-700" />
@@ -822,8 +976,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             </div>
                         )}
 
-                        {/* 新規作成（AIプロバイダ指示・画像生成分析指示では不可） */}
-                        {!isProviderCategory && !isComfyDirectiveCategory && (
+                        {/* 新規作成（固定ファイル種別では不可） */}
+                        {!isFixedFileCategory && (
                             <>
                                 <button
                                     onClick={handleNewFile}
@@ -844,17 +998,18 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                 onClick={() => {
                                     if (isProviderCategory) { handleSaveProvider(); return; }
                                     if (isComfyDirectiveCategory) { handleSaveComfyDirective(); return; }
+                                    if (isConfigGenInstructionCategory) { handleSaveConfigGenInstruction(); return; }
                                     handleSave(
                                         saveMode === 'new'
                                             ? { kind: 'new', name: title }
                                             : { kind: 'overwrite', entry: selectedExistingFile! }
                                     );
                                 }}
-                                disabled={isSaving || (isProviderCategory && !selectedProviderId) || (isComfyDirectiveCategory && !selectedComfyDirectiveId)}
+                                disabled={isSaving || (isProviderCategory && !selectedProviderId) || (isComfyDirectiveCategory && !selectedComfyDirectiveId) || (isConfigGenInstructionCategory && !selectedConfigGenInstructionId)}
                                 className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-white bg-blue-700 rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save size={14} />
-                                {isProviderCategory || isComfyDirectiveCategory || saveMode !== 'new'
+                                {isFixedFileCategory || saveMode !== 'new'
                                     ? t(CONFIG_EDITOR_I18N_KEYS.overwriteSave)
                                     : t(CONFIG_EDITOR_I18N_KEYS.newSave)}
                             </button>
@@ -871,8 +1026,20 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                 </button>
                             )}
 
+                            {/* デフォルトに戻す（設定自動生成指示。同梱デフォルトで上書き） */}
+                            {isConfigGenInstructionCategory && (
+                                <button
+                                    onClick={handleResetConfigGenInstruction}
+                                    disabled={isSaving || !selectedConfigGenInstructionId}
+                                    className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-gray-200 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <RotateCcw size={14} />
+                                    {t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveReset)}
+                                </button>
+                            )}
+
                             {/* 別ファイルとして保存（タイトル変更時のみ） */}
-                            {!isProviderCategory && !isComfyDirectiveCategory && saveMode === 'both' && (
+                            {!isFixedFileCategory && saveMode === 'both' && (
                                 <button
                                     onClick={() => handleSave({ kind: 'new', name: title })}
                                     disabled={isSaving}

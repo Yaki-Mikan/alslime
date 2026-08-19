@@ -180,6 +180,24 @@ const (
 	// 利用者がローカルの認証ファイルをここへ置くと、OS デフォルトより優先して探索する。
 	// 秘匿情報のため cache 削除・backup・全文走査の対象から必ず除外する（安全要件§8-2）。
 	AuthDir = "roleplay/auth"
+	// TTSDir は音声読み上げ（Irodori-TTS連携）設定のルート。
+	TTSDir = "roleplay/global/TTS"
+	// TTSConfigFile は TTS 接続・読み上げ設定の正本。
+	TTSConfigFile = TTSDir + "/tts_config.json"
+	// TTSAudioDir は読み上げ生成音声の保存ルート（配下にセッションID別ディレクトリ）。
+	TTSAudioDir = "roleplay/history/tts_audio"
+	// TTSModelsDir は Latent 変換用モデルの配置ディレクトリ（companion pack で配布）。
+	TTSModelsDir = TTSDir + "/models"
+	// TTSLatentModelFile は DACVAE エンコーダの ONNX モデル。
+	TTSLatentModelFile = TTSModelsDir + "/dacvae_encoder.onnx"
+	// TTSLatentHelperFile は Latent 変換ヘルパー（C++製単一実行ファイル）の配置パス。
+	// Windows では ".exe" を付して解決する。
+	TTSLatentHelperFile = "modules/alslime-latent-helper"
+	// TTSEmojiStyleGuideFile は Irodori-TTS 用文体指示の絵文字説明ファイル
+	// （companion pack で配布。対応絵文字一覧の正本を兼ねる）。
+	TTSEmojiStyleGuideFile = TTSDir + "/emoji_style_guide.md"
+	// TTSLatentTmpDir は Latent 変換の一時ファイル置き場。
+	TTSLatentTmpDir = "tmp/tts-latent"
 	// ComfyUIDir は ComfyUI 連携設定のルート。
 	ComfyUIDir = "roleplay/global/ComfyUI"
 	// ComfyUIConfigFile は ComfyUI 接続・生成設定の正本。
@@ -210,6 +228,11 @@ const (
 	ComfyUIDirectiveDanbooruThirdFile = ComfyUIDir + "/image_gen_directive_third.md"
 	// ComfyUIDirectiveNaturalThirdFile は自然文指示ファイルの三人称視点版。
 	ComfyUIDirectiveNaturalThirdFile = ComfyUIDir + "/image_gen_directive_natural_third.md"
+	// ComfyUIDirectiveNaturalShortFile は自然文指示ファイルの短縮版（一人称視点）。
+	// 指示文の総量を抑え、判定AIのガードレールに弾かれにくくした別ファイル。
+	ComfyUIDirectiveNaturalShortFile = ComfyUIDir + "/image_gen_directive_natural_short.md"
+	// ComfyUIDirectiveNaturalThirdShortFile は自然文指示ファイルの短縮版（三人称視点）。
+	ComfyUIDirectiveNaturalThirdShortFile = ComfyUIDir + "/image_gen_directive_natural_third_short.md"
 	// ComfyUIDebugDir は ComfyUI 連携のデバッグ出力ルート。
 	ComfyUIDebugDir = ComfyUIDir + "/debug"
 	// ComfyUITagJudgeResponsesDir はタグ判定AIの応答ログ格納先。
@@ -363,6 +386,10 @@ const (
 	// OpenAICompatConnectionPromptsDir は接続別追加指示のルート。
 	// 配下のディレクトリ名はサーバー生成の Connection ID（Label は使わない）。
 	OpenAICompatConnectionPromptsDir = OpenAICompatPromptsDir + "/connections"
+	// ConfigGenPromptsDir は設定自動生成（config-generate）で AI へ渡す指示ファイル群
+	// のルート。配下は <対象種別>/<方式>.<locale>.md（同梱デフォルトを firstrun が
+	// 配置し、設定ファイルエディタから書き換える。無ければ実行時に同梱デフォルトへ戻る）。
+	ConfigGenPromptsDir = "roleplay/global/prompts/configgen"
 	// OpenAICompatInstructionMaxBytes は API 指示本文（共通・プリセット・接続別）
 	// 1 ファイルのサイズ上限。上限超過は書き込み前に拒否する。
 	OpenAICompatInstructionMaxBytes = 1 << 20
@@ -389,6 +416,13 @@ func OpenAICompatSystemPromptFile(locale string) string {
 // OpenAICompatPresetPromptFile は固定プリセット基本指示ファイルの論理パスを返す。
 func OpenAICompatPresetPromptFile(preset, locale string) string {
 	return OpenAICompatPresetPromptsDir + "/" + preset + "/system." + locale + ".md"
+}
+
+// ConfigGenInstructionFile は設定自動生成の指示ファイルの論理パスを返す
+// （target は対象種別 ID（"character" 等）、method は方式 ID（"two_step_1" 等）、
+// locale は "ja"｜"en"）。
+func ConfigGenInstructionFile(target, method, locale string) string {
+	return ConfigGenPromptsDir + "/" + target + "/" + method + "." + locale + ".md"
 }
 
 // OpenAICompatConnectionPromptDir は接続別追加指示ディレクトリの論理パスを返す。

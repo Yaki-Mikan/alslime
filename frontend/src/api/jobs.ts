@@ -6,8 +6,8 @@ import axios from '../lib/axios';
 
 export interface Job {
     jobId: string;
-    type: 'chat' | 'regenerate' | 'tag-judge' | 'image-generate';
-    kind: 'gemini' | 'claude' | 'antigravity' | 'openai_compat';
+    type: 'chat' | 'regenerate' | 'tag-judge' | 'image-generate' | 'tts';
+    kind: 'gemini' | 'claude' | 'antigravity' | 'openai_compat' | 'tts';
     label: string;
     sessionId?: string | null;
     status: 'pending' | 'processing' | 'completed' | 'error' | 'canceled';
@@ -23,11 +23,13 @@ export interface ProcessLimits {
     claude: number;
     antigravity: number;
     openai_compat: number;
+    // tts は global 枠から独立した専用枠（AI CLI を使わないため）。
+    tts: number;
 }
 
 export interface JobsResponse {
     jobs: Job[];
-    inUse: { global: number; gemini: number; claude: number; antigravity: number; openai_compat: number };
+    inUse: { global: number; gemini: number; claude: number; antigravity: number; openai_compat: number; tts: number };
     limits: ProcessLimits;
 }
 

@@ -31,6 +31,8 @@ vi.mock('../../api/config-editor', () => ({
     listTemplates: vi.fn(),
     getProviderInstruction: vi.fn(),
     saveProviderInstruction: vi.fn(),
+    // 設定自動生成指示の言語絞り込みはレンダー毎に呼ばれる純粋関数のため、実装相当を与える。
+    normalizeConfigGenInstructionLocale: (locale: string) => (locale.toLowerCase().startsWith('en') ? 'en' : 'ja'),
 }));
 
 describe('設定ファイルエディタのAPI接続指示', () => {

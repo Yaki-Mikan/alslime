@@ -6,7 +6,7 @@ import axios from '../lib/axios';
 import type { ClaudeEffort } from '../constants/claude';
 
 // 型定義
-export type DirectiveMode = 'danbooru_only' | 'natural_language' | 'danbooru_third_person' | 'natural_language_third_person';
+export type DirectiveMode = 'danbooru_only' | 'natural_language' | 'danbooru_third_person' | 'natural_language_third_person' | 'natural_language_short' | 'natural_language_third_person_short';
 export type DanbooruTagFormat = 'underscore' | 'space';
 /** トリガーワードのコピー時変換。raw=変換なし / underscore=スペース→_ / space=_→スペース */
 export type TriggerWordFormat = 'raw' | 'underscore' | 'space';

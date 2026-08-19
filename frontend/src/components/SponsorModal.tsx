@@ -12,6 +12,7 @@ import { downloadComfyUITemplate } from '../api/comfyui';
 import {
     MODULE_ACTION_CHOICE,
     MODULE_COMFY,
+    MODULE_TTS,
     cleanModule,
     fetchCleanPreview,
     fetchModulesStatus,
@@ -29,13 +30,15 @@ import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings'
 import type { EntitlementState } from '../api/system';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
 import { fetchUpdateCheck, type ModuleUpdateEntry } from '../api/update';
-import { SPONSOR_MODULE_LABELS } from '../constants/i18n';
+import { DEFAULT_UI_LANGUAGE, SPONSOR_MODULE_LABELS } from '../constants/i18n';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // 表示言語（TTSは日本語専用のため、日本語以外では取得導線を出さない。要件4章）。
+    uiLanguage?: string;
     // モジュール配置状態の変化を親へ伝える（会話設定の画像生成設定欄など、
     // モーダル外の表示条件を画面更新なしで追随させる）。
     onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
@@ -66,7 +69,7 @@ const LOGIN_POLL_LIMIT_MS = 5 * 60 * 1000;
 const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
 
 
-export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, onModulesChanged }) => {
+export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, uiLanguage, onModulesChanged }) => {
     const [status, setStatus] = useState<SponsorStatus | null>(null);
     const [authUrl, setAuthUrl] = useState<string | null>(null);
     const [isBusy, setIsBusy] = useState(false);
@@ -435,12 +438,31 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                         ) : null}
                     </div>
 
-                    {canUseModule && modules.map((entry) => (
+                    {canUseModule && modules
+                        // TTS は日本語専用のため、日本語以外の表示言語では取得導線を出さない（要件4章）。
+                        .filter((entry) => entry.id !== MODULE_TTS || (uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja')
+                        .map((entry) => (
                         <div key={entry.id} className="rounded border border-gray-700 bg-gray-800/60 px-3 py-3 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className="text-sm text-gray-200">{moduleLabel(entry.id)}</span>
                                 <span className="ml-auto text-xs text-gray-400">{moduleStateLabel(entry)}</span>
                             </div>
+                            {entry.id === MODULE_TTS && (
+                                <>
+                                    <p className="text-xs text-gray-400">
+                                        {t('sponsor.tts.noticeExternal', 'Irodori-TTS-Serverは外部ツールです。ご自身での構築・起動が必要です。')}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {t('sponsor.tts.noticeGpu', 'GPU推奨。VRAM要件にご注意ください（VRAMが少ない環境向けの量子化版もあります）。')}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {t('sponsor.tts.noticeVramConflict', '画像生成（ComfyUI）と同時に使うとVRAMを取り合います。')}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {t('sponsor.tts.noticeEthics', '音声モデルの倫理的制約として、無断の音声クローン・なりすまし・ディープフェイクへの使用は禁止されています。')}
+                                    </p>
+                                </>
+                            )}
                             {moduleUpdates[entry.id]?.hasUpdate && (
                                 <p className="text-xs text-amber-300">
                                     {t('update.module.updateAvailable', '更新あり（{{version}}）')

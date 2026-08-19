@@ -182,10 +182,10 @@ ComfyUI models, LoRA, and custom nodes are not included in the settings pack. Pl
 - **A node or model error appears**: Make sure the models, LoRA, and custom nodes used by the workflow are available in ComfyUI.
 - **Tag judging does not finish**: Make sure the selected AI CLI can start on its own and is signed in.
 - **Generation takes a long time**: Tag judging and ComfyUI image generation have separate waiting times. Check both the AlSlime display and the current status in ComfyUI.
-- For anything else, see [10 Troubleshooting](10-troubleshooting.md).
+- For anything else, see [11 Troubleshooting](11-troubleshooting.md).
 
 ---
 
-Previous: [08 Supporter Features](08-sponsor.md) | Next: [10 Troubleshooting](10-troubleshooting.md)
+Previous: [08 Supporter Features](08-sponsor.md) | Next: [10 Text-to-Speech (Irodori-TTS Integration)](10-tts.md)
 
 [Back to Contents](index.md)

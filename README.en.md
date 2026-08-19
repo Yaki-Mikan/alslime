@@ -40,6 +40,12 @@ The supporter-only ComfyUI integration lets an AI read the conversation and gene
 
 This feature requires a separate ComfyUI installation, an image-generation model, and suitable GPU hardware. See the [ComfyUI integration manual](docs/manual/en/09-comfyui.md) for details.
 
+### Listen to Conversations in Voice
+
+The supporter-only Irodori-TTS integration has an AI speech synthesizer read your characters' replies aloud. Voices created from reference audio or designed in words can be assigned per character, and emotional expression via emojis is supported.
+
+This feature requires building Irodori-TTS-Server separately and suitable GPU hardware. Only Japanese text can be read aloud. See the [text-to-speech manual](docs/manual/en/10-tts.md) for details.
+
 ## Main Features
 
 | Category | Features |
@@ -49,6 +55,7 @@ This feature requires a separate ComfyUI installation, an image-generation model
 | Conversations | AI CLI and model selection, session history, regeneration, conversation presets |
 | Data management | Configuration file editor, settings packs, backup and transfer |
 | Image generation | ComfyUI integration, generation from conversations, message attachments, background display |
+| Text-to-speech | Irodori-TTS integration, per-character voice assignment, emotional expression via emojis (Japanese only) |
 | Languages | Japanese and English UI and manuals |
 
 ## Requirements
@@ -110,7 +117,7 @@ The manual can be opened from the AlSlime settings screen and is also available 
 - [Japanese Manual](docs/manual/index.md)
 - [English Manual](docs/manual/en/index.md)
 
-It covers installation, your first conversation, character creation, roleplay settings, settings packs, supporter features, ComfyUI integration, and troubleshooting.
+It covers installation, your first conversation, character creation, roleplay settings, settings packs, supporter features, ComfyUI integration, text-to-speech, and troubleshooting.
 
 ## GitHub Sponsors
 

@@ -160,7 +160,8 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
 
 /**
  * 設定ファイルエディタ等の directive ID（danbooru / natural / danbooru_third /
- * natural_third）を、実行時に使う directiveMode 値へ対応付ける。
+ * natural_third / natural_short / natural_third_short）を、実行時に使う
+ * directiveMode 値へ対応付ける。
  * バックエンド comfyui.DirectiveFileForMode の対応表と一致させること。
  */
 export const directiveModeForDirectiveId = (id: string): string => {
@@ -169,6 +170,8 @@ export const directiveModeForDirectiveId = (id: string): string => {
         case 'natural': return 'natural_language';
         case 'danbooru_third': return 'danbooru_third_person';
         case 'natural_third': return 'natural_language_third_person';
+        case 'natural_short': return 'natural_language_short';
+        case 'natural_third_short': return 'natural_language_third_person_short';
         default: return id;
     }
 };

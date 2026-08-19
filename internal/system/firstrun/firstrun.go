@@ -58,6 +58,7 @@ func workspaceDirs() []string {
 		config.ConfigEditorTemplateRoot,
 		config.ComfyUIDir,
 		config.ComfyUITemplateDir,
+		config.TTSDir,
 		config.ComfyUIProfileDir,
 		config.ComfyUITagMappingDir,
 		config.ComfyUIPlaceholderPresetDir,

@@ -96,7 +96,7 @@ Adjust these when you are concerned about PC load or want to run multiple genera
 
 ## 8. System Diagnostics
 
-A read-only screen that shows the environment self-diagnostics. When something misbehaves, check here first ([10 Troubleshooting](10-troubleshooting.md)).
+A read-only screen that shows the environment self-diagnostics. When something misbehaves, check here first ([11 Troubleshooting](11-troubleshooting.md)).
 
 ![System diagnostics](../images/ja/05-06-diagnostics.png)
 

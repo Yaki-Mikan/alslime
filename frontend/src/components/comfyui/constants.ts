@@ -33,7 +33,9 @@ export const SECTION_NAMES = {
 
 export const DIRECTIVE_MODE_OPTIONS = {
     NATURAL_LANGUAGE: '自然言語混在（Anima等向け・一人称視点）',
+    NATURAL_SHORT: '自然言語混在（Anima等向け・一人称視点・短縮版）',
     NATURAL_THIRD: '自然言語混在（Anima等向け・三人称視点）',
+    NATURAL_THIRD_SHORT: '自然言語混在（Anima等向け・三人称視点・短縮版）',
     DANBOORU_ONLY: 'Danbooruタグのみ（一人称視点）',
     DANBOORU_THIRD: 'Danbooruタグのみ（三人称視点）',
 } as const;

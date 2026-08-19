@@ -323,8 +323,8 @@ func TestComfyDirectives_一覧と読み書き(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 4 {
-		t.Fatalf("4 件（一人称・三人称 × Danbooru・自然文）のはず: %d", len(list))
+	if len(list) != 6 {
+		t.Fatalf("6 件（一人称・三人称 × Danbooru・自然文 ＋ 自然文短縮版 2 件）のはず: %d", len(list))
 	}
 
 	// 未作成の読み取りは空文字。
@@ -339,6 +339,18 @@ func TestComfyDirectives_一覧と読み書き(t *testing.T) {
 	}
 	if content, err := svc.ReadComfyDirective("danbooru_third"); err != nil || content != "# third" {
 		t.Fatalf("Read(danbooru_third): content=%q err=%v", content, err)
+	}
+
+	// 自然文短縮版も同じ固定ファイル機構で読み書きでき、短縮版専用ファイルへ保存される。
+	if err := svc.WriteComfyDirective("natural_short", "# short"); err != nil {
+		t.Fatalf("Write(natural_short): %v", err)
+	}
+	if content, err := svc.ReadComfyDirective("natural_short"); err != nil || content != "# short" {
+		t.Fatalf("Read(natural_short): content=%q err=%v", content, err)
+	}
+	shortData, err := os.ReadFile(filepath.Join(root, "roleplay", "global", "ComfyUI", "image_gen_directive_natural_short.md"))
+	if err != nil || string(shortData) != "# short" {
+		t.Fatalf("image_gen_directive_natural_short.md へ保存されるはず: data=%q err=%v", shortData, err)
 	}
 
 	// 書き込み → ComfyUI ディレクトリ配下の固定名に保存される。
@@ -356,5 +368,65 @@ func TestComfyDirectives_一覧と読み書き(t *testing.T) {
 	// 未知 ID は ErrUnknownComfyDirective。
 	if _, err := svc.ReadComfyDirective("unknown"); !errors.Is(err, ErrUnknownComfyDirective) {
 		t.Fatalf("未知 ID はエラーのはず: %v", err)
+	}
+}
+
+func TestConfigGenInstructions_一覧と読み書き(t *testing.T) {
+	svc, root := newService(t)
+
+	list, err := svc.ListConfigGenInstructions()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 10 {
+		t.Fatalf("10 件（テンプレート 2 種＋作成指示 3 種 × ja/en）のはず: %d", len(list))
+	}
+	for _, item := range list {
+		if item.Target != "character" {
+			t.Fatalf("現状の対象はキャラクターのみのはず: %+v", item)
+		}
+		if item.Kind != ConfigGenKindInstruction && item.Kind != ConfigGenKindTemplate {
+			t.Fatalf("Kind が未設定: %+v", item)
+		}
+		if item.Exists {
+			t.Fatalf("未作成は Exists=false のはず: %+v", item)
+		}
+	}
+
+	// ID の組み立て規則（フロントも同じ規則で組む）。
+	id := ConfigGenInstructionID("character", ConfigGenMethodTwoStep1, "ja")
+	if id != "character-two_step_1-ja" {
+		t.Fatalf("ID 規則が変わっている: %s", id)
+	}
+
+	// 未作成の読み取りは exists=false（同梱デフォルト補完は API 層の責務）。
+	content, exists, err := svc.ReadConfigGenInstruction(id)
+	if err != nil || exists || content != "" {
+		t.Fatalf("未作成は exists=false・空のはず: content=%q exists=%v err=%v", content, exists, err)
+	}
+
+	// 書き込み → prompts/configgen/<対象>/<方式>.<locale>.md へ保存される。
+	if err := svc.WriteConfigGenInstruction(id, "# 指示"); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "roleplay", "global", "prompts", "configgen", "character", "two_step_1.ja.md"))
+	if err != nil || string(data) != "# 指示" {
+		t.Fatalf("two_step_1.ja.md へ保存されるはず: data=%q err=%v", data, err)
+	}
+	if content, exists, err := svc.ReadConfigGenInstruction(id); err != nil || !exists || content != "# 指示" {
+		t.Fatalf("Read: content=%q exists=%v err=%v", content, exists, err)
+	}
+
+	// 未対応ロケールは先頭ロケール（ja）へ戻る。
+	if d, ok := FindConfigGenInstructionBy("character", ConfigGenMethodOneShot, "fr"); !ok || d.Locale != "ja" {
+		t.Fatalf("未対応ロケールは ja へ戻るはず: %+v ok=%v", d, ok)
+	}
+
+	// 未知 ID は ErrUnknownConfigGenInstruction。
+	if _, _, err := svc.ReadConfigGenInstruction("unknown"); !errors.Is(err, ErrUnknownConfigGenInstruction) {
+		t.Fatalf("未知 ID はエラーのはず: %v", err)
+	}
+	if err := svc.WriteConfigGenInstruction("unknown", "x"); !errors.Is(err, ErrUnknownConfigGenInstruction) {
+		t.Fatalf("未知 ID の書き込みはエラーのはず: %v", err)
 	}
 }

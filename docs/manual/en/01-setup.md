@@ -72,7 +72,7 @@ On first startup, the Terms of Use consent screen appears here (see the next sec
 >
 > - Open the address shown in the console (usually `http://127.0.0.1:3000`) directly in your browser.
 > - AlSlime cannot start if another application is already using port 3000. In that case, change the port as described in "6. Advanced Startup Settings" in this chapter, or close the other application.
-> - For other problems, see [10 Troubleshooting](10-troubleshooting.md).
+> - For other problems, see [11 Troubleshooting](11-troubleshooting.md).
 
 ## 4. Agreeing to the Terms of Use
 

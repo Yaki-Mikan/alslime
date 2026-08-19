@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Check, Save, Plus, ChevronDown, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Search, Image, MessageSquare, FolderOpen, SlidersHorizontal, Users, Globe, FileText } from 'lucide-react';
+import { X, Check, Save, Plus, ChevronDown, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Search, Image, MessageSquare, FolderOpen, SlidersHorizontal, Users, Globe, FileText, AudioLines } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
+import { GridSelectionModal } from '../common/GridSelectionModal';
 import { listFiles, getCharacterTags, getCharacterFilters } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
 import {
@@ -19,8 +20,11 @@ import type { ParameterSchema, ParameterGroupState } from '../../types/Parameter
 import { RenderGroup } from '../common/ParameterElements';
 import { DateTimeSettings } from './DateTimeSettings';
 import { CharacterImagePanel } from './CharacterImagePanel';
+import { CharacterVoicePanel } from './CharacterVoicePanel';
 import { ComfyUICharacterSettingsModal } from '../comfyui/ComfyUICharacterSettingsModal';
 import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
+import { TTSCharacterSettingsModal } from '../tts/TTSCharacterSettingsModal';
+import { TTSIntegratedSettingsModal } from '../tts/TTSIntegratedSettingsModal';
 import { INTEGRATED } from '../comfyui/constants';
 import type { DateTimeSettingsState } from '../../types/datetime';
 import { getDefaultDateTimeSettings } from '../../types/datetime';
@@ -71,6 +75,16 @@ interface RolePlaySettingsProps {
      * 未指定なら従来どおり内蔵モーダルで開く。表示条件の判定は Chat 側で行う）。
      */
     onOpenIntegratedImageSettings?: (characterName: string) => void;
+    /**
+     * 音声設定欄（CharacterVoicePanel）と音声設定アイコンの表示可否。
+     * 判定（TTS機能が有効な支援レベル かつ TTSモジュール連携済み）は Chat 側で行う。
+     */
+    ttsSettingsVisible?: boolean;
+    /**
+     * キャラ詳細設定横アイコンのTTS統合設定を ConfigEditorHub の tts タブで開く導線
+     * （引数は初期選択キャラクター名。未指定なら内蔵モーダルで開く）。
+     */
+    onOpenIntegratedTTSSettings?: (characterName: string) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -244,143 +258,17 @@ function getCharacterNameFromPath(charPath: string): string {
     return charPath.split('/').pop()?.replace(/\.md$/, '') || charPath;
 }
 
+// キャラクター設定パスから設定名（`キャラ名_v3` のようにファイル名そのもの）を得る。
+// 画像生成・音声の設定画面へ「どの設定を選んだか」を伝える用途。同じキャラクター
+// ディレクトリに版違いの設定が複数あると、ディレクトリ名で渡した場合は名前順で先の版
+// （`_v2` 等）が選ばれて見えるため、設定名で渡して選んだ版そのものを初期選択にする。
+// 設定画面側は一覧の name → dirName の対応で保存先ディレクトリを解決する。
+function getCharacterSettingNameFromPath(charPath: string): string {
+    return charPath.replace(/\\/g, '/').split('/').pop()?.replace(/\.md$/i, '') || charPath;
+}
+
 // React.memo の props 安定用の空配列（毎レンダー `|| []` で新配列を作らない）
 const EMPTY_OPTIONS: Option[] = [];
-
-// 汎用グリッド選択モーダル
-const GridSelectionModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onSelect: (value: string) => void;
-    options: { label: string; value: string; description?: string }[];
-    title: string;
-    emptyLabel?: string;
-    searchable?: boolean;
-    searchPlaceholder: string;
-    noMatchTemplate: string;
-    // 現在選択中の値。該当カードを選択状態で表示し、開いた時に見える位置へスクロールする
-    selectedValue?: string;
-    // 横広・列少なめレイアウト（キャラクター選択用。スマホ幅では1列）
-    wide?: boolean;
-}> = ({ isOpen, onClose, onSelect, options, title, emptyLabel, searchable = false, searchPlaceholder, noMatchTemplate, selectedValue, wide = false }) => {
-    // 入力中の値（debounce対象）
-    const [searchInput, setSearchInput] = useState('');
-    // 実際に絞り込みに使う値
-    const [searchTerm, setSearchTerm] = useState('');
-    // IME変換中フラグ（変換中のEnterで検索が走らないようにする）
-    const isComposingRef = useRef(false);
-    // 選択中カードへの参照（開いた時のスクロール用）
-    const selectedRef = useRef<HTMLButtonElement | null>(null);
-
-    // モーダルが閉じたら検索状態を初期化
-    useEffect(() => {
-        if (!isOpen) {
-            setSearchInput('');
-            setSearchTerm('');
-        }
-    }, [isOpen]);
-
-    // 開いた時に選択中カードが見えるようスクロール
-    useEffect(() => {
-        if (isOpen) {
-            selectedRef.current?.scrollIntoView({ block: 'center' });
-        }
-    }, [isOpen]);
-
-    // 入力から1秒経過で自動検索
-    useEffect(() => {
-        if (!searchable) return;
-        const timer = setTimeout(() => {
-            setSearchTerm(searchInput);
-        }, 1000);
-        return () => clearTimeout(timer);
-    }, [searchInput, searchable]);
-
-    if (!isOpen) return null;
-
-    const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        // IME変換中のEnterは確定操作なので検索をトリガーしない
-        // - isComposingRef: compositionstart/end で管理
-        // - e.nativeEvent.isComposing: Chromium系のフォールバック
-        // - keyCode === 229: Safari等のフォールバック
-        if (e.key !== 'Enter') return;
-        if (isComposingRef.current) return;
-        if (e.nativeEvent.isComposing) return;
-        if (e.keyCode === 229) return;
-        e.preventDefault();
-        setSearchTerm(searchInput);
-    };
-
-    const normalizedTerm = searchTerm.trim().toLowerCase();
-    const filteredOptions = normalizedTerm
-        ? options.filter(opt => opt.label.toLowerCase().includes(normalizedTerm))
-        : options;
-
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700 max-h-[80vh] flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 bg-gray-800">
-                    <h3 className="text-lg font-semibold text-gray-100">{title}</h3>
-                    <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors">
-                        <X size={20} />
-                    </button>
-                </div>
-                {searchable && (
-                    <div className="p-3 border-b border-gray-700 bg-gray-800/60">
-                        <div className="relative">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                            <input
-                                type="text"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                                onCompositionStart={() => { isComposingRef.current = true; }}
-                                onCompositionEnd={() => { isComposingRef.current = false; }}
-                                onKeyDown={handleSearchKeyDown}
-                                placeholder={searchPlaceholder}
-                                className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors"
-                            />
-                        </div>
-                    </div>
-                )}
-                <div className="overflow-y-auto p-4 flex-1 custom-scrollbar">
-                    <div className={wide ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3' : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3'}>
-                        {emptyLabel !== undefined && (
-                            <button
-                                onClick={() => onSelect('')}
-                                className="text-left p-3 rounded hover:bg-gray-700 transition-colors border border-gray-700/50 hover:border-gray-500 h-full flex items-center justify-center min-h-[80px]"
-                            >
-                                <div className="font-bold text-gray-400 text-center">{emptyLabel}</div>
-                            </button>
-                        )}
-                        {filteredOptions.map(opt => {
-                            const isSelected = selectedValue !== undefined && selectedValue !== '' && opt.value === selectedValue;
-                            return (
-                                <button
-                                    key={opt.value}
-                                    ref={isSelected ? selectedRef : undefined}
-                                    onClick={() => onSelect(opt.value)}
-                                    className={`text-left p-3 rounded transition-colors border group h-full flex flex-col justify-center min-h-[80px] ${isSelected
-                                        ? 'bg-blue-600/20 border-blue-500'
-                                        : 'border-gray-700/50 hover:bg-gray-700 hover:border-blue-500/50'}`}
-                                >
-                                    <div className={`font-bold break-words w-full text-center ${isSelected ? 'text-blue-300' : 'text-gray-200 group-hover:text-blue-400'}`}>{opt.label}</div>
-                                    {opt.description && (
-                                        <div className={`text-xs mt-1 text-center ${isSelected ? 'text-blue-200/70' : 'text-gray-500 group-hover:text-gray-400'}`}>{opt.description}</div>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {searchable && normalizedTerm && filteredOptions.length === 0 && (
-                        <div className="text-center text-gray-500 text-sm mt-6">
-                            {noMatchTemplate.split('{{searchTerm}}').join(searchTerm)}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
 
 // 選択セクション（世界観・舞台・シチュエーション・ユーザー・文体）。
 // 巨大な親の再レンダーから切り離すため React.memo で包む。
@@ -452,6 +340,12 @@ interface CharacterDetailPanelProps {
     onFetchRelationshipOptions: () => void;
     onSelectRelation: (charPath: string, targetIdx: number) => void;
     onOpenImageSettings: (charPath: string) => void;
+    // 音声設定（TTS）。アイコンとパネルは onOpenTTSSettings / canUseTTS が有効な時だけ出す。
+    canUseTTS: boolean;
+    onOpenTTSSettings?: (charPath: string) => void;
+    // 会話設定側VoiceDesign（値の正本は RolePlaySettings の voiceDesignByCharacter state。要件6.5）
+    presetVoiceDesign?: { mode: 'append' | 'replace'; text: string };
+    onPresetVoiceDesignChange?: (charPath: string, value: { mode: 'append' | 'replace'; text: string }) => void;
     onUpdateCorrelation: (charPath: string, idx: number, field: keyof Correlation, val: any) => void;
     onUpdateParamGroup: (charPath: string, groupId: string, updates: Partial<ParameterGroupState>) => void;
     onUpdateParamValue: (charPath: string, groupId: string, elementId: string, value: any) => void;
@@ -477,6 +371,10 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
     onFetchRelationshipOptions,
     onSelectRelation,
     onOpenImageSettings,
+    canUseTTS,
+    onOpenTTSSettings,
+    presetVoiceDesign,
+    onPresetVoiceDesignChange,
     onUpdateCorrelation,
     onUpdateParamGroup,
     onUpdateParamValue,
@@ -557,6 +455,18 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                 >
                     <Image size={14} />
                 </button>
+                {onOpenTTSSettings && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTTSSettings(charPath);
+                        }}
+                        className="p-1.5 text-gray-500 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors ml-2"
+                        title={resolveMessage(uiCatalog, 'tts.voicePanel.title', '音声設定')}
+                    >
+                        <AudioLines size={14} />
+                    </button>
+                )}
                 {detail.isOpen && (
                     <button
                         onClick={(e) => {
@@ -853,6 +763,19 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                         )}
                     </div>
 
+                    {/* キャラクター音声設定パネル（個別パラメータの直後・画像管理の直前。要件6.4） */}
+                    {canUseTTS && (
+                        <CharacterVoicePanel
+                            characterName={characterDirName}
+                            backendUrl={backendUrl}
+                            uiCatalog={uiCatalog}
+                            presetVoiceDesign={presetVoiceDesign}
+                            onPresetVoiceDesignChange={onPresetVoiceDesignChange
+                                ? value => onPresetVoiceDesignChange(charPath, value)
+                                : undefined}
+                        />
+                    )}
+
                     {/* キャラクター画像管理パネル */}
                     <CharacterImagePanel
                         characterName={characterDirName}
@@ -882,6 +805,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     defaultUserNameSetting,
     imageGenSettingsVisible = false,
     onOpenIntegratedImageSettings,
+    ttsSettingsVisible = false,
+    onOpenIntegratedTTSSettings,
     uiCatalog
 }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
@@ -925,6 +850,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
     // キャラクター詳細設定状態
     const [characterDetails, setCharacterDetails] = useState<Record<string, CharacterDetail>>({});
+
+    // 会話設定側VoiceDesign（キーはキャラ.mdパス。キャラ差し替えでは初期化しない。要件6.5）
+    const [voiceDesignByCharacter, setVoiceDesignByCharacter] = useState<Record<string, { mode: 'append' | 'replace'; text: string }>>({});
 
     // パラメータスキーマ
     const [parameterSchema, setParameterSchema] = useState<ParameterSchema | null>(null);
@@ -1001,6 +929,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [isPinned, setIsPinned] = useState(false);
     const [imageSettingsTargetCharacter, setImageSettingsTargetCharacter] = useState('');
     const [isCharacterImageSettingsOpen, setIsCharacterImageSettingsOpen] = useState(false);
+    // TTS設定の導線（3段フォールバック。設計04の5-3）
+    const [ttsSettingsTargetCharacter, setTtsSettingsTargetCharacter] = useState('');
+    const [isCharacterTTSSettingsOpen, setIsCharacterTTSSettingsOpen] = useState(false);
+    const [isIntegratedTTSSettingsOpen, setIsIntegratedTTSSettingsOpen] = useState(false);
     const [isIntegratedImageSettingsOpen, setIsIntegratedImageSettingsOpen] = useState(false);
     // コンテナ参照
     const containerRef = React.useRef<HTMLDivElement>(null);
@@ -1131,6 +1063,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
         const restoredUserName = normalizeUserName(settings.userName || findUserNameFromDetails(settings.characterDetails));
         setUserName(restoredUserName);
+
+        setVoiceDesignByCharacter(settings.voiceDesignByCharacter || {});
 
         if (settings.characterDetails) {
             const details = { ...settings.characterDetails };
@@ -1544,6 +1478,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             return {
                 characters: selectedCharacters.filter(Boolean),
                 characterDetails,
+                voiceDesignByCharacter,
                 situations: selectedSituations.filter(Boolean),
                 users: selectedUsers.filter(Boolean),
                 worlds: selectedWorlds.filter(Boolean),
@@ -1587,6 +1522,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         onStartSession({
             characters: selectedCharacters.filter(Boolean),
             characterDetails,
+            voiceDesignByCharacter,
             situations: selectedSituations.filter(Boolean),
             users: selectedUsers.filter(Boolean),
             worlds: selectedWorlds.filter(Boolean),
@@ -1677,6 +1613,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 stages: selectedStages.filter(s => s),
                 writingStyles: selectedWritingStyles.filter(ws => ws),
                 characterDetails,
+                voiceDesignByCharacter,
                 directiveMode: selectedDirectiveMode,
                 parameterSchemaId: selectedSchemaId,
                 dateTimeSettings,
@@ -1771,7 +1708,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     }, []);
 
     const openImageSettingsForCharacter = useCallback((charPath: string) => {
-        const characterName = getCharacterNameFromPath(charPath);
+        const characterName = getCharacterSettingNameFromPath(charPath);
         if (window.innerWidth >= INTEGRATED.MIN_SCREEN_WIDTH) {
             // 導線があれば設定メニュー経由と同じ ConfigEditorHub の imageGen タブへ
             // 統一する（タブ・設定ファイルエディタで開くボタンを含めて同一画面）。
@@ -1787,6 +1724,27 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             setIsCharacterImageSettingsOpen(true);
         }
     }, [onOpenIntegratedImageSettings]);
+
+    // 会話設定側VoiceDesignの更新（キーはキャラ.mdパス。characterDetails と同じキー規約）。
+    const updateVoiceDesignForCharacter = useCallback((charPath: string, value: { mode: 'append' | 'replace'; text: string }) => {
+        setVoiceDesignByCharacter(prev => ({ ...prev, [charPath]: value }));
+    }, []);
+
+    // 音声設定アイコンの3段フォールバック（openImageSettingsForCharacter と同じ規約）。
+    const openTTSSettingsForCharacter = useCallback((charPath: string) => {
+        const characterName = getCharacterSettingNameFromPath(charPath);
+        if (window.innerWidth >= INTEGRATED.MIN_SCREEN_WIDTH) {
+            if (onOpenIntegratedTTSSettings) {
+                onOpenIntegratedTTSSettings(characterName);
+                return;
+            }
+            setTtsSettingsTargetCharacter(characterName);
+            setIsIntegratedTTSSettingsOpen(true);
+        } else {
+            setTtsSettingsTargetCharacter(characterName);
+            setIsCharacterTTSSettingsOpen(true);
+        }
+    }, [onOpenIntegratedTTSSettings]);
 
     const updateCorrelation = useCallback((charPath: string, idx: number, field: keyof Correlation, val: any) => {
         updateDetail(charPath, d => {
@@ -2176,6 +2134,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                         onFetchRelationshipOptions={fetchRelationshipOptions}
                                                         onSelectRelation={handleSelectRelation}
                                                         onOpenImageSettings={openImageSettingsForCharacter}
+                                                        canUseTTS={ttsSettingsVisible}
+                                                        onOpenTTSSettings={ttsSettingsVisible ? openTTSSettingsForCharacter : undefined}
+                                                        presetVoiceDesign={voiceDesignByCharacter[val]}
+                                                        onPresetVoiceDesignChange={ttsSettingsVisible ? updateVoiceDesignForCharacter : undefined}
                                                         onUpdateCorrelation={updateCorrelation}
                                                         onUpdateParamGroup={updateCharacterParamGroup}
                                                         onUpdateParamValue={updateCharacterParamValue}
@@ -2438,6 +2400,22 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 onClose={() => setIsIntegratedImageSettingsOpen(false)}
                 backendUrl={backendUrl}
                 initialSelectedCharacter={imageSettingsTargetCharacter}
+            />
+
+            <TTSCharacterSettingsModal
+                isOpen={isCharacterTTSSettingsOpen}
+                onClose={() => setIsCharacterTTSSettingsOpen(false)}
+                backendUrl={backendUrl}
+                initialSelectedCharacter={ttsSettingsTargetCharacter}
+                uiCatalog={uiCatalog}
+            />
+
+            <TTSIntegratedSettingsModal
+                isOpen={isIntegratedTTSSettingsOpen}
+                onClose={() => setIsIntegratedTTSSettingsOpen(false)}
+                backendUrl={backendUrl}
+                initialSelectedCharacter={ttsSettingsTargetCharacter}
+                uiCatalog={uiCatalog}
             />
         </>
     );

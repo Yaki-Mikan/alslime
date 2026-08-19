@@ -568,6 +568,7 @@ export const UPDATE_TEXT_FALLBACK_JA: Record<string, string> = {
 export const SPONSOR_MODULE_LABELS: Record<string, { key: string; fallback: string }> = {
     comfy: { key: 'sponsor.module.name.comfy', fallback: 'ComfyUI 連携モジュール（画像生成）' },
     actionchoice: { key: 'sponsor.module.name.actionchoice', fallback: '行動選択肢モジュール' },
+    tts: { key: 'sponsor.module.name.tts', fallback: 'Irodori-TTS連携モジュール' },
 };
 
 export const JOBS_I18N_KEYS = {
@@ -775,6 +776,11 @@ export const CONFIG_EDITOR_I18N_KEYS = {
     comfyDirectiveCategory: 'configEditor.comfyDirective.category',
     comfyDirectiveSelect: 'configEditor.comfyDirective.select',
     comfyDirectiveDescription: 'configEditor.comfyDirective.description',
+    configGenInstructionCategory: 'configEditor.configGenInstruction.category',
+    configGenInstructionTarget: 'configEditor.configGenInstruction.target',
+    configGenInstructionSelect: 'configEditor.configGenInstruction.select',
+    configGenInstructionDescription: 'configEditor.configGenInstruction.description',
+    configGenInstructionEditNotRecommended: 'configEditor.configGenInstruction.editNotRecommended',
     // リセット系は統合設定の指示編集セクションと文言を共有する（catalog 登録済みの名前空間）。
     comfyDirectiveReset: 'comfyDirective.reset',
     comfyDirectiveResetConfirm: 'comfyDirective.resetConfirm',
@@ -842,6 +848,17 @@ export const CONFIG_EDITOR_TEXT_FALLBACK_JA: Record<string, string> = {
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveCategory]: '画像生成分析指示',
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveSelect]: '-- 指示ファイルを選択 --',
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveDescription]: '画像生成時にチャット内容を分析するAIへの指示ファイルです。書き換えのみ可能です（新規作成・削除・リネーム不可）。',
+    [CONFIG_EDITOR_I18N_KEYS.configGenInstructionCategory]: '設定自動生成指示',
+    [CONFIG_EDITOR_I18N_KEYS.configGenInstructionTarget]: '対象',
+    [CONFIG_EDITOR_I18N_KEYS.configGenInstructionSelect]: '-- 指示ファイルを選択 --',
+    [CONFIG_EDITOR_I18N_KEYS.configGenInstructionDescription]: '設定自動生成でAIへ渡す指示ファイルです。書き換えのみ可能です（新規作成・削除・リネーム不可）。{{CHARACTER_NAME}} などの {{ }} 付きの語は実行時に置き換えられます。',
+    [CONFIG_EDITOR_I18N_KEYS.configGenInstructionEditNotRecommended]: '作成指示は編集非推奨です。手順や出力先の指定を変えると生成に失敗する場合があります。調べる項目や設定ファイルの形式を変えたいときは、調査項目テンプレート／設定ファイルテンプレートを編集してください。',
+    // 設定自動生成指示の方式ラベル（プルダウン表示。API の label は i18n が無い場合の予備）。
+    ['configEditor.configGenInstruction.method.search_template']: '調査項目テンプレート',
+    ['configEditor.configGenInstruction.method.setting_template']: '設定ファイルテンプレート',
+    ['configEditor.configGenInstruction.method.two_step_1']: '作成指示：じっくり作成 1段階目（調査）',
+    ['configEditor.configGenInstruction.method.two_step_2']: '作成指示：じっくり作成 2段階目（設定作成）',
+    ['configEditor.configGenInstruction.method.one_shot']: '作成指示：一括作成',
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveReset]: 'デフォルトに戻す',
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetConfirm]: '指示ファイルを同梱デフォルトの内容に戻します。現在の内容は失われます。よろしいですか？',
     [CONFIG_EDITOR_I18N_KEYS.comfyDirectiveResetDone]: 'デフォルトに戻しました',
@@ -901,6 +918,7 @@ export const CONFIG_GEN_I18N_KEYS = {
     effort: 'configGen.effort',
     notes: 'configGen.notes',
     notesPlaceholder: 'configGen.notesPlaceholder',
+    researchTemplateSettings: 'configGen.researchTemplateSettings',
     jobNotFound: 'configGen.jobNotFound',
     pickResearch: 'configGen.pickResearch',
     pickResearchTitle: 'configGen.pickResearchTitle',
@@ -969,6 +987,7 @@ export const CONFIG_GEN_TEXT_FALLBACK_JA: Record<string, string> = {
     [CONFIG_GEN_I18N_KEYS.effort]: 'Effort',
     [CONFIG_GEN_I18N_KEYS.notes]: '設定作成備考',
     [CONFIG_GEN_I18N_KEYS.notesPlaceholder]: '作成する設定への要望・指示（例：原作と異なる設定の前提を指定するなど）',
+    [CONFIG_GEN_I18N_KEYS.researchTemplateSettings]: '調査項目設定',
     [CONFIG_GEN_I18N_KEYS.jobNotFound]: 'ジョブが見つかりません。サーバーが再起動した可能性があります。',
     [CONFIG_GEN_I18N_KEYS.pickResearch]: '保存済み調査メモを選択',
     [CONFIG_GEN_I18N_KEYS.pickResearchTitle]: '調査メモの選択',

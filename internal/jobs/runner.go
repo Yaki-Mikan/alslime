@@ -25,6 +25,8 @@ const (
 	TypeTagJudge   Type = "tag-judge"
 	TypeImageGen   Type = "image-generate"
 	TypeConfigGen  Type = "config-generate"
+	// TypeTTS は音声読み上げ（1読み上げ実行 = 1ジョブ。要件9.3）。
+	TypeTTS Type = "tts"
 )
 
 // Status はジョブの状態。

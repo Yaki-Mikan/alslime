@@ -24,4 +24,6 @@ const (
 	FeatureAdvancedIntegration Feature = "advancedIntegration"
 	// FeatureActionChoice は行動選択肢機能（supporter。選択肢サイドカー連携）。
 	FeatureActionChoice Feature = "actionChoice"
+	// FeatureTTS は音声読み上げ機能（supporter。Irodori-TTS連携のTTSサイドカー連携）。
+	FeatureTTS Feature = "tts"
 )

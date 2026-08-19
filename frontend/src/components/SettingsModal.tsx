@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Settings as SettingsIcon, LogOut, Activity, BookOpen, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Plug, RefreshCw, Server, Tag, Palette } from 'lucide-react';
+import { X, Settings as SettingsIcon, LogOut, Activity, AudioLines, BookOpen, Bot, Bug, ChevronDown, Cpu, Heart, MessageSquare, Package, Plug, RefreshCw, Server, Tag, Palette } from 'lucide-react';
 import type { Settings } from '../types/Settings';
 import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
 import { ApiProvidersModal } from './settings/ApiProvidersModal';
@@ -20,12 +20,13 @@ import { ChatBasicSettingsModal } from './settings/ChatBasicSettingsModal';
 import { ServerSettingsModal } from './settings/ServerSettingsModal';
 import { DebugSettingsModal } from './settings/DebugSettingsModal';
 import { ComfyUISettingsModal } from './comfyui/ComfyUISettingsModal';
+import { TTSSettingsModal } from './tts/TTSSettingsModal';
+import { INTEGRATED as COMFY_INTEGRATED } from './comfyui/constants';
 import { ProcessLimitsModal } from './ProcessLimitsModal';
 import { SystemDiagnosticsModal } from './SystemDiagnosticsModal';
 import { SponsorModal } from './SponsorModal';
 import type { ModuleStatusEntry } from '../api/sponsor';
 import { SettingsPackModal } from './settings/SettingsPackModal';
-import { ManualModal } from './ManualModal';
 import { UpdateModal } from './UpdateModal';
 import { fetchUpdateCheck, fetchUpdateSettings, saveUpdateSettings, type AppUpdateInfo, type ModuleUpdateEntry } from '../api/update';
 import { rebuildCharacterFilters } from '../api/files';
@@ -52,6 +53,10 @@ interface SettingsModalProps {
     // 画像生成統合設定を ConfigEditorHub のタブ付き表示で開く（Chat が Hub を開く）。
     // 呼ぶ前に設定メニュー自身は閉じる。
     onOpenImageGenSettings?: () => void;
+    // TTS統合設定を ConfigEditorHub のタブ付き表示で開く。
+    // Tier充足かつTTS実体（サイドカー / in-process）連携済みのときのみ Chat が渡す
+    // （prop の有無でボタン表示を制御し、揃わなければ痕跡を出さない）。
+    onOpenTTSSettings?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -66,6 +71,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onModulesChanged,
     onOpenApiProviderInstruction,
     onOpenImageGenSettings,
+    onOpenTTSSettings,
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SETTINGS_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string | number>) => {
@@ -78,6 +84,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [isAIModelOpen, setIsAIModelOpen] = useState(false);
     const [isApiProvidersOpen, setIsApiProvidersOpen] = useState(false);
     const [isComfyUISettingsOpen, setIsComfyUISettingsOpen] = useState(false);
+    // 小画面用のTTS設定モーダル（統合設定は 90vw×90vh の2列構成でスマホでは扱いづらいため、
+    // 画像生成設定と同じ閾値未満ではコンパクト版を開き、閾値以上は従来どおり統合設定タブへ）。
+    const [isTTSSettingsOpen, setIsTTSSettingsOpen] = useState(false);
     const [isChatBasicOpen, setIsChatBasicOpen] = useState(false);
     const [isServerSettingsOpen, setIsServerSettingsOpen] = useState(false);
     const [isDebugOpen, setIsDebugOpen] = useState(false);
@@ -85,7 +94,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [isSystemDiagnosticsOpen, setIsSystemDiagnosticsOpen] = useState(false);
     const [isSponsorOpen, setIsSponsorOpen] = useState(false);
     const [isSettingsPackOpen, setIsSettingsPackOpen] = useState(false);
-    const [isManualOpen, setIsManualOpen] = useState(false);
+
+    // 操作マニュアルは GitHub 上の正本をブラウザで開く（本体への焼き込みはしない）。
+    const manualUrl = (settings.uiLanguage || DEFAULT_UI_LANGUAGE) === DEFAULT_UI_LANGUAGE
+        ? 'https://github.com/Yaki-Mikan/alslime/blob/main/docs/manual/index.md'
+        : 'https://github.com/Yaki-Mikan/alslime/blob/main/docs/manual/en/index.md';
 
     // 言語設定（トップ直置き。変更時に即保存する）
     const [uiLanguageOptions, setUILanguageOptions] = useState(UI_LANGUAGE_OPTIONS);
@@ -227,7 +240,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto custom-scrollbar">
                         {/* 操作マニュアル */}
                         <button
-                            onClick={() => setIsManualOpen(true)}
+                            onClick={() => window.open(manualUrl, '_blank', 'noopener')}
                             className={hubButtonClass('border-indigo-600')}
                             title={resolveMessage(uiCatalog, 'manual.title', '操作マニュアル')}
                         >
@@ -284,6 +297,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             >
                                 <Palette size={16} className="text-green-400" />
                                 {t(SETTINGS_I18N_KEYS.comfyUIButtonLabel)}
+                            </button>
+                        )}
+
+                        {/* TTS設定（Tier充足かつTTS連携済みの場合のみ Chat が prop を渡す） */}
+                        {onOpenTTSSettings && (
+                            <button
+                                onClick={() => {
+                                    // 小画面ではコンパクト版のTTS設定モーダルを開く。広い画面では
+                                    // 統合設定（ConfigEditorHub のタブ付き表示）へ。統合設定は設定
+                                    // メニュー自身も閉じてから Chat 側へ中継する。
+                                    if (window.innerWidth < COMFY_INTEGRATED.MIN_SCREEN_WIDTH) {
+                                        setIsTTSSettingsOpen(true);
+                                        return;
+                                    }
+                                    onClose();
+                                    onOpenTTSSettings();
+                                }}
+                                className={hubButtonClass('border-orange-600')}
+                                title={resolveMessage(uiCatalog, 'tts.settings.menuDescription', 'Irodori-TTS連携の接続・読み上げ設定')}
+                            >
+                                <AudioLines size={16} className="text-orange-400" />
+                                {resolveMessage(uiCatalog, 'tts.settings.menuLabel', 'TTS設定')}
                             </button>
                         )}
 
@@ -489,6 +524,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     : undefined}
             />
 
+            {/* 小画面用TTS設定モーダル（TTS設定ボタンの表示条件と同じく prop がある時だけ） */}
+            {onOpenTTSSettings && (
+                <TTSSettingsModal
+                    isOpen={isTTSSettingsOpen}
+                    onClose={() => setIsTTSSettingsOpen(false)}
+                    backendUrl={BACKEND_URL}
+                    uiCatalog={uiCatalog}
+                    onOpenIntegrated={() => {
+                        onClose();
+                        onOpenTTSSettings();
+                    }}
+                />
+            )}
+
             {/* 同時実行数設定モーダル */}
             <ProcessLimitsModal
                 isOpen={isProcessLimitsOpen}
@@ -541,17 +590,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClose={() => setIsSponsorOpen(false)}
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
+                uiLanguage={settings.uiLanguage}
                 onModulesChanged={onModulesChanged}
             />
 
-            {/* 操作マニュアルモーダル */}
-            <ManualModal
-                isOpen={isManualOpen}
-                onClose={() => setIsManualOpen(false)}
-                backendUrl={BACKEND_URL}
-                uiLanguage={settings.uiLanguage}
-                uiCatalog={uiCatalog}
-            />
         </>
     );
 };

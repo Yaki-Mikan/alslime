@@ -326,11 +326,9 @@ func (q *Queue) pickAndStart() *startedJob {
 			snapshot.cancel = nil
 			return &startedJob{jobID: job.JobID, kind: job.Kind, job: snapshot, ctx: ctx}
 		}
-		// global 満杯なら以降の pending も起動できないので打ち切り。
-		if !q.proc.GlobalAvailable() {
-			break
-		}
-		// 種別のみ満杯 → 追い越して次の pending へ。
+		// 確保できない場合は追い越して次の pending へ。
+		// global 満杯でも打ち切らない: TTS は global 枠外で起動できるため
+		// 走査を続ける（global 枠のジョブは TryAcquire が弾く）。
 	}
 	return nil
 }

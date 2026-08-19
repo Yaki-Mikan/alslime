@@ -75,6 +75,7 @@ var forbiddenRoots = []string{
 var envFiles = []string{
 	config.ComfyUIConfigFile,
 	config.ComfyUILoraDirectoriesFile,
+	config.TTSConfigFile,
 	config.ServerSettingsFile,
 	config.PWASettingsFile,
 	config.LegacyServerSettingsFile,
@@ -170,12 +171,17 @@ func kinds() []Kind {
 			Files: []string{
 				config.ComfyUIDirectiveDanbooruFile, config.ComfyUIDirectiveNaturalFile,
 				config.ComfyUIDirectiveDanbooruThirdFile, config.ComfyUIDirectiveNaturalThirdFile,
+				config.ComfyUIDirectiveNaturalShortFile, config.ComfyUIDirectiveNaturalThirdShortFile,
 			},
 		},
 		Kind{ID: "comfyProfiles", Label: "生成プロファイル", Class: ClassImageGen, Roots: []string{config.ComfyUIProfileDir}},
 		Kind{ID: "comfyPlaceholderPresets", Label: "プレースホルダプリセット", Class: ClassImageGen, Roots: []string{config.ComfyUIPlaceholderPresetDir}},
 		Kind{ID: "comfyTemplates", Label: "ワークフローテンプレート", Class: ClassImageGen, Roots: []string{config.ComfyUITemplateDir}},
 		Kind{ID: "comfyTagMappings", Label: "タグマッピング", Class: ClassImageGen, Roots: []string{config.ComfyUITagMappingDir}},
+		// TTS 付属ファイル（絵文字説明・Latent変換モデル・セットアップ案内。
+		// companion pack の配布対象。設計05の3章）。接続設定 tts_config.json は
+		// 環境依存のため envFiles 側で除外される。
+		Kind{ID: "tts", Label: "音声読み上げ（Irodori-TTS）付属ファイル", Class: ClassConfig, Roots: []string{config.TTSDir}},
 	)
 	return out
 }

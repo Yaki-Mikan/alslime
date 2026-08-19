@@ -42,6 +42,15 @@ type NativeSweep interface {
 	SweepNative(cutoff time.Time) (removedFiles int, removedDirs int)
 }
 
+// TTSPartSweep は読み上げ音声のチャンク一時領域（.part）の掃除境界。
+//
+// 正常完了時の .part は逐次再生の取得猶予のため即時削除しない方式のため、
+// 残骸はここで回収する。配置規則の知識は ttsaudio 側に閉じ、
+// ttsaudio.Store が構造的に満たす。
+type TTSPartSweep interface {
+	SweepParts(cutoff time.Time) (removedFiles int, removedDirs int)
+}
+
 // Sweeper は使い捨て一時ファイルとネイティブ履歴を掃除する。
 //
 // 時刻としきい値を注入できるためテスト可能。実体化に失敗しても起動・処理全体を
@@ -53,6 +62,7 @@ type NativeSweep interface {
 type Sweeper struct {
 	resolver *paths.Resolver
 	native   NativeSweep
+	ttsParts TTSPartSweep
 	maxAge   time.Duration
 	now      func() time.Time
 }
@@ -85,6 +95,13 @@ func (s *Sweeper) WithNow(now func() time.Time) *Sweeper {
 	return s
 }
 
+// WithTTSParts は読み上げチャンク一時領域の掃除実装を注入する
+//（nil の場合はスキップ）。
+func (s *Sweeper) WithTTSParts(ttsParts TTSPartSweep) *Sweeper {
+	s.ttsParts = ttsParts
+	return s
+}
+
 // Result は 1 回の掃除結果。
 type Result struct {
 	RemovedFiles int
@@ -111,6 +128,11 @@ func (s *Sweeper) Sweep() Result {
 	// グループA: home 配下のネイティブ履歴（正本から到達できないもののみ）。
 	if s.native != nil {
 		files, dirs := s.native.SweepNative(cutoff)
+		total.add(Result{RemovedFiles: files, RemovedDirs: dirs})
+	}
+	// 読み上げ音声のチャンク一時領域（.part）の残骸回収。
+	if s.ttsParts != nil {
+		files, dirs := s.ttsParts.SweepParts(cutoff)
 		total.add(Result{RemovedFiles: files, RemovedDirs: dirs})
 	}
 	if total.RemovedFiles > 0 || total.RemovedDirs > 0 {

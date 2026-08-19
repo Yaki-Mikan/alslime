@@ -23,9 +23,11 @@ import type { Settings as SettingsType } from '../types/Settings';
 import { JobProgressModal } from './JobProgressModal';
 import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHub';
 import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
+import { TTSDrawerPanel } from './tts/TTSDrawerPanel';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
-import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
-import { MODULE_COMFY, fetchModulesStatus } from '../api/sponsor';
+import { FEATURE_COMFYUI, FEATURE_TTS, isFeatureEnabled } from '../constants/features';
+import { MODULE_COMFY, MODULE_TTS, fetchModulesStatus } from '../api/sponsor';
+import { getTTSEmojiList } from '../api/tts';
 import { MessageList } from './chat/MessageList';
 
 import { MessageInput } from './chat/MessageInput';
@@ -132,6 +134,21 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [ssrpResetKey, setSsrpResetKey] = useState(0);
     // 現在のセッションのSSRP設定（復元用）
     const [currentSessionConfig, setCurrentSessionConfig] = useState<any>(null);
+    // 読み上げ開始時に同梱する会話設定側VoiceDesign。保存キー（キャラ.mdパス）を
+    // TURN のキャラクター名（ファイル名から拡張子を除いたもの）へ変換して渡す（要件6.5）。
+    const getTTSPresetVoiceDesign = React.useCallback(() => {
+        const byPath = currentSessionConfig?.voiceDesignByCharacter as Record<string, { mode: 'append' | 'replace'; text: string }> | undefined;
+        if (!byPath) return undefined;
+        const byName: Record<string, { mode: 'append' | 'replace'; text: string }> = {};
+        for (const [charPath, value] of Object.entries(byPath)) {
+            if (!value) continue;
+            // 追記モードで本文が空のものは効果が無いため送らない（置換の空は「キャプション無し」の意味を持つ）。
+            if (value.mode !== 'replace' && !value.text?.trim()) continue;
+            const name = charPath.split('/').pop()?.replace(/\.md$/, '') || charPath;
+            byName[name] = value;
+        }
+        return Object.keys(byName).length > 0 ? byName : undefined;
+    }, [currentSessionConfig]);
     // セッション履歴から読み込んだSSRP設定（プリセット閲覧・保存からチャット送信を守るための基準）
     const [sessionHistoryConfig, setSessionHistoryConfig] = useState<any>(null);
     const [isConversationPresetChanged, setIsConversationPresetChanged] = useState(false);
@@ -269,6 +286,40 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 if (!disposed) setComfyModuleActive(false);
             }
         })();
+        return () => { disposed = true; };
+    }, [enabledFeatures]);
+    // TTS連携モジュールの連携状態（TTS設定タブ等の表示条件に使用）。
+    // TTS機能が有効な支援レベルのときだけ確認する（in-process 供給時も active が返る）。
+    const [ttsModuleActive, setTtsModuleActive] = useState(false);
+    useEffect(() => {
+        if (!isFeatureEnabled(enabledFeatures, FEATURE_TTS)) {
+            setTtsModuleActive(false);
+            return;
+        }
+        let disposed = false;
+        (async () => {
+            try {
+                const modules = await fetchModulesStatus(BACKEND_URL);
+                if (!disposed) {
+                    setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
+                }
+            } catch {
+                if (!disposed) setTtsModuleActive(false);
+            }
+        })();
+        return () => { disposed = true; };
+    }, [enabledFeatures]);
+    // 文体指示の対応絵文字一覧（表示からの常時除去用）。TTS機能が有効なときだけ取得する
+    //（除去リストの取得可否はゲートに従う。不通過ユーザーはそもそも文体指示で生成されない）。
+    const [ttsEmojiList, setTtsEmojiList] = useState<string[]>([]);
+    useEffect(() => {
+        if (!isFeatureEnabled(enabledFeatures, FEATURE_TTS)) {
+            return;
+        }
+        let disposed = false;
+        getTTSEmojiList(BACKEND_URL)
+            .then(list => { if (!disposed) setTtsEmojiList(list); })
+            .catch(() => { /* 未接続・未配置時は空のまま（除去なし） */ });
         return () => { disposed = true; };
     }, [enabledFeatures]);
 
@@ -1000,6 +1051,16 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         uiCatalog={uiCatalog}
                     />
                 )}
+
+                {/* TTS設定パネル（支援者機能が有効 かつ TTS連携済み かつ 日本語表示。
+                    要件4章の「チャット欄左のメニュー」のトグル類。設計04の4章） */}
+                {isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
+                    && (settings.uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja' && (
+                    <TTSDrawerPanel
+                        backendUrl={BACKEND_URL}
+                        uiCatalog={uiCatalog}
+                    />
+                )}
             </StatusDrawer>
 
             {/* ジョブ進行状況モーダル */}
@@ -1022,6 +1083,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 uiCatalog={uiCatalog}
                 initialTab={configEditorInitialTab}
                 imageGenEnabled={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)}
+                ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
                 comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
@@ -1040,6 +1102,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 onModelsChanged={refreshModels}
                 onModulesChanged={modules => {
                     setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                    setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
                     void refreshFeatures();
                 }}
                 onOpenApiProviderInstruction={target => {
@@ -1051,6 +1114,12 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     setConfigEditorInitialTab('imageGen');
                     setIsConfigEditorOpen(true);
                 }}
+                onOpenTTSSettings={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
+                    ? () => {
+                        setConfigEditorInitialTab('tts');
+                        setIsConfigEditorOpen(true);
+                    }
+                    : undefined}
             />
 
             {/* 本体・モジュール統合の更新告知モーダル（起動時チェックで更新検知時のみ） */}
@@ -1062,6 +1131,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 backendUrl={BACKEND_URL}
                 onModulesChanged={modules => {
                     setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                    setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
                     void refreshFeatures();
                 }}
                 onLater={() => {
@@ -1580,6 +1650,9 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onActiveBackgroundChange={setChatBackgroundUrl}
                             uiCatalog={uiCatalog}
                             enabledFeatures={enabledFeatures}
+                            ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
+                            ttsEmojiList={ttsEmojiList}
+                            getTTSPresetVoiceDesign={getTTSPresetVoiceDesign}
                             actionChoices={actionChoices}
                             selectedChoice={selectedChoice}
                             onSelectChoice={setSelectedChoice}
@@ -1636,6 +1709,15 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             //（タブ・設定ファイルエディタで開くボタンを含めて同一画面に統一）
                             setIntegratedInitialCharacter(characterName);
                             setConfigEditorInitialTab('imageGen');
+                            setIsConfigEditorOpen(true);
+                        }
+                        : undefined}
+                    ttsSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
+                    onOpenIntegratedTTSSettings={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
+                        ? characterName => {
+                            // 設定メニュー経由と同じ ConfigEditorHub の tts タブで開く
+                            setIntegratedInitialCharacter(characterName);
+                            setConfigEditorInitialTab('tts');
                             setIsConfigEditorOpen(true);
                         }
                         : undefined}
