@@ -19,6 +19,9 @@ const (
 	KindAntigravity Kind = "antigravity"
 	// KindOpenAICompat は OpenAI 互換 API 経路。
 	KindOpenAICompat Kind = "openai_compat"
+	// KindTTS は音声読み上げ（Irodori-TTS への送信）。AI CLI を使わないため
+	// process.Manager では global 枠から独立した専用枠で同時数を制御する。
+	KindTTS Kind = "tts"
 )
 
 // ParseKind は provider 指定文字列を Kind へ解決する。
@@ -77,6 +80,12 @@ var available = []Model{
 	{ID: "antigravity:Gemini 3.5 Flash (Medium)", Name: "Antigravity Gemini 3.5 Flash (Medium)", Description: "Antigravity 3.5 Flash Medium"},
 	{ID: "antigravity:Gemini 3.5 Flash (High)", Name: "Antigravity Gemini 3.5 Flash (High)", Description: "Antigravity 3.5 Flash High"},
 	{ID: "antigravity:Gemini 3.5 Flash (Low)", Name: "Antigravity Gemini 3.5 Flash (Low)", Description: "Antigravity 3.5 Flash Low"},
+	{ID: "antigravity:Gemini 3.6 Flash (Medium)", Name: "Antigravity Gemini 3.6 Flash (Medium)", Description: "Antigravity 3.6 Flash Medium"},
+	{ID: "antigravity:Gemini 3.6 Flash (High)", Name: "Antigravity Gemini 3.6 Flash (High)", Description: "Antigravity 3.6 Flash High"},
+	{ID: "antigravity:Gemini 3.6 Flash (Low)", Name: "Antigravity Gemini 3.6 Flash (Low)", Description: "Antigravity 3.6 Flash Low"},
+	{ID: "antigravity:Gemini 3.7 Flash (Medium)", Name: "Antigravity Gemini 3.7 Flash (Medium)", Description: "Antigravity 3.7 Flash Medium"},
+	{ID: "antigravity:Gemini 3.7 Flash (High)", Name: "Antigravity Gemini 3.7 Flash (High)", Description: "Antigravity 3.7 Flash High"},
+	{ID: "antigravity:Gemini 3.7 Flash (Low)", Name: "Antigravity Gemini 3.7 Flash (Low)", Description: "Antigravity 3.7 Flash Low"},
 	{ID: "antigravity:Gemini 3.1 Pro (High)", Name: "Antigravity Gemini 3.1 Pro (High)", Description: "Antigravity 3.1 Pro High"},
 	{ID: "antigravity:Gemini 3.1 Pro (Low)", Name: "Antigravity Gemini 3.1 Pro (Low)", Description: "Antigravity 3.1 Pro Low"},
 }

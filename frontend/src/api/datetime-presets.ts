@@ -176,6 +176,8 @@ export interface SSRPAllPreset {
     stages: string[];
     writingStyles: string[];
     characterDetails: Record<string, unknown>;
+    /** 会話設定側VoiceDesign（キーはキャラ.mdパス。characterDetails と同じキー規約。要件6.5） */
+    voiceDesignByCharacter?: Record<string, { mode: 'append' | 'replace'; text: string }>;
     directiveMode: 'A' | 'B' | 'C';
     parameterSchemaId: string;
     dateTimeSettings?: DTSettings;

@@ -1,6 +1,7 @@
 package coreapi
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -75,6 +76,10 @@ type CoreDeps struct {
 	// ChatHook はチャット送受信の汎用加工フック（nil 可 = フックなし）。
 	// 実装は公開側（internal/module の行動選択肢サイドカークライアント等）。
 	ChatHook ChatHook
+	// TTSSidecarInstalled は TTS サイドカーモジュール exe が配置済みかを返す
+	//（nil は未配置扱い。Irodori-TTS 用文体指示の焼き込み可否の供給判定に使う。
+	// 配置検出は公開側 internal/module の管轄のためクロージャで受ける）。
+	TTSSidecarInstalled func() bool
 }
 
 // ComfyProvider は ComfyUI 連携の in-process 供給境界（12番 Phase C）。
@@ -94,6 +99,21 @@ type ComfyProvider interface {
 	// false のビルドでは ComfyUI 供給はサイドカーのみで、モジュール未配置で
 	// 起動した場合も初回導入時にサイドカーを結線して有効化する。
 	InProcess() bool
+}
+
+// TTSProvider は音声読み上げ（Irodori-TTS連携）の in-process 供給境界。
+//
+// サイドカーモジュール未配置時のフォールバック経路（ComfyProvider と同型）。
+// 実装（tts ドメイン）は core に閉じ、公開側の routes.go はこの境界だけを見る。
+type TTSProvider interface {
+	// RegisterRoutes は in-process モードの TTS 全ルートを登録する（gate 適用込み）。
+	RegisterRoutes(mux *http.ServeMux, gate FeatureGate)
+	// InProcess は本ビルドが in-process の TTS 実装を持つかを返す。
+	InProcess() bool
+	// Plan は読み上げ計画の in-process 供給（サイドカーモードでは RPC が担う）。
+	Plan(ctx context.Context, req TTSPlanRequest) (TTSPlanResponse, error)
+	// Synthesize は一件の音声合成の in-process 供給。完成チャンクごとに onChunk を呼ぶ。
+	Synthesize(ctx context.Context, req TTSSynthesizeRequest, onChunk func(TTSChunk) error) error
 }
 
 // ConfigGenProgressSink は config-generate ジョブの経過追記口。
@@ -117,6 +137,8 @@ type Core interface {
 	Features() FeatureGate
 	// Comfy は ComfyUI 連携の in-process 供給（サイドカー未配置時のフォールバック）。
 	Comfy() ComfyProvider
+	// TTS は音声読み上げ連携の in-process 供給（サイドカー未配置時のフォールバック）。
+	TTS() TTSProvider
 	// VerifyModuleSig はサイドカーモジュールの署名付きマニフェスト検証。
 	// payload は Sig を除いた正規化 JSON、sigB64 は base64url 署名。
 	// entitlement トークンと同じ埋め込み公開鍵系で検証する（鍵は core に閉じる）。

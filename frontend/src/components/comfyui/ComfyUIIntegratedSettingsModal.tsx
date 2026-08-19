@@ -177,7 +177,9 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
 
     // キャラ名 → ディレクトリ名変換（画像生成設定の保存/読み込みはディレクトリ名を使う）
     const getCharDirName = useCallback((name: string) => {
-        return characters.find(c => c.name === name)?.dirName || name;
+        // 一覧に無い名前は版サフィックス（`_v3` 等）を剥がしてディレクトリ名とみなす
+        //（存在しない `キャラ名_v3` ディレクトリを作らない）。
+        return characters.find(c => c.name === name)?.dirName || name.replace(/_v\d+$/, '');
     }, [characters]);
 
     const resolveCharacterName = useCallback((name: string) => {

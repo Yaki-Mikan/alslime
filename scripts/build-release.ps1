@@ -25,6 +25,9 @@ param(
     # Also build the action-choice sidecar module (alslime-core/cmd/actionchoicemodule).
     # Deploy it as <WORKSPACE_ROOT>/modules/alslime-actionchoice(.exe).
     [switch]$BuildActionChoiceModule,
+    # Also build the TTS sidecar module (alslime-core/cmd/ttsmodule).
+    # Deploy it as <WORKSPACE_ROOT>/modules/alslime-tts(.exe).
+    [switch]$BuildTTSModule,
     # Package the release archive for GitHub Releases (ファイル自動更新、確認 01番 10章).
     # Windows は zip、Linux は tar.gz（Unix 実行権限を保持するため）。どちらも
     # バイナリを固定名 (alslime-<ver>/alslime(.exe)) で格納するので、アプリ内
@@ -182,28 +185,38 @@ if ($NoGarble) {
 
 $buildTags = "release"
 if ($Public) {
-    # Lightsail（自前サーバー）向けのみ、画像生成の in-process 実装を内蔵する。
+    # Lightsail（自前サーバー）向けのみ、画像生成と読み上げの in-process 実装を内蔵する。
     # 配布ビルド（タグ無し）はサイドカーモジュール経由のみとなる。
-    $buildTags = "release,public,comfyembed"
+    $buildTags = "release,public,comfyembed,ttsembed"
 }
 
 Write-Host "[release] backend build: $TargetOS/$TargetArch (garble=$useGarble, scope=$CoreGarblePattern, tiny=$useTiny, public=$([bool]$Public))"
 Push-Location $AlslimeRoot
 try {
-    # ビルド前の依存グラフ検証: 配布ビルドに画像生成の in-process 実装
-    # （alslime/core/comfyui）が混入していないこと、逆に -Public（Lightsail）
-    # ビルドには内蔵されていることを両向きで確認する。タグ指定ミスが
-    # どちらの方向にも黙って通らないようにする。
-    $comfyDeps = go list -deps -tags $buildTags ./cmd/app | Select-String -SimpleMatch "alslime/core/comfyui"
+    # ビルド前の依存グラフ検証: 配布ビルドに画像生成・読み上げの in-process 実装
+    # （alslime/core/comfyui・alslime/core/tts）が混入していないこと、逆に
+    # -Public（Lightsail）ビルドには内蔵されていることを両向きで確認する。
+    # タグ指定ミスがどちらの方向にも黙って通らないようにする。
+    $appDeps = go list -deps -tags $buildTags ./cmd/app
     if ($LASTEXITCODE -ne 0) {
         throw "go list -deps failed (exit $LASTEXITCODE)"
     }
+    $comfyDeps = $appDeps | Select-String -SimpleMatch "alslime/core/comfyui"
+    $ttsDeps = $appDeps | Select-String -SimpleMatch "alslime/core/tts"
     if ($Public) {
         if (-not $comfyDeps) {
             throw "public (Lightsail) build must embed in-process image generation, but alslime/core/comfyui is missing from the dependency graph (comfyembed tag lost?)"
         }
-    } elseif ($comfyDeps) {
-        throw "distribution build must NOT embed in-process image generation, but the dependency graph contains: $(($comfyDeps | ForEach-Object { $_.Line }) -join ', ')"
+        if (-not $ttsDeps) {
+            throw "public (Lightsail) build must embed in-process TTS, but alslime/core/tts is missing from the dependency graph (ttsembed tag lost?)"
+        }
+    } else {
+        if ($comfyDeps) {
+            throw "distribution build must NOT embed in-process image generation, but the dependency graph contains: $(($comfyDeps | ForEach-Object { $_.Line }) -join ', ')"
+        }
+        if ($ttsDeps) {
+            throw "distribution build must NOT embed in-process TTS, but the dependency graph contains: $(($ttsDeps | ForEach-Object { $_.Line }) -join ', ')"
+        }
     }
     if ($useGarble) {
         $garbleArgs = @("-literals")
@@ -234,7 +247,7 @@ $moduleLdflags = @(
 )
 if ($EntitlementKeys -ne "") {
     $moduleLdflags += @("-X", "alslime/core/featuresimpl.embeddedPublicKeys=$EntitlementKeys")
-} elseif ($BuildModule -or $BuildActionChoiceModule) {
+} elseif ($BuildModule -or $BuildActionChoiceModule -or $BuildTTSModule) {
     Write-Warning "[release] -EntitlementKeys not set: module binaries will have no embedded keys and reject ALL tokens at startup."
 }
 $moduleLdflagsText = $moduleLdflags -join " "
@@ -305,6 +318,40 @@ if ($BuildActionChoiceModule) {
     }
     Write-Host "[release] action-choice module output: $acModulePath"
     Write-Host "[release] deploy hint: copy as <WORKSPACE_ROOT>/modules/alslime-actionchoice$(if ($TargetOS -eq 'windows') { '.exe' })"
+}
+
+if ($BuildTTSModule) {
+    # TTS sidecar module (lives in the core repository). Pure Go, same OS/ARCH as the app.
+    $CoreRoot = Join-Path $WorkspaceRoot "alslime-core"
+    if (-not (Test-Path -LiteralPath (Join-Path $CoreRoot "cmd\ttsmodule"))) {
+        throw "alslime-core/cmd/ttsmodule not found. Place the core repository next to alslime."
+    }
+    $ttsModuleName = "alslime-tts-$Version-$TargetOS-$TargetArch"
+    if ($TargetOS -eq "windows") {
+        $ttsModuleName = "$ttsModuleName.exe"
+    }
+    $ttsModulePath = Join-Path $OutputDir $ttsModuleName
+    Write-Host "[release] tts module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
+    Push-Location $CoreRoot
+    try {
+        if ($useGarble) {
+            $garbleArgs = @("-literals")
+            if ($useTiny) {
+                $garbleArgs += "-tiny"
+            }
+            $garbleArgs += @("-seed=random", "build")
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $ttsModulePath ./cmd/ttsmodule
+        } else {
+            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $ttsModulePath ./cmd/ttsmodule
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "tts module build failed (exit $LASTEXITCODE)"
+        }
+    } finally {
+        Pop-Location
+    }
+    Write-Host "[release] tts module output: $ttsModulePath"
+    Write-Host "[release] deploy hint: copy as <WORKSPACE_ROOT>/modules/alslime-tts$(if ($TargetOS -eq 'windows') { '.exe' })"
 }
 
 if ($Package) {

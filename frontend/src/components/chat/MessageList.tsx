@@ -12,7 +12,13 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Settings as SettingsType } from '../../types/Settings';
 import { parseMultiCharacterResponse } from '../../lib/multiCharacterParser';
 import type { Message } from '../../hooks/useChat';
-import { Edit2, RefreshCw, Palette, Loader2, FileText, X, ImageIcon, Clock, Trash2 } from 'lucide-react';
+import { Edit2, RefreshCw, Palette, Loader2, FileText, X, ImageIcon, Clock, Trash2, Play, Square, Volume2, Music } from 'lucide-react';
+import { useTTSReading, ttsHasFinalAudio, ttsFinalAudioDuration, ttsTurnActiveKey, ttsMessageActiveKey } from './useTTSReading';
+import { ConfirmDialog } from '../ConfirmDialog';
+import type { TTSPlaylistEntry } from './useTTSReading';
+import { getTTSConfig } from '../../api/tts';
+import type { TTSAudioIndex } from '../../api/tts';
+import type { TTSNotice } from './useTTSReading';
 import axiosLib from '../../lib/axios';
 import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment } from '../../api/comfyui';
 import type { ImageAttachment } from '../../api/comfyui';
@@ -65,6 +71,12 @@ interface MessageListProps {
     actionChoices?: string[] | null;
     selectedChoice?: string | null;
     onSelectChoice?: (choice: string | null) => void;
+    // TTS 読み上げ（支援者向け）。Tier充足かつ TTS 実体連携済みのときのみ true（Chat が判定）。
+    ttsEnabled?: boolean;
+    // 読み上げ開始時に同梱する会話設定側VoiceDesign（キーはキャラクター名。Chat が現セッション設定から供給）。
+    getTTSPresetVoiceDesign?: () => Record<string, { mode: 'append' | 'replace'; text: string }> | undefined;
+    // 文体指示の対応絵文字一覧（Chat が起動時に取得して配布）。表示から常時除去する。
+    ttsEmojiList?: string[];
 }
 
 /**
@@ -256,6 +268,17 @@ interface EditingState {
     content: string;
 }
 
+// stripTTSEmojis は文体指示の対応絵文字を表示用文字列から取り除く（要件9.8の常時除去）。
+// 結合絵文字（ゼロ幅接合子連結）が単体絵文字を部分文字列として含むため、長い順に除去する。
+const stripTTSEmojis = (text: string, emojis: string[]): string => {
+    if (!emojis.length || !text) return text;
+    let out = text;
+    for (const emoji of [...emojis].sort((a, b) => b.length - a.length)) {
+        out = out.split(emoji).join('');
+    }
+    return out;
+};
+
 interface MessageItemProps {
     msg: Message;
     isLast: boolean;
@@ -286,6 +309,27 @@ interface MessageItemProps {
     /** turnKey は画像が属するチャットバブルのキー（`${msgId}::${turnId ?? turnIndex}`）。背景の手動選択に使う */
     onOpenImage: (att: ImageAttachment, msgId?: string, turnKey?: string) => void;
     uiCatalog: I18NCatalog | null;
+    /** TTS 読み上げ機能が有効か（Tier充足かつサイドカー/in-process連携済み） */
+    ttsEnabled: boolean;
+    /** 文体指示の対応絵文字一覧（表示からの常時除去用） */
+    ttsEmojiList: string[];
+    ttsIndex: TTSAudioIndex | null;
+    /** 実行中の読み上げ対象キー（turn:.../msg:...）。非実行中は null */
+    ttsActiveKey: string | null;
+    ttsCancelling: boolean;
+    ttsNotice: TTSNotice | null;
+    ttsPlayingFinalKey: string | null;
+    /** 通し再生（全体読み上げ・自動継続）の実行中。停止してからでないと他の個別再生は押せない */
+    ttsSequenceActive: boolean;
+    /** 通し再生で今鳴っている TURN のキー（そのTURNのボタンだけ「停止」として押せる） */
+    ttsSequenceCurrentKey: string | null;
+    onTTSStart: (messageId: string, turnId?: string) => void;
+    onTTSCancel: () => void;
+    onTTSPlayFinal: (messageId: string, turnId: string) => void;
+    onTTSStopFinal: () => void;
+    /** 通し再生の停止（再生中TURNの「停止」ボタン用） */
+    onTTSStopPlayback: () => void;
+    onTTSDeleteAudio: (messageId: string) => void;
 }
 
 /**
@@ -315,13 +359,30 @@ const MessageItem = React.memo<MessageItemProps>(({
     onRegenerate,
     onGenerate,
     onOpenImage,
-    uiCatalog
+    uiCatalog,
+    ttsEnabled,
+    ttsEmojiList,
+    ttsIndex,
+    ttsActiveKey,
+    ttsCancelling,
+    ttsNotice,
+    ttsPlayingFinalKey,
+    ttsSequenceActive,
+    ttsSequenceCurrentKey,
+    onTTSStart,
+    onTTSCancel,
+    onTTSPlayFinal,
+    onTTSStopFinal,
+    onTTSStopPlayback,
+    onTTSDeleteAudio
 }) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
         MESSAGE_LIST_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
+    // TTS 文言はインライン fallback 方式（catalog.go の tts.* キー）。
+    const tt = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
     const displayContent = React.useMemo(
         () => resolvePersistedChatMessage(msg, uiCatalog),
         [msg, uiCatalog]
@@ -334,7 +395,10 @@ const MessageItem = React.memo<MessageItemProps>(({
     const processedTurns = React.useMemo(() => {
         if (msg.role !== 'agent' || !text) return null;
         return parseMultiCharacterResponse(text).map(turn => {
-            let lines = turn.content.split(/\r?\n/);
+            // 対応絵文字（文体指示）は表示行の生成時にだけ除去する。
+            // turn.content 自体は無加工に保つ（編集開始の初期値に使うため、
+            // ここで除去すると編集保存で本文から絵文字が消えてしまう）。
+            let lines = stripTTSEmojis(turn.content, ttsEmojiList).split(/\r?\n/);
             if (settings.collapseEmptyLines) {
                 lines = lines.reduce((acc: string[], line) => {
                     const isEmptyLine = line.trim() === '';
@@ -347,7 +411,7 @@ const MessageItem = React.memo<MessageItemProps>(({
             }
             return { turn, lines };
         });
-    }, [msg.role, text, settings.collapseEmptyLines]);
+    }, [msg.role, text, settings.collapseEmptyLines, ttsEmojiList]);
 
     // 添付画像を表示先TURNへ解決する（turnId優先→turnIndex→未照合は末尾表示）。
     const { attachmentsByTurn, unresolvedAttachments } = React.useMemo(() => {
@@ -570,22 +634,93 @@ const MessageItem = React.memo<MessageItemProps>(({
                                         </div>
                                 );
 
-                                // 画像生成ボタン（TURN毎。バブル直下に文字ラベル付きで常時表示。timeLabelの有無とは独立）
-                                const generateButtonRow = canUseComfyUI && msg.id && sessionId && !isLoading ? (
-                                    <div className="mt-1.5 flex justify-end">
-                                        <button
-                                            onClick={() => onGenerate(msg.id!, turn.turnId, turn.index)}
-                                            disabled={generateDisabled}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/20 hover:bg-purple-800/50 border border-purple-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                            title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
-                                        >
-                                            {isTurnGenerating ? (
-                                                <Loader2 size={14} className="animate-spin" />
-                                            ) : (
-                                                <Palette size={14} />
+                                // TURN毎の読み上げ・再生ボタン（要件9.3。作成済みは再作成へ切替、再生ボタンは作成済みのみ）
+                                const ttsTurnButtons = (() => {
+                                    if (!ttsEnabled || !msg.id || !turn.turnId || !sessionId || isLoading) return null;
+                                    const turnActiveKey = ttsTurnActiveKey(msg.id, turn.turnId);
+                                    const isTurnReading = ttsActiveKey === turnActiveKey;
+                                    const hasAudio = ttsHasFinalAudio(ttsIndex, msg.id, turn.turnId);
+                                    const audioDuration = ttsFinalAudioDuration(ttsIndex, msg.id, turn.turnId);
+                                    const isFinalPlaying = ttsPlayingFinalKey === turnActiveKey;
+                                    const noticeHere = ttsNotice !== null && ttsNotice.targetKey === turnActiveKey;
+                                    // 同一応答内の相互排他（要件9.7）: 他の実行中は開始できない。
+                                    const otherActive = ttsActiveKey !== null && !isTurnReading;
+                                    return (
+                                        <>
+                                            {noticeHere && (
+                                                <span className="text-[11px] text-red-300">
+                                                    {tt(`tts.skip.${ttsNotice.reason}`, tt('tts.skip.generic', '読み上げできませんでした'))}
+                                                </span>
                                             )}
-                                            <span>{t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
-                                        </button>
+                                            {hasAudio && (() => {
+                                                // 通し再生中: 今鳴っているTURNのボタンだけ「停止」として押せる。他は停止するまで押せない。
+                                                const isSequencePlayingHere = ttsSequenceActive && ttsSequenceCurrentKey === turnActiveKey;
+                                                const showStop = isFinalPlaying || isSequencePlayingHere;
+                                                const lockedBySequence = ttsSequenceActive && !isSequencePlayingHere;
+                                                return (
+                                                <button
+                                                    onClick={() => {
+                                                        if (isSequencePlayingHere) onTTSStopPlayback();
+                                                        else if (isFinalPlaying) onTTSStopFinal();
+                                                        else onTTSPlayFinal(msg.id!, turn.turnId!);
+                                                    }}
+                                                    disabled={lockedBySequence}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title={lockedBySequence
+                                                        ? tt('tts.button.playLockedBySequence', '全体再生中は停止してから操作できます')
+                                                        : showStop ? tt('tts.button.stop', '停止') : tt('tts.button.play', '再生')}
+                                                >
+                                                    {showStop ? <Square size={14} /> : <Play size={14} />}
+                                                    <span>{showStop ? tt('tts.button.stop', '停止') : tt('tts.button.play', '再生')}</span>
+                                                    {audioDuration && (
+                                                        <span className="text-orange-400/70">{audioDuration}</span>
+                                                    )}
+                                                </button>
+                                                );
+                                            })()}
+                                            <button
+                                                onClick={() => isTurnReading ? onTTSCancel() : onTTSStart(msg.id!, turn.turnId!)}
+                                                disabled={otherActive || (isTurnReading && ttsCancelling)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title={isTurnReading
+                                                    ? tt('tts.button.cancel', 'キャンセル')
+                                                    : hasAudio ? tt('tts.button.recreate', '再作成') : tt('tts.button.read', '読み上げ')}
+                                            >
+                                                {isTurnReading ? (
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                ) : hasAudio ? (
+                                                    // 「再作成」は言葉で伝わるので、アイコンは何を作り直すか（音声）を示す♪にする
+                                                    <Music size={14} />
+                                                ) : (
+                                                    <Volume2 size={14} />
+                                                )}
+                                                <span>{isTurnReading
+                                                    ? (ttsCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
+                                                    : hasAudio ? tt('tts.button.recreate', '再作成') : tt('tts.button.read', '読み上げ')}</span>
+                                            </button>
+                                        </>
+                                    );
+                                })();
+
+                                // 画像生成ボタン（TURN毎。バブル直下に文字ラベル付きで常時表示。timeLabelの有無とは独立）
+                                const generateButtonRow = (canUseComfyUI || ttsTurnButtons !== null) && msg.id && sessionId && !isLoading ? (
+                                    <div className="mt-1.5 flex justify-end items-center gap-1.5">
+                                        {ttsTurnButtons}
+                                        {canUseComfyUI && (
+                                            <button
+                                                onClick={() => onGenerate(msg.id!, turn.turnId, turn.index)}
+                                                disabled={generateDisabled}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/20 hover:bg-purple-800/50 border border-purple-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
+                                            >
+                                                {isTurnGenerating ? (
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                ) : (
+                                                    <Palette size={14} />
+                                                )}
+                                                <span>{t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
+                                            </button>
+                                        )}
                                     </div>
                                 ) : null;
 
@@ -667,7 +802,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 </div>
                             )}
 
-                            {/* モデル名と再生成ボタン (横並び。画像生成ボタンはTURN毎のバブル内へ移設) */}
+                            {/* モデル名と再生成・1応答全体読み上げボタン (横並び。画像生成ボタンはTURN毎のバブル内へ移設) */}
                             <div className="flex items-center gap-3 ml-1 mt-[-4px]">
                                 {msg.model && (
                                     <div className="text-[10px] text-gray-500">
@@ -684,6 +819,49 @@ const MessageItem = React.memo<MessageItemProps>(({
                                         <span>{t(MESSAGE_LIST_I18N_KEYS.regenerate)}</span>
                                     </button>
                                 )}
+                                {ttsEnabled && msg.id && sessionId && !isLoading && (() => {
+                                    const messageKey = ttsMessageActiveKey(msg.id);
+                                    const isMessageReading = ttsActiveKey === messageKey;
+                                    const otherActive = ttsActiveKey !== null && !isMessageReading;
+                                    const noticeHere = ttsNotice !== null && ttsNotice.targetKey === messageKey;
+                                    const hasAnyAudio = ttsIndex !== null
+                                        && Object.values(ttsIndex.entries).some(entry => entry.messageId === msg.id);
+                                    return (
+                                        <>
+                                            {noticeHere && (
+                                                <span className="text-[11px] text-red-300">
+                                                    {tt(`tts.skip.${ttsNotice.reason}`, tt('tts.skip.generic', '読み上げできませんでした'))}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={() => isMessageReading ? onTTSCancel() : onTTSStart(msg.id!)}
+                                                disabled={otherActive || (isMessageReading && ttsCancelling)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title={isMessageReading ? tt('tts.button.cancel', 'キャンセル') : tt('tts.button.readAll', '全体読み上げ')}
+                                            >
+                                                {isMessageReading ? (
+                                                    <Loader2 size={12} className="animate-spin" />
+                                                ) : (
+                                                    <Volume2 size={12} />
+                                                )}
+                                                <span>{isMessageReading
+                                                    ? (ttsCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
+                                                    : tt('tts.button.readAll', '全体読み上げ')}</span>
+                                            </button>
+                                            {hasAnyAudio && (
+                                                <button
+                                                    onClick={() => onTTSDeleteAudio(msg.id!)}
+                                                    disabled={ttsActiveKey !== null}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title={tt('tts.button.deleteAudio', '音声を削除')}
+                                                >
+                                                    <Trash2 size={12} />
+                                                    <span>{tt('tts.button.deleteAudio', '音声を削除')}</span>
+                                                </button>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
                     );
@@ -776,6 +954,9 @@ export const MessageList: React.FC<MessageListProps> = ({
     enabledFeatures = null,
     actionChoices = null,
     selectedChoice = null,
+    ttsEnabled = false,
+    ttsEmojiList = [],
+    getTTSPresetVoiceDesign,
     onSelectChoice
 }) => {
     const t = (key: string) => resolveMessage(
@@ -891,6 +1072,73 @@ export const MessageList: React.FC<MessageListProps> = ({
         (settings.backgroundImageScope ?? 'history') === 'chat';
     const canUseComfyUI = isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI);
     const canUseActionChoice = isFeatureEnabled(enabledFeatures, FEATURE_ACTION_CHOICE);
+    // TTS 読み上げの実行状態（開始・ポーリング・逐次再生・キャンセル・作成済み索引）。
+    const tts = useTTSReading(backendUrl, sessionId ?? null, ttsEnabled, getTTSPresetVoiceDesign);
+    // Sticky 停止ボタンの表示設定（tts_config.json の stopButtonEnabled）。
+    // マウント時と再生開始時に読み、トグル変更は次の再生開始時に追随する。
+    const [stopButtonVisible, setStopButtonVisible] = useState(false);
+    // 応答単位の音声削除の確認対象（messageId。null は非表示）。
+    const [ttsDeleteTarget, setTtsDeleteTarget] = useState<string | null>(null);
+    useEffect(() => {
+        if (!ttsEnabled) {
+            setStopButtonVisible(false);
+            return;
+        }
+        let disposed = false;
+        getTTSConfig(backendUrl)
+            .then(cfg => { if (!disposed) setStopButtonVisible(cfg.stopButtonEnabled); })
+            .catch(() => { /* 未接続時は非表示のまま */ });
+        return () => { disposed = true; };
+    }, [ttsEnabled, backendUrl]);
+
+    // 自動読み上げ（要件4章: 応答受信の正常完了時に1応答全体の生成を自動開始。
+    // 生成のみで自動再生はしない）。isLoading の true→false 遷移で待ちフラグを立て、
+    // 履歴再読み込みで最後の agent メッセージへ ID が付いた時点で一度だけ発火する。
+    // エラー応答・ユーザーの次送信・セッション切替ではフラグを破棄する。
+    const autoReadArmedRef = useRef(false);
+    const prevTtsLoadingRef = useRef(isLoading);
+    useEffect(() => {
+        if (prevTtsLoadingRef.current && !isLoading) {
+            autoReadArmedRef.current = true;
+        }
+        prevTtsLoadingRef.current = isLoading;
+    }, [isLoading]);
+    useEffect(() => {
+        autoReadArmedRef.current = false;
+    }, [sessionId]);
+    useEffect(() => {
+        if (!autoReadArmedRef.current || !ttsEnabled) return;
+        const last = messages[messages.length - 1];
+        if (!last) return;
+        if (last.role !== 'agent' || last.errorType) {
+            autoReadArmedRef.current = false;
+            return;
+        }
+        if (!last.id) return; // 履歴再読み込みによる ID 付与を待つ（フラグ維持）
+        autoReadArmedRef.current = false;
+        const messageId = last.id;
+        void (async () => {
+            try {
+                // トグルはドロワー等で随時変わるため、発火のたびに現在値を確認する。
+                const cfg = await getTTSConfig(backendUrl);
+                if (!cfg.autoReadEnabled) return;
+                if (!cfg.autoReadPlaybackEnabled) {
+                    // 既定: 生成のみ（自動再生なし）。
+                    void tts.start(messageId, undefined, { playback: false });
+                    return;
+                }
+                // 「応答時に音声も再生する」ON: 生成を始めつつ全体読み上げと同じ通し再生へ入る
+                //（生成の確定を待ってから始める。先頭TURNの生成待ち判定を誤らせないため）。
+                setStopButtonVisible(cfg.stopButtonEnabled);
+                await tts.start(messageId, undefined, { playback: false });
+                tts.startSequence(messageId, buildTTSPlaylist(), cfg.autoAdvanceEnabled);
+            } catch (error) {
+                console.error('[MessageList] auto read config check failed:', error);
+            }
+        })();
+        // tts.start / startSequence は useCallback 済み。messages の更新（ID付与）を発火契機にする。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, ttsEnabled, backendUrl]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1181,6 +1429,64 @@ export const MessageList: React.FC<MessageListProps> = ({
     const stableOnRegenerate = useStableCallback(onRegenerate);
     const stableOnGenerate = useStableCallback(handleGenerate);
     const stableOnOpenImage = useStableCallback(openExpandedImage);
+    // 1応答全体の読み上げ（P3拡張）: 生成を開始しつつ（生成済み・音声未紐づけTURNは
+    // サーバー側スキップ）、応答ひと塊の先頭TURNから通し再生する。全部生成済みで
+    // ジョブが立たない場合も通し再生は開始する。TURN単位は従来どおり。
+    const buildTTSPlaylist = React.useCallback((): TTSPlaylistEntry[] =>
+        messages
+            .filter(m => m.role === 'agent' && m.id)
+            .map(m => ({
+                messageId: m.id!,
+                turnIds: parseMultiCharacterResponse(m.content)
+                    .map(turn => turn.turnId)
+                    .filter((id): id is string => Boolean(id)),
+            })), [messages]);
+
+    const handleTTSStart = (messageId: string, turnId?: string) => {
+        if (turnId) {
+            void tts.start(messageId, turnId);
+            return;
+        }
+        void (async () => {
+            let autoAdvance = false;
+            try {
+                const cfg = await getTTSConfig(backendUrl);
+                autoAdvance = cfg.autoAdvanceEnabled;
+                setStopButtonVisible(cfg.stopButtonEnabled);
+            } catch {
+                // 設定が読めなくても既定値で再生は続行する。
+            }
+            // 生成開始の確定を待ってから通し再生へ入る。待たないと先頭TURNの
+            // 生成待ち判定がジョブ参照の空を「音声なし確定」と誤読してスキップする。
+            await tts.start(messageId, undefined, { playback: false });
+            tts.startSequence(messageId, buildTTSPlaylist(), autoAdvance);
+        })();
+    };
+    const stableOnTTSStart = useStableCallback(handleTTSStart);
+    const stableOnTTSCancel = useStableCallback(tts.cancel);
+    // 個別TURNの再生（要件14.1「続きを自動再生」）: トグルONならそのTURNから通し再生に
+    // 入り、後続の生成済み音声（応答の区切りを跨いで）を続けて再生する。OFFは1本だけ。
+    const handleTTSPlayFinal = (messageId: string, turnId: string) => {
+        void (async () => {
+            let autoAdvance = false;
+            try {
+                const cfg = await getTTSConfig(backendUrl);
+                autoAdvance = cfg.autoAdvanceEnabled;
+                setStopButtonVisible(cfg.stopButtonEnabled);
+            } catch {
+                // 設定が読めなくても1本再生は続行する。
+            }
+            if (autoAdvance) {
+                tts.startSequence(messageId, buildTTSPlaylist(), true, turnId);
+            } else {
+                tts.playFinal(messageId, turnId);
+            }
+        })();
+    };
+    const stableOnTTSPlayFinal = useStableCallback(handleTTSPlayFinal);
+    const stableOnTTSStopFinal = useStableCallback(tts.stopFinal);
+    const stableOnTTSStopPlayback = useStableCallback(tts.stopPlayback);
+    const stableOnTTSDeleteAudio = useStableCallback((messageId: string) => setTtsDeleteTarget(messageId));
 
     return (
         <div ref={containerRef} className="flex-1 overflow-y-auto p-4 space-y-4 relative">
@@ -1228,6 +1534,21 @@ export const MessageList: React.FC<MessageListProps> = ({
                     onGenerate={stableOnGenerate}
                     onOpenImage={stableOnOpenImage}
                     uiCatalog={uiCatalog}
+                    ttsEnabled={ttsEnabled}
+                    ttsEmojiList={ttsEmojiList}
+                    ttsIndex={tts.index}
+                    ttsActiveKey={tts.activeKey}
+                    ttsCancelling={tts.cancelling}
+                    ttsNotice={tts.notice}
+                    ttsPlayingFinalKey={tts.playingFinalKey}
+                    ttsSequenceActive={tts.sequenceActive}
+                    ttsSequenceCurrentKey={tts.sequenceCurrentKey}
+                    onTTSStart={stableOnTTSStart}
+                    onTTSCancel={stableOnTTSCancel}
+                    onTTSPlayFinal={stableOnTTSPlayFinal}
+                    onTTSStopFinal={stableOnTTSStopFinal}
+                    onTTSStopPlayback={stableOnTTSStopPlayback}
+                    onTTSDeleteAudio={stableOnTTSDeleteAudio}
                 />
             ))}
 
@@ -1264,6 +1585,44 @@ export const MessageList: React.FC<MessageListProps> = ({
                 </div>
             )}
             <div ref={messagesEndRef} />
+
+            {/* 再生停止ボタン（P3拡張: Tier充足×TTS連携済み×停止ボタン設定ON×再生中のみ。
+                押下で再生だけ止める（生成ジョブは継続）。一覧末尾に sticky で張り付き、
+                チャット入力欄のすぐ上に常時見える。地は他の浮きボタンと同じ暗いガラス地で、
+                縁・文字・アイコンだけ赤にして読み上げ系（オレンジ）と見分ける。
+                h-0 の常設ラッパーで space-y-4 のガタつきを避ける。 */}
+            <div className="sticky bottom-0 z-40 h-0 flex justify-end pointer-events-none">
+                {ttsEnabled && stopButtonVisible && (tts.sequenceActive || tts.playingFinalKey !== null) && (
+                    <button
+                        onClick={() => tts.stopPlayback()}
+                        className="pointer-events-auto -translate-y-full flex items-center gap-1.5 px-4 py-2.5 text-sm bg-gray-900/90 border border-red-500/60 text-red-300 hover:bg-red-900/40 rounded-full shadow-lg transition-colors"
+                        title={resolveMessage(uiCatalog, 'tts.button.stopPlayback', '再生を停止')}
+                    >
+                        <Square size={14} />
+                        {resolveMessage(uiCatalog, 'tts.button.stopPlayback', '再生を停止')}
+                    </button>
+                )}
+            </div>
+
+            {/* 応答単位の音声削除の確認ダイアログ（要件10章。確認操作はフロント側の責務） */}
+            <ConfirmDialog
+                isOpen={ttsDeleteTarget !== null}
+                title={resolveMessage(uiCatalog, 'tts.deleteAudio.confirmTitle', '生成音声の削除')}
+                message={resolveMessage(uiCatalog, 'tts.deleteAudio.confirmMessage', 'この応答の生成音声を削除しますか？')}
+                onYes={() => {
+                    const target = ttsDeleteTarget;
+                    setTtsDeleteTarget(null);
+                    if (target) {
+                        void tts.deleteMessageAudio(target).then(ok => {
+                            // 削除の失敗は無音で流さず、その場で知らせる。
+                            if (!ok) showToast(resolveMessage(uiCatalog, 'tts.deleteAudio.failed', '音声を削除できませんでした'));
+                        });
+                    }
+                }}
+                onNo={() => setTtsDeleteTarget(null)}
+                onCancel={() => setTtsDeleteTarget(null)}
+                uiCatalog={uiCatalog}
+            />
 
             {/* 画像拡大表示モーダル */}
             {expandedAttachment && sessionId && (

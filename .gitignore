@@ -9,6 +9,7 @@ build/bin/
 build/debug/
 build/diagnostic/
 build/release/
+build/defender-test/
 
 # Node / frontend (vite の出力。Go 同梱用の internal/frontend/dist / dist_debug は embed のためコミットする。
 # dist_release は実 Firebase 設定を焼き込むためコミット禁止。build-release.ps1 -Public が生成する)

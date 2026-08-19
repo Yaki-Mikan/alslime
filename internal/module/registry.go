@@ -18,6 +18,8 @@ const (
 	ModuleComfy = "comfy"
 	// ModuleActionChoice は行動選択肢サイドカー。
 	ModuleActionChoice = "actionchoice"
+	// ModuleTTS は音声読み上げ（Irodori-TTS連携）サイドカー。
+	ModuleTTS = "tts"
 )
 
 // Definition は配布モジュールと付属物の宣言。
@@ -31,6 +33,9 @@ func Definitions() []Definition {
 	return []Definition{
 		{ID: ModuleComfy, CompanionPack: true},
 		{ID: ModuleActionChoice},
+		// TTS の companion pack は絵文字説明ファイル・Latent変換用ONNXモデル・
+		// セットアップ案内を配布する（設定パック種別 "tts"）。
+		{ID: ModuleTTS, CompanionPack: true},
 	}
 }
 

@@ -39,6 +39,7 @@ export const refreshSponsorToken = async (backendUrl: string): Promise<SponsorSt
 // モジュールID（backend internal/module のレジストリと合わせる）。
 export const MODULE_COMFY = 'comfy';
 export const MODULE_ACTION_CHOICE = 'actionchoice';
+export const MODULE_TTS = 'tts';
 
 // ModuleStatusEntry は 1 サイドカーモジュールの配置状態（GET /api/sponsor/modules の要素）。
 export interface ModuleStatusEntry {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,11 +18,12 @@ import (
 	chatapi "alslime/internal/api/chat"
 	"alslime/internal/api/comfyuigate"
 	configeditorapi "alslime/internal/api/configeditor"
+	"alslime/internal/api/ttsgate"
+	"alslime/internal/domain/ttsaudio"
 	configgenapi "alslime/internal/api/configgen"
 	filesapi "alslime/internal/api/files"
 	i18napi "alslime/internal/api/i18n"
 	jobsapi "alslime/internal/api/jobs"
-	manualapi "alslime/internal/api/manual"
 	modelsapi "alslime/internal/api/models"
 	parametersapi "alslime/internal/api/parameters"
 	presetsapi "alslime/internal/api/presets"
@@ -157,8 +159,6 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	})
 	i18nService := i18nsvc.New(resolver, locs.MustPath(locations.I18NDir))
 	i18napi.Register(mux, i18nService)
-	// 同梱操作マニュアルの配信（アプリ内マニュアル表示の読み込み元）。
-	manualapi.Register(mux)
 
 	// ディレクトリ列挙型プリセット（統一契約）。
 	// 系統ごとに「保存先ロケーション」と「メタ付与方針」だけが異なる。
@@ -281,6 +281,12 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 			return resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
 		},
 		ResolveAPIConnection: apiProvidersSvc.ResolveConnectionInfo,
+		// TTS サイドカーの配置検出（文体指示焼き込みの供給判定。都度確認して
+		// 導入直後の送信にも追随する）。
+		TTSSidecarInstalled: func() bool {
+			info, err := os.Stat(module.ExePath(resolver.Root(), module.ModuleTTS))
+			return err == nil && !info.IsDir()
+		},
 	})
 	// フックのゲートは core の gate 実装を注入する（ゲート先評価。設計 3.4）。
 	if choiceHook != nil {
@@ -320,6 +326,15 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// 生存管理 ctx は background 起動時（listen 開始前）に確定する。
 	var registerComfyProxyLate func()
 	var moduleRunCtx context.Context
+	// TTS 実行モードの決定（comfy と同じ方式）: モジュール exe が配置されていれば
+	// サイドカーモード、無ければ in-process モード（ttsembed ビルドのみ供給あり）。
+	ttsMgr := module.NewManager(module.Config{
+		ExePath:   module.ExePath(resolver.Root(), module.ModuleTTS),
+		Workspace: resolver.Root(),
+		Token:     entitlementSvc.Current,
+	})
+	ttsSidecarMode := ttsMgr.Available()
+	var registerTTSProxyLate func()
 	// モジュール取得（14番 6章の本体側受け口。複数モジュール対応）: レジストリの
 	// 全モジュールの配置先・起動状態と、署名検証（core に閉じた埋め込み鍵）を
 	// sponsor サービスへ注入する。
@@ -343,6 +358,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		case module.ModuleActionChoice:
 			hooked := choiceHook != nil
 			target.Active = func() bool { return hooked && choiceMgr.BaseURL() != nil }
+		case module.ModuleTTS:
+			if !ttsSidecarMode && core.TTS().InProcess() {
+				// in-process 供給ビルドはサイドカーを使わず内蔵実装が常駐する。
+				target.Active = func() bool { return true }
+			} else {
+				target.Active = func() bool { return ttsMgr.BaseURL() != nil }
+			}
 		}
 		// 配置後のプロセス起動。起動中の更新は起こし直し、未配置起動からの
 		// 初回導入はプロキシ登録＋初回起動で、どちらも本体再起動なしで有効化する
@@ -363,9 +385,25 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		if def.ID == module.ModuleActionChoice && choiceHook != nil {
 			target.Restart = choiceMgr.Restart
 		}
+		if def.ID == module.ModuleTTS {
+			if ttsSidecarMode {
+				target.Restart = ttsMgr.Restart
+			} else if !core.TTS().InProcess() {
+				target.Restart = func() error {
+					if registerTTSProxyLate == nil || moduleRunCtx == nil {
+						return errors.New("tts sidecar start deps not ready")
+					}
+					registerTTSProxyLate()
+					return ttsMgr.StartInstalled(moduleRunCtx)
+				}
+			}
+		}
 		if def.CompanionPack {
-			// クリーン再導入がレシートのテンプレート名から削除先を組み立てる（01番 7章）。
-			target.WorkflowTemplateDir = filepath.Join(resolver.Root(), filepath.FromSlash(config.ComfyUITemplateDir))
+			isComfy := def.ID == module.ModuleComfy
+			if isComfy {
+				// クリーン再導入がレシートのテンプレート名から削除先を組み立てる（01番 7章）。
+				target.WorkflowTemplateDir = filepath.Join(resolver.Root(), filepath.FromSlash(config.ComfyUITemplateDir))
+			}
 			target.InstallCompanionPack = func(zipPath string) ([]string, error) {
 				result, err := packManager.Import(zipPath, settingspacksys.ImportOptions{
 					Policy:           settingspacksys.PolicySkip,
@@ -374,6 +412,10 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 				})
 				if err != nil {
 					return nil, err
+				}
+				if !isComfy {
+					// ワークフローテンプレート名の抽出は ComfyUI 専用（TTS 等は対象物なし）。
+					return nil, nil
 				}
 				return settingspacksys.ComfyUIWorkflowTemplateNames(result), nil
 			}
@@ -399,11 +441,22 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	configGenRunner := core.ConfigGenRunner(func(jobID string, entry jobsqueue.ProgressEntry) {
 		jobQueue.AppendProgress(jobID, entry)
 	})
+	// TTS 読み上げ実行（サイドカー RPC / in-process の切り替えは Runner 内で判定）。
+	ttsAudioStore := ttsaudio.New(resolver)
+	ttsRunner := module.TTSRunner{
+		Manager:  ttsMgr,
+		Provider: core.TTS(),
+		Store:    ttsAudioStore,
+		Progress: func(jobID string, entry jobsqueue.ProgressEntry) {
+			jobQueue.AppendProgress(jobID, entry)
+		},
+	}
 	jobRunner := jobsqueue.CompositeRunner{
 		jobsqueue.TypeChat:       chatRunner,
 		jobsqueue.TypeRegenerate: chatRunner,
 		jobsqueue.TypeImageGen:   imageRunner,
 		jobsqueue.TypeConfigGen:  configGenRunner,
+		jobsqueue.TypeTTS:        ttsRunner,
 	}
 	jobQueue = jobsqueue.NewQueue(procManager, jobRunner, newJobID)
 	// 本体の直接アップデート（01番 5章）: 適用開始と同時にジョブ投入を停止し
@@ -449,6 +502,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Queue:         jobQueue,
 		NativeSweeper: core.NativeSweeper(),
 		Sidecars:      core.SidecarRemover(),
+		TTSAudio:      ttsAudioStore,
 	})
 
 	// Files / Content（汎用 WORKSPACE ファイル操作）。境界確認は paths.Resolver 正本。
@@ -498,6 +552,34 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		registerComfyProxyLate = func() { once.Do(registerComfyProxy) }
 	}
 
+	// TTS（音声読み上げ）。ルート登録は comfy と同じ三分岐。
+	// サイドカーモード: /api/tts/* をモジュールへプロキシ（ttsgate）。
+	// in-process モード: core 供給のルート一式を登録。
+	// どちらでもない: 初回導入の成功時に一度だけプロキシを登録する。
+	registerTTSProxy := func() {
+		ttsgate.RegisterProxy(mux, ttsgate.Deps{
+			Gate:   core.Features(),
+			Module: ttsMgr,
+		})
+	}
+	switch {
+	case ttsSidecarMode:
+		registerTTSProxy()
+	case core.TTS().InProcess():
+		core.TTS().RegisterRoutes(mux, core.Features())
+	default:
+		var ttsOnce sync.Once
+		registerTTSProxyLate = func() { ttsOnce.Do(registerTTSProxy) }
+	}
+	// 読み上げ実行（ジョブ投入）と音声取得は本体管轄のため、モードに関わらず常時登録する。
+	ttsgate.RegisterReadRoutes(mux, ttsgate.Deps{
+		Gate:     core.Features(),
+		Module:   ttsMgr,
+		Provider: core.TTS(),
+		Queue:    jobQueue,
+		Store:    ttsAudioStore,
+	})
+
 	// 残る大きな未完了は、ComfyUI実生成疎通、実CLI疎通確認、
 	// フロント統合・配布前確認。画像cropは PNG/JPEG の実処理まで接続済み。
 
@@ -505,7 +587,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// 終端ジョブの定期掃除（AI応答全文を含む Job の無限蓄積防止。02調査 高#1）と、
 	// 使い捨て一時ファイル + ネイティブ履歴のハウスキーピング（起動時掃除 + 定期掃除。
 	// ネイティブ掃除の実装は core 側のため、組み立てが可能な本関数で合成する）。
-	housekeeper := housekeeping.New(resolver, core.NativeSweeper())
+	housekeeper := housekeeping.New(resolver, core.NativeSweeper()).WithTTSParts(ttsAudioStore)
 	return func(ctx context.Context) {
 		// サイドカー初回起動（StartInstalled）の生存管理 ctx。listen 開始前に
 		// 確定するため、API 経由の初回導入時には必ず設定済み。
@@ -530,6 +612,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		go updateSvc.CleanupStagedBinaries()
 		if sidecarMode {
 			go moduleMgr.Run(ctx)
+		}
+		if ttsSidecarMode {
+			go ttsMgr.Run(ctx)
 		}
 		if choiceHook != nil {
 			go choiceMgr.Run(ctx)

@@ -59,6 +59,8 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		"roleplay/global/ComfyUI/image_gen_directive_natural.md",
 		"roleplay/global/ComfyUI/image_gen_directive_third.md",
 		"roleplay/global/ComfyUI/image_gen_directive_natural_third.md",
+		"roleplay/global/ComfyUI/image_gen_directive_natural_short.md",
+		"roleplay/global/ComfyUI/image_gen_directive_natural_third_short.md",
 		"roleplay/global/writing_styles/一人称視点_標準.md",
 		// openai_compat の API 共通基本指示と固定 3 プリセット基本指示（ja/en）。
 		"roleplay/global/prompts/openai-compat/system.ja.md",
@@ -69,6 +71,17 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		"roleplay/global/prompts/openai-compat/presets/deepseek/system.en.md",
 		"roleplay/global/prompts/openai-compat/presets/opencode-go/system.ja.md",
 		"roleplay/global/prompts/openai-compat/presets/opencode-go/system.en.md",
+		// 設定自動生成の指示ファイル（じっくり作成 1・2段階目／一括作成 × ja/en）。
+		"roleplay/global/prompts/configgen/character/two_step_1.ja.md",
+		"roleplay/global/prompts/configgen/character/two_step_1.en.md",
+		"roleplay/global/prompts/configgen/character/two_step_2.ja.md",
+		"roleplay/global/prompts/configgen/character/two_step_2.en.md",
+		"roleplay/global/prompts/configgen/character/one_shot.ja.md",
+		"roleplay/global/prompts/configgen/character/one_shot.en.md",
+		"roleplay/global/prompts/configgen/character/search_template.ja.md",
+		"roleplay/global/prompts/configgen/character/search_template.en.md",
+		"roleplay/global/prompts/configgen/character/setting_template.ja.md",
+		"roleplay/global/prompts/configgen/character/setting_template.en.md",
 	}
 	for _, file := range wantFiles {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(file)))

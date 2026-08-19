@@ -1,4 +1,4 @@
-# 10 Troubleshooting
+# 11 Troubleshooting
 
 [Back to Contents](index.md)
 
@@ -36,7 +36,7 @@ Errors are shown in the chat as "Error: ...". Here are the typical ones and how 
 
 The "Job progress" panel in the header (waveform icon, with a badge showing the number of running jobs) lists the running and pending processes.
 
-![Job progress](../images/ja/10-01-job-progress.png)
+![Job progress](../images/ja/11-01-job-progress.png)
 
 - Running jobs can be stopped with "Stop"; pending jobs can be canceled with "Cancel".
 - Recent errors are also shown at the bottom.
@@ -64,6 +64,6 @@ Let us know via a [GitHub Issue](https://github.com/Yaki-Mikan/alslime/issues). 
 
 ---
 
-Previous: [09 ComfyUI Integration](09-comfyui.md)
+Previous: [10 Text-to-Speech (Irodori-TTS Integration)](10-tts.md)
 
 [Back to Contents](index.md)

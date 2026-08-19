@@ -4,6 +4,9 @@ package i18n
 const (
 	KeyPromptNativeHistoryContextLoadCompleteSingle   = "prompt.nativeHistory.contextLoadCompleteSingle"
 	KeyPromptNativeHistoryContextLoadCompleteMultiple = "prompt.nativeHistory.contextLoadCompleteMultiple"
+	// KeyPromptConfigGenContextLoadComplete は設定自動生成（Antigravity 方式 C）で、
+	// 指示ファイル・資料を焼き込んだ直後の合成応答（「読み込んだ。指示に従う」）。
+	KeyPromptConfigGenContextLoadComplete = "prompt.configGen.contextLoadComplete"
 )
 
 // エラー表示用 i18n キー。
@@ -84,6 +87,14 @@ const (
 	KeyErrorJobRunnerNotImplemented   = "error.jobRunnerNotImplemented"
 	KeyErrorUnsupportedImageJobType   = "error.unsupportedImageJobType"
 	KeyErrorComfyUIServiceMissing     = "error.comfyuiServiceMissing"
+	KeyErrorTTSServiceMissing         = "error.ttsServiceMissing"
+	KeyErrorTTSTimeout                = "error.ttsTimeout"
+	KeyErrorTTSHTTPError              = "error.ttsHttpError"
+	KeyErrorTTSVoiceUnresolved        = "error.ttsVoiceUnresolved"
+	KeyErrorTTSLatentHelperMissing    = "error.ttsLatentHelperMissing"
+	KeyErrorTTSLatentModelMissing     = "error.ttsLatentModelMissing"
+	KeyErrorTTSLatentEncodeFailed     = "error.ttsLatentEncodeFailed"
+	KeyErrorTTSLatentInputInvalid     = "error.ttsLatentInputInvalid"
 	KeyErrorImageGenerateFailed       = "error.imageGenerateFailed"
 	KeyErrorImagePayloadInvalid       = "error.imagePayloadInvalid"
 	KeyErrorProviderEngineMissing     = "error.providerEngineMissing"
@@ -140,6 +151,7 @@ const (
 	KeyLabelRegenerate         = "label.regenerate"
 	KeyLabelChat               = "label.chat"
 	KeyLabelImageGeneration    = "label.imageGeneration"
+	KeyLabelTTSReading         = "label.ttsReading"
 	KeyLabelConfigGen          = "label.configGenerate"
 	KeyFeatureTierUnavailable  = "feature.tierUnavailable"
 

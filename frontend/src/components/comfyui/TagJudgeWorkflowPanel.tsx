@@ -116,7 +116,9 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
 
     const rows: { value: DirectiveMode; label: string }[] = [
         { value: 'natural_language', label: DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE },
+        { value: 'natural_language_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_SHORT },
         { value: 'natural_language_third_person', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD },
+        { value: 'natural_language_third_person_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD_SHORT },
         { value: 'danbooru_only', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY },
         { value: 'danbooru_third_person', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_THIRD },
     ];

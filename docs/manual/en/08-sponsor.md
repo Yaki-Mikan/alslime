@@ -48,7 +48,7 @@ For the action choice module, the "Enable action choices (applies without restar
 - "No active sponsorship found": Check that the account you signed in with has an active sponsorship on GitHub Sponsors.
 - "Token verification failed": Update the app to the latest version and try again.
 - Module download fails: Check your network connection and try again.
-- For anything else, see [10 Troubleshooting](10-troubleshooting.md).
+- For anything else, see [11 Troubleshooting](11-troubleshooting.md).
 
 ---
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, Play, Square, Save, Wrench, CheckCircle2, AlertCircle, MessageSquare, Trash2, FolderOpen, RotateCcw, Bot } from 'lucide-react';
+import { X, Play, Square, Save, Wrench, CheckCircle2, AlertCircle, MessageSquare, Trash2, FolderOpen, RotateCcw, Bot, FileText } from 'lucide-react';
 import axios from '../../lib/axios';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ResearchPickerModal } from './ResearchPickerModal';
@@ -15,7 +15,7 @@ import {
     type ResearchMemoEntry,
     type CLIStatusEntry,
 } from '../../api/config-gen';
-import { getConfigFile, checkConfigFileExists, getCategories } from '../../api/config-editor';
+import { getConfigFile, checkConfigFileExists, getCategories, configGenInstructionId } from '../../api/config-editor';
 import type { CategoryDef } from '../../api/config-editor';
 import { getGlobalSettings, updateGlobalSettings } from '../../api/global-settings';
 import { pingModel } from '../../api/user-models';
@@ -31,8 +31,13 @@ interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
     headerTabs?: React.ReactNode;
-    /** 生成済み設定ファイルを設定ファイルタブで開く（Hub がタブ切替と選択状態の受け渡しを行う） */
-    onOpenInEditor?: (file: ConfigGenResultFile) => void;
+    /**
+     * 生成済み設定ファイルを設定ファイルタブで開く（Hub がタブ切替と選択状態の受け渡しを行う）。
+     * content は左エディタで編集中の本文（サーバー上の内容と異なれば設定ファイルタブ側で未保存扱いになる）。
+     */
+    onOpenInEditor?: (file: ConfigGenResultFile, content: string) => void;
+    /** 調査項目テンプレートを設定ファイルタブ（設定自動生成指示種別）で開く。引数は指示ファイル ID。 */
+    onOpenInstructionInEditor?: (instructionId: string) => void;
 }
 
 interface ResearchTarget {
@@ -61,7 +66,7 @@ interface PingRecord {
     at: string;
 }
 
-export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, headerTabs, onOpenInEditor }) => {
+export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, headerTabs, onOpenInEditor, onOpenInstructionInEditor }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, CONFIG_GEN_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string>) =>
         Object.entries(values).reduce((text, [key, value]) => text.split(`{{${key}}}`).join(value), template);
@@ -377,6 +382,11 @@ export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, u
         setContent('');
     };
 
+    // 調査項目テンプレート（利用者が編集する主対象）を現在の UI 言語版で設定ファイルタブに開く。
+    const handleOpenInstruction = () => {
+        onOpenInstructionInEditor?.(configGenInstructionId(categoryId, 'search_template', uiCatalog?.lang || 'ja'));
+    };
+
     const handleClose = () => {
         if (state.running) {
             setConfirm({ kind: 'closeWhileRunning' });
@@ -504,7 +514,7 @@ export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, u
                                 <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-green-800 bg-green-950/30 shrink-0">
                                     <span className="text-xs text-green-300 truncate">{generatedSetting.fileName}</span>
                                     <button
-                                        onClick={() => onOpenInEditor?.(generatedSetting)}
+                                        onClick={() => onOpenInEditor?.(generatedSetting, content)}
                                         className="flex items-center gap-1.5 px-3 py-1 text-xs text-white bg-green-700 rounded hover:bg-green-600 transition-colors shrink-0"
                                     >
                                         <FolderOpen size={12} />
@@ -550,6 +560,16 @@ export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, u
                                     <option value="two_step">{t(CONFIG_GEN_I18N_KEYS.methodTwoStep)}</option>
                                     <option value="one_shot">{t(CONFIG_GEN_I18N_KEYS.methodOneShot)}</option>
                                 </select>
+                                {onOpenInstructionInEditor && (
+                                    <button
+                                        type="button"
+                                        onClick={handleOpenInstruction}
+                                        className="mt-1 flex items-center gap-1.5 text-xs text-purple-300 hover:text-purple-200 underline decoration-dotted"
+                                    >
+                                        <FileText size={12} />
+                                        {t(CONFIG_GEN_I18N_KEYS.researchTemplateSettings)}
+                                    </button>
+                                )}
                             </div>
 
                             <div>

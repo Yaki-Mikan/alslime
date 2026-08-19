@@ -36,7 +36,7 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             return text.split(`{{${key}}}`).join(String(value));
         }, template);
     };
-    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1, openai_compat: 1 });
+    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1, openai_compat: 1, tts: 1 });
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -56,6 +56,8 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             claude: Math.min(prev.claude, g),
             antigravity: Math.min(prev.antigravity, g),
             openai_compat: Math.min(prev.openai_compat, g),
+            // tts は global 枠から独立した専用枠のためクランプしない。
+            tts: prev.tts,
         }));
     };
 

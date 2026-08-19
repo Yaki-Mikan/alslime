@@ -9,16 +9,17 @@
  */
 
 import React, { useState } from 'react';
-import { FileText, Palette, Bot } from 'lucide-react';
-import { ConfigEditorModal, COMFY_DIRECTIVE_CATEGORY_ID } from './ConfigEditorModal';
+import { AudioLines, FileText, Palette, Bot } from 'lucide-react';
+import { ConfigEditorModal, COMFY_DIRECTIVE_CATEGORY_ID, CONFIG_GEN_INSTRUCTION_CATEGORY_ID } from './ConfigEditorModal';
 import type { OpenFileRequest } from './ConfigEditorModal';
 import { ConfigGenModal } from './ConfigGenModal';
 import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
+import { TTSIntegratedSettingsModal } from '../tts/TTSIntegratedSettingsModal';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import type { ApiProviderInstructionTarget } from '../../api/api-providers';
 
 // ConfigEditorTab は Hub のタブ識別子（開き元が初期タブを指定する際にも使う）。
-export type ConfigEditorTab = 'config' | 'configGen' | 'imageGen';
+export type ConfigEditorTab = 'config' | 'configGen' | 'imageGen' | 'tts';
 
 interface Props {
     isOpen: boolean;
@@ -27,6 +28,9 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
     // FeatureComfyUI の有効状態（Chat が保持する enabledFeatures 由来）。
     imageGenEnabled: boolean;
+    // FeatureTTS 有効かつ TTS 実体（サイドカー / in-process）連携済みの状態。
+    // 要件（07 の4章）により、両方が揃わなければタブ・モーダルとも一切表示しない。
+    ttsEnabled?: boolean;
     // 設定ファイルエディタの種別「画像生成分析指示」の表示可否
     //（ComfyUI機能が有効な支援レベル かつ モジュール連携済み。Chat 側で判定）。
     comfyDirectiveVisible?: boolean;
@@ -48,6 +52,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
     backendUrl,
     uiCatalog = null,
     imageGenEnabled,
+    ttsEnabled = false,
     comfyDirectiveVisible = false,
     initialTab = 'config',
     openApiProviderInstruction = null,
@@ -87,6 +92,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
             {tabButton('config', <FileText size={13} />, t('configEditor.tab.files', '設定ファイル'), 'bg-green-800 text-green-100')}
             {tabButton('configGen', <Bot size={13} />, t('configGen.tab', '設定自動生成'), 'bg-purple-800 text-purple-100')}
             {imageGenEnabled && tabButton('imageGen', <Palette size={13} />, t('configEditor.tab.imageGen', '画像生成統合設定'), 'bg-purple-800 text-purple-100')}
+            {ttsEnabled && tabButton('tts', <AudioLines size={13} />, t('configEditor.tab.tts', 'TTS設定'), 'bg-orange-800 text-orange-100')}
         </div>
     );
 
@@ -110,8 +116,14 @@ export const ConfigEditorHub: React.FC<Props> = ({
                 backendUrl={backendUrl}
                 uiCatalog={uiCatalog}
                 headerTabs={headerTabs}
-                onOpenInEditor={file => {
-                    setOpenFileRequest({ categoryId: file.categoryId, dirName: file.dirName, fileName: file.fileName });
+                onOpenInEditor={(file, content) => {
+                    // 左エディタで編集中の本文も持ち込む（設定ファイルタブ側でサーバー内容と比較して未保存扱いにする）。
+                    setOpenFileRequest({ categoryId: file.categoryId, dirName: file.dirName, fileName: file.fileName, content });
+                    setTab('config');
+                }}
+                onOpenInstructionInEditor={instructionId => {
+                    // 設定ファイルタブへ切り替え、設定自動生成指示種別の該当ファイルを開く
+                    setOpenFileRequest({ categoryId: CONFIG_GEN_INSTRUCTION_CATEGORY_ID, dirName: '', fileName: instructionId });
                     setTab('config');
                 }}
             />
@@ -130,6 +142,16 @@ export const ConfigEditorHub: React.FC<Props> = ({
                             setTab('config');
                         }
                         : undefined}
+                />
+            )}
+            {ttsEnabled && (
+                <TTSIntegratedSettingsModal
+                    isOpen={isOpen && tab === 'tts'}
+                    onClose={onClose}
+                    backendUrl={backendUrl}
+                    uiCatalog={uiCatalog}
+                    headerTabs={headerTabs}
+                    initialSelectedCharacter={integratedInitialCharacter || undefined}
                 />
             )}
         </>

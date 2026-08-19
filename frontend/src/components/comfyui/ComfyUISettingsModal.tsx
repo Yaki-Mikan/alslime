@@ -615,7 +615,9 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
                             {([
                                 { value: 'natural_language', label: DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE },
+                                { value: 'natural_language_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_SHORT },
                                 { value: 'natural_language_third_person', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD },
+                                { value: 'natural_language_third_person_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD_SHORT },
                                 { value: 'danbooru_only', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY },
                                 { value: 'danbooru_third_person', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_THIRD },
                             ] as { value: DirectiveMode; label: string }[]).map((row) => {

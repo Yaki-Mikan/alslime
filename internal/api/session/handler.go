@@ -25,12 +25,18 @@ type SidecarRemover interface {
 	Remove(sessionID string) error
 }
 
+// TTSAudioRemover は生成音声を削除する境界（セッション削除連動。要件10章）。
+type TTSAudioRemover interface {
+	DeleteSession(sessionID string) error
+}
+
 // Deps は session API の依存。
 type Deps struct {
 	Sessions      *sessiondom.Service
 	Queue         *jobsvc.Queue
 	NativeSweeper NativeSessionSweeper // nil 可（ネイティブ掃除なし）
 	Sidecars      SidecarRemover       // nil 可（sidecar 削除なし）
+	TTSAudio      TTSAudioRemover      // nil 可（生成音声の連動削除なし）
 }
 
 // Register は session / history 系 API を登録する。
@@ -251,6 +257,10 @@ func handleDelete(deps Deps) http.HandlerFunc {
 		// Antigravity sidecar も連動削除（存在しなければ無視）。
 		if deps.Sidecars != nil {
 			_ = deps.Sidecars.Remove(sessionID)
+		}
+		// 生成音声（tts_audio/<sessionId>）も連動削除（存在しなければ無視。要件10章）。
+		if deps.TTSAudio != nil {
+			_ = deps.TTSAudio.DeleteSession(sessionID)
 		}
 		writeJSON(w, simpleSuccessResponse{Success: true})
 	}

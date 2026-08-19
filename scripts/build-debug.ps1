@@ -9,7 +9,9 @@ param(
     [string]$TargetArch = "amd64",
     [switch]$KeepCache,
     # Also build the ComfyUI sidecar module (for sidecar-mode verification).
-    [switch]$BuildModule
+    [switch]$BuildModule,
+    # Also build the TTS sidecar module (for sidecar-mode verification).
+    [switch]$BuildTTSModule
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,9 +75,9 @@ $outputPath = Get-OutputPath
 Write-Host "[debug] backend build: $TargetOS/$TargetArch"
 Push-Location $AlslimeRoot
 try {
-    # 開発ビルドは画像生成の in-process 実装を内蔵する（comfyembed）。
+    # 開発ビルドは画像生成（comfyembed）と音声読み上げ（ttsembed）の in-process 実装を内蔵する。
     # 配布ビルド（build-release.ps1 のタグ無し）には内蔵されない。
-    go build -tags debug,comfyembed -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
+    go build -tags debug,comfyembed,ttsembed -buildvcs=false -ldflags $ldflagsText -o $outputPath ./cmd/app
 } finally {
     Pop-Location
 }
@@ -96,6 +98,24 @@ if ($BuildModule) {
         Pop-Location
     }
     Write-Host "[debug] module output: $modulePath"
+}
+
+if ($BuildTTSModule) {
+    # TTS sidecar module (lives in the core repository).
+    $CoreRoot = Resolve-Path (Join-Path $AlslimeRoot "..\alslime-core")
+    $ttsModuleName = "alslime-tts-$Version-debug-$TargetOS-$TargetArch"
+    if ($TargetOS -eq "windows") {
+        $ttsModuleName = "$ttsModuleName.exe"
+    }
+    $ttsModulePath = Join-Path $OutputDir $ttsModuleName
+    Write-Host "[debug] tts module build: $TargetOS/$TargetArch"
+    Push-Location $CoreRoot
+    try {
+        go build -buildvcs=false -o $ttsModulePath ./cmd/ttsmodule
+    } finally {
+        Pop-Location
+    }
+    Write-Host "[debug] tts module output: $ttsModulePath"
 }
 
 if (-not $KeepCache) {

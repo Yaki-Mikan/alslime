@@ -17,6 +17,10 @@
 //	POST   /defaults                                   body { categoryId, templateName }
 //	GET    /initial-content/{categoryId}
 //	POST   /comfy-directive/{directiveId}/reset
+//	GET    /configgen-instructions
+//	GET    /configgen-instruction/{instructionId}
+//	POST   /configgen-instruction/{instructionId}        body { content }
+//	POST   /configgen-instruction/{instructionId}/reset
 package configeditor
 
 import (
@@ -72,6 +76,12 @@ func Register(mux *http.ServeMux, svc *domain.Service, gate coreapi.FeatureGate)
 	mux.HandleFunc(http.MethodGet+" "+base+routeComfyDirective, withImageGenGate(gate, handleGetComfyDirective(svc)))
 	mux.HandleFunc(http.MethodPost+" "+base+routeComfyDirective, withImageGenGate(gate, handleSaveComfyDirective(svc)))
 	mux.HandleFunc(http.MethodPost+" "+base+routeComfyDirectiveReset, withImageGenGate(gate, handleResetComfyDirective(svc)))
+
+	// 設定自動生成の指示ファイル。書き換えのみ許可の固定ファイルのため GET/POST のみ。
+	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenInstructions, handleListConfigGenInstructions(svc))
+	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenInstruction, handleGetConfigGenInstruction(svc))
+	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenInstruction, handleSaveConfigGenInstruction(svc))
+	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenInstructionReset, handleResetConfigGenInstruction(svc))
 }
 
 // withImageGenGate は FeatureComfyUI が無効なら 403 を返すミドルウェア。
@@ -390,6 +400,79 @@ func handleResetComfyDirective(svc *domain.Service) http.HandlerFunc {
 	}
 }
 
+// ---- 設定自動生成の指示ファイル ----
+
+func handleListConfigGenInstructions(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		list, err := svc.ListConfigGenInstructions()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, list)
+	}
+}
+
+// handleGetConfigGenInstruction は指示ファイル内容を返す。ワークスペースに無ければ
+// 同梱デフォルトを返す（実行時も同じ順で解決するため、表示と実際の指示が一致する）。
+func handleGetConfigGenInstruction(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue(pathParamInstructionID)
+		content, exists, err := svc.ReadConfigGenInstruction(id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if !exists {
+			d, _ := domain.FindConfigGenInstruction(id)
+			data, derr := firstrun.DefaultContent(d.File)
+			if derr != nil {
+				writeError(w, derr)
+				return
+			}
+			content = string(data)
+		}
+		writeJSON(w, contentResponse{Content: content})
+	}
+}
+
+func handleSaveConfigGenInstruction(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, _, ok := decodeContentBody(w, r)
+		if !ok {
+			return
+		}
+		if err := svc.WriteConfigGenInstruction(r.PathValue(pathParamInstructionID), content); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, successResponse{Success: true})
+	}
+}
+
+// handleResetConfigGenInstruction は指示ファイルを同梱デフォルトの内容へ上書きし、
+// 復元後の本文を返す（タグ判定指示の reset と同じ流儀）。
+func handleResetConfigGenInstruction(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		d, ok := domain.FindConfigGenInstruction(r.PathValue(pathParamInstructionID))
+		if !ok {
+			writeError(w, domain.ErrUnknownConfigGenInstruction)
+			return
+		}
+		data, err := firstrun.DefaultContent(d.File)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		content := string(data)
+		if err := svc.WriteConfigGenInstruction(d.ID, content); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, contentResponse{Content: content})
+	}
+}
+
 // ---- 共通 ----
 
 // decodeContent は { content } ボディを読む。キー無し（nil）は 400、空文字は許可。
@@ -429,6 +512,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrUnknownProviderInstruction):
 		apierror.Write(w, apierror.BadRequestKey(errKeyUnknownCategory))
 	case errors.Is(err, domain.ErrUnknownComfyDirective):
+		apierror.Write(w, apierror.BadRequestKey(errKeyUnknownCategory))
+	case errors.Is(err, domain.ErrUnknownConfigGenInstruction):
 		apierror.Write(w, apierror.BadRequestKey(errKeyUnknownCategory))
 	case isNameError(err):
 		apierror.Write(w, apierror.BadRequestKey(errKeyInvalidName))

@@ -15,12 +15,15 @@ import (
 )
 
 // Limits は同時実行数の上限。global と各種別。
+// TTS は AI CLI を使わない外部サーバー送信のため global 枠から独立した専用枠
+// （global の消費なしで TTS 上限のみで制御）。
 type Limits struct {
 	Global       int `json:"global"`
 	Gemini       int `json:"gemini"`
 	Claude       int `json:"claude"`
 	Antigravity  int `json:"antigravity"`
 	OpenAICompat int `json:"openai_compat"`
+	TTS          int `json:"tts"`
 }
 
 // InUse は現在の使用中スロット数。
@@ -30,11 +33,12 @@ type InUse struct {
 	Claude       int `json:"claude"`
 	Antigravity  int `json:"antigravity"`
 	OpenAICompat int `json:"openai_compat"`
+	TTS          int `json:"tts"`
 }
 
 // DefaultLimits は既定の上限（現行 Node 版と同じく全て 1）。
 func DefaultLimits() Limits {
-	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1, OpenAICompat: 1}
+	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1, OpenAICompat: 1, TTS: 1}
 }
 
 // Manager は 2 軸セマフォ。sync.Mutex でカウンタを保護する。
@@ -54,6 +58,7 @@ func NewManager() *Manager {
 			models.KindClaude:       0,
 			models.KindAntigravity:  0,
 			models.KindOpenAICompat: 0,
+			models.KindTTS:          0,
 		},
 	}
 }
@@ -65,13 +70,17 @@ func NewManager() *Manager {
 func (m *Manager) TryAcquire(kind models.Kind) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.globalInUse >= m.limits.Global {
+	// TTS は AI CLI を使わないため global 枠を消費しない（TTS 上限のみで制御）。
+	usesGlobal := kind != models.KindTTS
+	if usesGlobal && m.globalInUse >= m.limits.Global {
 		return false
 	}
 	if m.kindInUse[kind] >= m.limitOf(kind) {
 		return false
 	}
-	m.globalInUse++
+	if usesGlobal {
+		m.globalInUse++
+	}
 	m.kindInUse[kind]++
 	return true
 }
@@ -80,7 +89,7 @@ func (m *Manager) TryAcquire(kind models.Kind) bool {
 func (m *Manager) Release(kind models.Kind) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.globalInUse > 0 {
+	if kind != models.KindTTS && m.globalInUse > 0 {
 		m.globalInUse--
 	}
 	if m.kindInUse[kind] > 0 {
@@ -105,11 +114,12 @@ func (m *Manager) InUse() InUse {
 		Claude:       m.kindInUse[models.KindClaude],
 		Antigravity:  m.kindInUse[models.KindAntigravity],
 		OpenAICompat: m.kindInUse[models.KindOpenAICompat],
+		TTS:          m.kindInUse[models.KindTTS],
 	}
 }
 
-// GlobalAvailable は global スロットに空きがあるかを返す。
-// スケジューラが「global 満杯なら打ち切り」を判断するために使う。
+// GlobalAvailable は global スロットに空きがあるかを返す
+// （TTS は global 枠外のため本判定の対象外）。
 func (m *Manager) GlobalAvailable() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -136,12 +146,15 @@ func (m *Manager) limitOf(kind models.Kind) int {
 		return m.limits.Antigravity
 	case models.KindOpenAICompat:
 		return m.limits.OpenAICompat
+	case models.KindTTS:
+		return m.limits.TTS
 	default:
 		return m.limits.Gemini
 	}
 }
 
-// clampLimits は上限値をクランプする（global 最低 1・各種別 1〜global）。
+// clampLimits は上限値をクランプする（global 最低 1・各種別 1〜global。
+// TTS は global 枠外のため最低 1 のみでクランプする）。
 func clampLimits(l Limits) Limits {
 	global := l.Global
 	if global < 1 {
@@ -156,11 +169,16 @@ func clampLimits(l Limits) Limits {
 		}
 		return v
 	}
+	tts := l.TTS
+	if tts < 1 {
+		tts = 1
+	}
 	return Limits{
 		Global:       global,
 		Gemini:       clamp(l.Gemini),
 		Claude:       clamp(l.Claude),
 		Antigravity:  clamp(l.Antigravity),
 		OpenAICompat: clamp(l.OpenAICompat),
+		TTS:          tts,
 	}
 }

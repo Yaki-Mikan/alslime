@@ -101,6 +101,59 @@ export async function resetComfyDirective(backendUrl: string, id: string): Promi
     return res.data.content;
 }
 
+// ---- 設定自動生成の指示ファイル（固定ファイル。編集のみ。ゲートなし） ----
+
+// ConfigGenInstructionMethod は方式 ID（バックエンドのカタログと同じ値）。
+// two_step_1 / two_step_2 / one_shot は作成指示本体、search_template / setting_template は
+// 作成指示へ差し込まれるテンプレート（調査項目・設定ファイル形式）。
+export type ConfigGenInstructionMethod = 'two_step_1' | 'two_step_2' | 'one_shot' | 'search_template' | 'setting_template';
+// ConfigGenInstructionKind は種類。instruction（作成指示。編集非推奨）| template（差し込みテンプレート）。
+export type ConfigGenInstructionKind = 'instruction' | 'template';
+export type ConfigGenInstructionLocale = 'ja' | 'en';
+
+export interface ConfigGenInstruction {
+    id: string;       // "<target>-<method>-<locale>"
+    label: string;    // 予備の表示名（フロントの i18n キー configEditor.configGenInstruction.method.<method> を優先）
+    kind: ConfigGenInstructionKind;
+    target: string;   // 対象種別 ID（カテゴリ ID。現状 "character" のみ）
+    method: ConfigGenInstructionMethod;
+    locale: ConfigGenInstructionLocale;
+    file: string;
+    exists: boolean;
+}
+
+// configGenInstructionId はバックエンドと同じ規則で ID を組む（設定自動生成タブからの直接遷移用）。
+export function configGenInstructionId(target: string, method: ConfigGenInstructionMethod, locale: string): string {
+    return `${target}-${method}-${normalizeConfigGenInstructionLocale(locale)}`;
+}
+
+// normalizeConfigGenInstructionLocale は UI 言語（"ja-JP" 等）を指示ファイルのロケールへ寄せる。
+// 未対応言語は ja（実行側のフォールバックと同じ）。
+export function normalizeConfigGenInstructionLocale(locale: string): ConfigGenInstructionLocale {
+    const base = (locale || '').trim().toLowerCase().split(/[-_]/)[0];
+    return base === 'en' ? 'en' : 'ja';
+}
+
+export async function listConfigGenInstructions(backendUrl: string): Promise<ConfigGenInstruction[]> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/configgen-instructions`);
+    return res.data;
+}
+
+export async function getConfigGenInstruction(backendUrl: string, id: string): Promise<string> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/configgen-instruction/${id}`);
+    return res.data.content;
+}
+
+export async function saveConfigGenInstruction(backendUrl: string, id: string, content: string): Promise<void> {
+    await axios.post(`${backendUrl}/api/config-editor/configgen-instruction/${id}`, { content });
+}
+
+// resetConfigGenInstruction は指示ファイルを同梱デフォルトの内容へ上書きし、復元後の本文を返す。
+export async function resetConfigGenInstruction(backendUrl: string, id: string): Promise<string> {
+    const res = await axios.post(`${backendUrl}/api/config-editor/configgen-instruction/${id}/reset`);
+    return res.data.content;
+}
+
 export async function listTemplates(backendUrl: string, categoryId: string): Promise<string[]> {
     const res = await axios.get(`${backendUrl}/api/config-editor/templates/${categoryId}`);
     return res.data;

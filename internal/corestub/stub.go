@@ -31,6 +31,7 @@ func (stub) NativeSweeper() coreapi.NativeSweeper   { return noopSweeper{} }
 func (stub) SidecarRemover() coreapi.SidecarRemover { return noopSidecar{} }
 func (stub) Features() coreapi.FeatureGate          { return offGate{} }
 func (stub) Comfy() coreapi.ComfyProvider           { return stubComfy{} }
+func (stub) TTS() coreapi.TTSProvider               { return stubTTS{} }
 func (stub) VerifyModuleSig([]byte, string) error {
 	return errors.New(i18n.KeyErrorJobRunnerNotImplemented)
 }
@@ -70,3 +71,15 @@ func (stubComfy) RegisterRoutes(*http.ServeMux, *jobs.Queue, coreapi.FeatureGate
 func (stubComfy) ImageRunner() jobs.Runner                                        { return jobs.NotImplementedRunner{} }
 func (stubComfy) TagJudgeKind() models.Kind                                       { return models.KindGemini }
 func (stubComfy) InProcess() bool                                                 { return false }
+
+// stubTTS は core 未結合ビルドの TTSProvider（in-process 読み上げなし）。
+type stubTTS struct{}
+
+func (stubTTS) RegisterRoutes(*http.ServeMux, coreapi.FeatureGate) {}
+func (stubTTS) InProcess() bool                                    { return false }
+func (stubTTS) Plan(context.Context, coreapi.TTSPlanRequest) (coreapi.TTSPlanResponse, error) {
+	return coreapi.TTSPlanResponse{}, errors.New(i18n.KeyErrorTTSServiceMissing)
+}
+func (stubTTS) Synthesize(context.Context, coreapi.TTSSynthesizeRequest, func(coreapi.TTSChunk) error) error {
+	return errors.New(i18n.KeyErrorTTSServiceMissing)
+}

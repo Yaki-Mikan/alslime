@@ -11,7 +11,7 @@ Japanese version: [日本語版はこちら](../index.md)
 3. [Talking with Characters](./03-character.md) — Selecting and creating characters
 
 If you want to dig into the roleplay features, continue to [Roleplay Settings](./04-roleplay.md).
-If you use the supporter features, see [Supporter Features](./08-sponsor.md) and [ComfyUI Integration](./09-comfyui.md).
+If you use the supporter features, see [Supporter Features](./08-sponsor.md), [ComfyUI Integration](./09-comfyui.md), and [Text-to-Speech](./10-tts.md).
 
 ## All Chapters
 
@@ -26,7 +26,8 @@ If you use the supporter features, see [Supporter Features](./08-sponsor.md) and
 | [07 Importing & Exporting Settings](./07-settings-pack.md) | Creating and applying settings packs |
 | [08 Supporter Features](./08-sponsor.md) | Supporter sign-in, status check, downloading modules |
 | [09 ComfyUI Integration](./09-comfyui.md) | Connection settings and usage for image generation (for supporters) |
-| [10 Troubleshooting](./10-troubleshooting.md) | System diagnostics, frequently asked questions, where to ask |
+| [10 Text-to-Speech (Irodori-TTS Integration)](./10-tts.md) | Reading conversations aloud with Irodori-TTS (for supporters, Japanese only) |
+| [11 Troubleshooting](./11-troubleshooting.md) | System diagnostics, frequently asked questions, where to ask |
 
 ## About This Manual
 

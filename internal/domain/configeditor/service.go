@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	errKeyUnknownCategory            = "error.unknownCategory"
-	errKeyUnknownProviderInstruction = "error.unknownProviderInstruction"
-	errKeyUnknownComfyDirective      = "error.unknownComfyDirective"
+	errKeyUnknownCategory             = "error.unknownCategory"
+	errKeyUnknownProviderInstruction  = "error.unknownProviderInstruction"
+	errKeyUnknownComfyDirective       = "error.unknownComfyDirective"
+	errKeyUnknownConfigGenInstruction = "error.unknownConfigGenInstruction"
 )
 
 // ErrUnknownCategory は未知の categoryId が指定された場合に返る（handler が 400 へ）。
@@ -22,6 +23,9 @@ var ErrUnknownProviderInstruction = errors.New(errKeyUnknownProviderInstruction)
 
 // ErrUnknownComfyDirective は未知のタグ判定指示ファイル id が指定された場合に返る。
 var ErrUnknownComfyDirective = errors.New(errKeyUnknownComfyDirective)
+
+// ErrUnknownConfigGenInstruction は未知の設定自動生成指示ファイル id が指定された場合に返る。
+var ErrUnknownConfigGenInstruction = errors.New(errKeyUnknownConfigGenInstruction)
 
 // validateTemplateName はテンプレート名を safename で検証する。
 // SaveDefault の非空 templateName 事前検証に使う（保存系と同じ規則）。
@@ -244,6 +248,65 @@ func (s *Service) ReadComfyDirective(id string) (string, error) {
 // WriteComfyDirective は指示ファイルを上書き保存する。
 func (s *Service) WriteComfyDirective(id, content string) error {
 	d, err := resolveComfyDirective(id)
+	if err != nil {
+		return err
+	}
+	return s.store.WriteFixedFile(d.File, content)
+}
+
+// ---- 設定自動生成 指示ファイル（固定ファイル機構の流用） ----
+
+// ConfigGenInstructionStatus は一覧 API 用の 1 件（存在有無付き）。
+type ConfigGenInstructionStatus struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Method string `json:"method"`
+	Locale string `json:"locale"`
+	File   string `json:"file"`
+	Exists bool   `json:"exists"`
+}
+
+// resolveConfigGenInstruction は id を検証して定義を返す。未知は ErrUnknownConfigGenInstruction。
+func resolveConfigGenInstruction(id string) (ConfigGenInstruction, error) {
+	d, ok := FindConfigGenInstruction(id)
+	if !ok {
+		return ConfigGenInstruction{}, ErrUnknownConfigGenInstruction
+	}
+	return d, nil
+}
+
+// ListConfigGenInstructions は指示ファイル定義と存在有無を返す。
+func (s *Service) ListConfigGenInstructions() ([]ConfigGenInstructionStatus, error) {
+	defs := ConfigGenInstructions()
+	out := make([]ConfigGenInstructionStatus, 0, len(defs))
+	for _, d := range defs {
+		exists, err := s.store.FixedFileExists(d.File)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ConfigGenInstructionStatus{
+			ID: d.ID, Label: d.Label, Kind: d.Kind, Target: d.Target, Method: d.Method, Locale: d.Locale, File: d.File, Exists: exists,
+		})
+	}
+	return out, nil
+}
+
+// ReadConfigGenInstruction は指示ファイル内容と存在有無を返す。
+// 未作成時の同梱デフォルト補完は呼び出し側（API 層）が行う
+// （同梱デフォルトの正本 firstrun は本パッケージを import しており、逆参照は循環になる）。
+func (s *Service) ReadConfigGenInstruction(id string) (content string, exists bool, err error) {
+	d, err := resolveConfigGenInstruction(id)
+	if err != nil {
+		return "", false, err
+	}
+	return s.store.ReadFixedFile(d.File)
+}
+
+// WriteConfigGenInstruction は指示ファイルを上書き保存する（唯一の変更手段）。
+func (s *Service) WriteConfigGenInstruction(id, content string) error {
+	d, err := resolveConfigGenInstruction(id)
 	if err != nil {
 		return err
 	}

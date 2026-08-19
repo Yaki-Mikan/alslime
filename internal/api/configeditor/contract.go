@@ -32,6 +32,13 @@ const (
 	routeComfyDirective      = "/comfy-directive/{directiveId}"
 	routeComfyDirectiveReset = "/comfy-directive/{directiveId}/reset"
 	pathParamDirectiveID     = "directiveId"
+
+	// 設定自動生成の指示ファイル（固定ファイル機構の流用）。全ユーザー向けのため
+	// gate は通さない。GET/POST のみ（reset は同梱デフォルトでの上書き。DELETE なし）。
+	routeConfigGenInstructions     = "/configgen-instructions"
+	routeConfigGenInstruction      = "/configgen-instruction/{instructionId}"
+	routeConfigGenInstructionReset = "/configgen-instruction/{instructionId}/reset"
+	pathParamInstructionID         = "instructionId"
 )
 
 // Config Editor API が返す利用者向けエラーの i18n キー。
