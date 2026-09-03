@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "gnuBuildIdBytes": 20,
+  "companyName": "YakiMikan",
+  "productName": "AlSlime",
+  "sourceUrl": "https://github.com/Yaki-Mikan/alslime",
+  "components": {
+    "alslime": {
+      "fileDescription": "AlSlime Local AI Roleplay Application",
+      "windowsOriginalFilename": "alslime.exe",
+      "linuxOriginalFilename": "alslime"
+    },
+    "alslime-comfy": {
+      "fileDescription": "AlSlime ComfyUI Sidecar Module",
+      "windowsOriginalFilename": "alslime-comfy.exe",
+      "linuxOriginalFilename": "alslime-comfy"
+    },
+    "alslime-actionchoice": {
+      "fileDescription": "AlSlime Action Choice Sidecar Module",
+      "windowsOriginalFilename": "alslime-actionchoice.exe",
+      "linuxOriginalFilename": "alslime-actionchoice"
+    },
+    "alslime-tts": {
+      "fileDescription": "AlSlime Text-to-Speech Sidecar Module",
+      "windowsOriginalFilename": "alslime-tts.exe",
+      "linuxOriginalFilename": "alslime-tts"
+    }
+  }
+}

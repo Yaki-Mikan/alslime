@@ -126,14 +126,14 @@ export const ComfyUILoraDirModal: React.FC<Props> = ({
                             {config.categories.map((cat) => {
                                 const defaultDir = defaults?.categories.find(d => d.id === cat.id)?.directory || '';
                                 return (
-                                <div key={cat.id} className="flex items-center gap-2">
-                                    <span className="text-sm text-gray-300 w-28 shrink-0">{cat.label}</span>
+                                <div key={cat.id} className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm text-gray-300 shrink-0 basis-full lg:basis-auto lg:w-28">{cat.label}</span>
                                     <input
                                         type="text"
                                         value={cat.directory}
                                         onChange={(e) => updateCategoryDirectory(cat.id, e.target.value)}
                                         placeholder={LORA.PLACEHOLDERS.DIRECTORY_NAME}
-                                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-yellow-500 transition-colors"
+                                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-yellow-500 transition-colors"
                                     />
                                     <button
                                         onClick={() => updateCategoryDirectory(cat.id, defaultDir)}

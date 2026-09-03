@@ -3,6 +3,7 @@ package configeditor
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	storage "alslime/internal/storage/configeditor"
 	"alslime/internal/storage/safename"
@@ -415,4 +416,147 @@ func (s *Service) InitialContent(categoryID string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// ---- 設定自動生成テンプレート（入力項目・設定ファイル。言語 → 対象 → 種類 → 名前） ----
+
+// 設定自動生成テンプレートの種類 ID（API のパス断片）。
+const (
+	ConfigGenTemplateKindSearch  = "search"  // 入力項目テンプレート
+	ConfigGenTemplateKindSetting = "setting" // 設定ファイルテンプレート
+)
+
+// configGenTemplateDirName は種類 ID → 物理ディレクトリ名。
+func configGenTemplateDirName(kind string) (string, bool) {
+	switch kind {
+	case ConfigGenTemplateKindSearch:
+		return "search_templates", true
+	case ConfigGenTemplateKindSetting:
+		return "setting_templates", true
+	}
+	return "", false
+}
+
+// ConfigGenTemplateLocale は UI 言語を指示ファイルのロケールへ寄せる（未対応は先頭ロケール）。
+func ConfigGenTemplateLocale(locale string) string {
+	l := strings.ToLower(strings.TrimSpace(locale))
+	if i := strings.IndexAny(l, "-_"); i > 0 {
+		l = l[:i]
+	}
+	for _, known := range ConfigGenInstructionLocales {
+		if l == known {
+			return l
+		}
+	}
+	return ConfigGenInstructionLocales[0]
+}
+
+// resolveConfigGenTemplateDir は対象・言語・種類を検証して物理ディレクトリ名を返す。
+func resolveConfigGenTemplateDir(target, locale, kind string) (string, string, error) {
+	if _, ok := FindCategory(target); !ok {
+		return "", "", ErrUnknownCategory
+	}
+	dirName, ok := configGenTemplateDirName(kind)
+	if !ok {
+		return "", "", ErrUnknownCategory
+	}
+	return ConfigGenTemplateLocale(locale), dirName, nil
+}
+
+// ListConfigGenTemplates はテンプレート名一覧を返す。
+func (s *Service) ListConfigGenTemplates(target, locale, kind string) ([]string, error) {
+	loc, dirName, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.ListConfigGenTemplates(target, loc, dirName)
+}
+
+// ReadConfigGenTemplate はテンプレート内容を返す。
+func (s *Service) ReadConfigGenTemplate(target, locale, kind, name string) (string, error) {
+	loc, dirName, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return "", err
+	}
+	return s.store.ReadConfigGenTemplate(target, loc, dirName, name)
+}
+
+// WriteConfigGenTemplate はテンプレートを保存する。
+func (s *Service) WriteConfigGenTemplate(target, locale, kind, name, content string) error {
+	loc, dirName, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return err
+	}
+	return s.store.WriteConfigGenTemplate(target, loc, dirName, name, content)
+}
+
+// DeleteConfigGenTemplate はテンプレートを削除する。既定に指定されていれば既定も解除する。
+func (s *Service) DeleteConfigGenTemplate(target, locale, kind, name string) error {
+	loc, dirName, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return err
+	}
+	if err := s.store.DeleteConfigGenTemplate(target, loc, dirName, name); err != nil {
+		return err
+	}
+	defaults, derr := s.store.LoadConfigGenTemplateDefaults()
+	if derr == nil && defaults[loc] != nil && defaults[loc][target] != nil && defaults[loc][target][kind] == name {
+		return s.store.SaveConfigGenTemplateDefault(target, loc, kind, "")
+	}
+	return nil
+}
+
+// ConfigGenTemplateDefaults は既定テンプレート名（言語 → 対象 → 種類 → 名前）を返す。
+func (s *Service) ConfigGenTemplateDefaults() (storage.ConfigGenTemplateDefaults, error) {
+	return s.store.LoadConfigGenTemplateDefaults()
+}
+
+// SaveConfigGenTemplateDefault は既定テンプレート名を保存する（空名は解除）。
+func (s *Service) SaveConfigGenTemplateDefault(target, locale, kind, name string) error {
+	loc, _, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		if _, err := safename.Validate(name); err != nil {
+			return err
+		}
+	}
+	return s.store.SaveConfigGenTemplateDefault(target, loc, kind, name)
+}
+
+// ResolveConfigGenTemplate は実行時に使うテンプレートを解決する。
+// 解決順: 指定名 → 既定 → ディレクトリに 1 件だけあればそれ。見つからなければ ok=false
+// （呼び出し側は固定ファイル・同梱デフォルトへ戻る）。
+func (s *Service) ResolveConfigGenTemplate(target, locale, kind, name string) (content string, resolvedName string, ok bool, err error) {
+	loc, dirName, err := resolveConfigGenTemplateDir(target, locale, kind)
+	if err != nil {
+		return "", "", false, err
+	}
+	tryRead := func(n string) (string, bool) {
+		if strings.TrimSpace(n) == "" {
+			return "", false
+		}
+		c, rerr := s.store.ReadConfigGenTemplate(target, loc, dirName, n)
+		if rerr != nil {
+			return "", false
+		}
+		return c, true
+	}
+	if c, found := tryRead(name); found {
+		return c, name, true, nil
+	}
+	defaults, derr := s.store.LoadConfigGenTemplateDefaults()
+	if derr == nil && defaults[loc] != nil && defaults[loc][target] != nil {
+		if c, found := tryRead(defaults[loc][target][kind]); found {
+			return c, defaults[loc][target][kind], true, nil
+		}
+	}
+	names, lerr := s.store.ListConfigGenTemplates(target, loc, dirName)
+	if lerr == nil && len(names) == 1 {
+		if c, found := tryRead(names[0]); found {
+			return c, names[0], true, nil
+		}
+	}
+	return "", "", false, nil
 }

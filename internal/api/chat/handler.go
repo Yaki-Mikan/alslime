@@ -41,6 +41,7 @@ type submitRequest struct {
 	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
 	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
@@ -53,6 +54,7 @@ type regenerateRequest struct {
 	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
 	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
@@ -105,6 +107,7 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 			AntigravityTempFileMode:   req.AntigravityTempFileMode,
 			GeminiTempFileMode:        req.GeminiTempFileMode,
 			ClaudeEffort:              req.ClaudeEffort,
+			AntigravityThinking:       req.AntigravityThinking,
 			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
 			EnableResponseBackup:      req.EnableResponseBackup,
 		}
@@ -148,6 +151,7 @@ func handleRegenerate(deps Deps) http.HandlerFunc {
 			AntigravityTempFileMode:   req.AntigravityTempFileMode,
 			GeminiTempFileMode:        req.GeminiTempFileMode,
 			ClaudeEffort:              req.ClaudeEffort,
+			AntigravityThinking:       req.AntigravityThinking,
 			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
 			EnableResponseBackup:      req.EnableResponseBackup,
 		}

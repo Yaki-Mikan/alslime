@@ -26,6 +26,8 @@ The sponsorship plan name and expiration date are shown next to the badge.
 
 1. Press "Sign in with GitHub"; the GitHub authorization page opens in your browser.
 2. Authorize with an account that has an active sponsorship on GitHub Sponsors, and the app picks it up automatically (complete the browser steps while the screen shows "Complete the sign-in in your browser...").
+
+Do not share the displayed sign-in URL with anyone. Do not sign in to GitHub through a sign-in URL sent by someone else; start the sign-in from your own AlSlime instance.
 3. If the page does not open automatically, use the "Open manually" link.
 
 After signing in, "Refresh status" rechecks your sponsorship status, and "Sign out" clears the credentials. The signed-in state is normally maintained automatically, so you usually do not need to sign in again.

@@ -20,6 +20,9 @@ const (
 const (
 	WorkspaceDir        = "configgen_workspace"
 	WorkspaceOutputsDir = "configgen_workspace/outputs"
+	// WorkspaceSessionsDir は対話作成のセッション履歴（中間ファイル）の置き場。
+	// 1 セッション = 1 JSON。ファイル内容の写しは持たず、正本は正規位置の設定ファイル。
+	WorkspaceSessionsDir = "configgen_workspace/sessions"
 )
 
 // ResearchMemoRelPath は調査メモの WORKSPACE_ROOT 相対パス（スラッシュ区切り）。
@@ -32,12 +35,28 @@ func SettingRelPath(categoryDir, dirName, fileName string) string {
 	return categoryDir + "/" + dirName + "/settings/" + fileName + ".md"
 }
 
+// FlatSettingRelPath はキャラクター以外のカテゴリの設定ファイルパス
+// （<categoryDir>/<fileName>.md。設定ファイルエディタの保存規則と同一）。
+func FlatSettingRelPath(categoryDir, fileName string) string {
+	return categoryDir + "/" + fileName + ".md"
+}
+
+// SettingRelPathFor はカテゴリ種別に応じた設定ファイルパスを返す。
+func SettingRelPathFor(isCharacter bool, categoryDir, fileName string) string {
+	if isCharacter {
+		return SettingRelPath(categoryDir, fileName, fileName)
+	}
+	return FlatSettingRelPath(categoryDir, fileName)
+}
+
 // Method は作成方式。
 const (
 	// MethodTwoStep はじっくり作成（2段階。1段階目=調査、2段階目=設定作成）。
 	MethodTwoStep = "two_step"
 	// MethodOneShot は一括作成（調査から設定ファイル作成まで 1 回で行う）。
 	MethodOneShot = "one_shot"
+	// MethodDialog は対話作成の 1 ターン（作業コピーを AI が編集し、サーバーが正規位置へ反映する）。
+	MethodDialog = "dialog"
 )
 
 // Payload は config-generate ジョブの実行指定。
@@ -45,18 +64,32 @@ const (
 // 設定ファイルの配置は常にキャラクター名基準（characters/<キャラ名>/settings/<キャラ名>.md）。
 // DirName は調査メモの所在追跡にのみ使う（旧データはキャラ名と異なり得る）。
 type Payload struct {
-	CategoryID    string `json:"categoryId"`
-	Method        string `json:"method"`
-	Step          int    `json:"step,omitempty"` // two_step のみ 1 | 2
-	CharacterName string `json:"characterName"`
-	WorkTitle     string `json:"workTitle"`
-	DirName       string `json:"dirName"`
-	Model         string `json:"model,omitempty"`
-	ClaudeEffort   string `json:"claudeEffort,omitempty"`
-	TimeoutMinutes int    `json:"timeoutMinutes,omitempty"`
-	Locale         string `json:"locale,omitempty"`
+	CategoryID          string `json:"categoryId"`
+	Method              string `json:"method"`
+	Step                int    `json:"step,omitempty"` // two_step のみ 1 | 2
+	CharacterName       string `json:"characterName"`
+	WorkTitle           string `json:"workTitle"`
+	DirName             string `json:"dirName"`
+	Model               string `json:"model,omitempty"`
+	ClaudeEffort        string `json:"claudeEffort,omitempty"`
+	AntigravityThinking string `json:"antigravityThinking,omitempty"`
+	TimeoutMinutes      int    `json:"timeoutMinutes,omitempty"`
+	Locale              string `json:"locale,omitempty"`
 	// Notes は設定作成備考（ユーザーの要望・指示。指示ファイルへ結合される）。
 	Notes string `json:"notes,omitempty"`
+	// FileName は成果物ファイル名（拡張子なし）。キャラクターでは CharacterName と同じ値。
+	FileName string `json:"fileName,omitempty"`
+	// EditorContent は左エディタの内容。一括作成では入力項目テンプレートの差し込みに、
+	// 対話作成では作業コピーの初期内容に使う。空なら未指定。
+	EditorContent string `json:"editorContent,omitempty"`
+	// EditorHash は送信時点の左エディタ内容の sha256（対話作成のみ）。
+	EditorHash string `json:"editorHash,omitempty"`
+	// DialogSessionID / UserMessage は対話作成のみ。
+	DialogSessionID string `json:"dialogSessionId,omitempty"`
+	UserMessage     string `json:"userMessage,omitempty"`
+	// SearchTemplate / SettingTemplate は使うテンプレート名（空なら既定）。
+	SearchTemplate  string `json:"searchTemplate,omitempty"`
+	SettingTemplate string `json:"settingTemplate,omitempty"`
 }
 
 // ResultFile はジョブ完走時に jobs.Result.Output へ JSON で格納する成果物情報。
@@ -70,4 +103,7 @@ type ResultFile struct {
 	FileName   string `json:"fileName"`
 	// RelPath は WORKSPACE_ROOT 相対の実パス（research の取得や表示に使う）。
 	RelPath string `json:"relPath"`
+	// SessionID / FileHash は対話作成のみ（フロントが左エディタを差し替える判定に使う）。
+	SessionID string `json:"sessionId,omitempty"`
+	FileHash  string `json:"fileHash,omitempty"`
 }

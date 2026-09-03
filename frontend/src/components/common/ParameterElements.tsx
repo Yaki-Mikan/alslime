@@ -84,8 +84,8 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
     return (
         <div className="space-y-1">
             {/* 上段: ラベルと値入力 */}
-            <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-300">
+            <div className="flex items-center justify-between gap-2">
+                <label className="flex-1 min-w-0 text-sm font-medium text-gray-300">
                     {getLocalizedText(element.displayName)}
                 </label>
                 {/* 値入力（テキスト編集可能） */}
@@ -101,7 +101,7 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                             (e.target as HTMLInputElement).blur();
                         }
                     }}
-                    className="w-14 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-center text-sm"
+                    className="w-14 shrink-0 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-center text-sm"
                 />
             </div>
             {/* 下段: スライダーとステッパー */}
@@ -114,7 +114,7 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                     step={step}
                     value={value}
                     onChange={(e) => onChange(parseInt(e.target.value))}
-                    className="flex-1 accent-blue-500"
+                    className="flex-1 min-w-0 accent-blue-500"
                 />
                 {/* ステッパー [-] [+] */}
                 <button
@@ -280,11 +280,11 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                 <label className="text-sm font-medium text-gray-300">
                     {getLocalizedText(element.displayName)}
                 </label>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                     <select
                         value={currentValue.years ?? 0}
                         onChange={(e) => onChange({ ...currentValue, years: parseInt(e.target.value) })}
-                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
                     >
                         {[...Array(101)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.yearUnit), { count: i })}</option>
@@ -293,7 +293,7 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                     <select
                         value={currentValue.months ?? 0}
                         onChange={(e) => onChange({ ...currentValue, months: parseInt(e.target.value) })}
-                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
                     >
                         {[...Array(12)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.monthUnit), { count: i })}</option>
@@ -302,7 +302,7 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                     <select
                         value={currentValue.days ?? 0}
                         onChange={(e) => onChange({ ...currentValue, days: parseInt(e.target.value) })}
-                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
                     >
                         {[...Array(31)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.dayUnit), { count: i })}</option>
@@ -310,10 +310,10 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                     </select>
                 </div>
                 {/* クイック設定 */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col items-start gap-1">
                     <select
                         defaultValue=""
-                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm w-32"
+                        className="w-full min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
                         onChange={(e) => {
                             if (e.target.value) {
                                 const [y, m, d] = e.target.value.split(',').map(Number);
@@ -422,7 +422,7 @@ export const RenderGroup: React.FC<RenderGroupProps> = ({ groupDef, groupState, 
 
             {/* グループ内容 */}
             {isOpen && (
-                <div className={`p-4 space-y-4 ${!isEnabled && 'opacity-50 pointer-events-none'}`}>
+                <div className={`p-3 space-y-4 ${!isEnabled && 'opacity-50 pointer-events-none'}`}>
                     {groupDef.elements.map(element => (
                         <RenderElement
                             key={element.id}

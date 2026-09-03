@@ -35,8 +35,14 @@ var ErrModuleNoToken = errors.New("sponsor: no token for module download")
 // ErrModuleUnavailable はサーバー側にモジュール配布が無い（404）。
 var ErrModuleUnavailable = errors.New("sponsor: module not available on server")
 
-// ErrModuleRejected はサーバーがトークンを拒否した（401/403）。
+// ErrModuleRejected は旧呼び出し元との互換用エラー。
 var ErrModuleRejected = errors.New("sponsor: module download rejected by server")
+
+// ErrTokenInvalid は認証サーバーがトークン無し・無効・失効として 401 を返した。
+var ErrTokenInvalid = errors.New("sponsor: entitlement token invalid")
+
+// ErrTierRejected はトークンは有効だが対象の取得権限が無いとして 403 を返した。
+var ErrTierRejected = errors.New("sponsor: entitlement tier rejected")
 
 // ErrModuleUnknown は取得対象がレジストリに無い（本体が知らないモジュールID）。
 var ErrModuleUnknown = errors.New("sponsor: unknown module id")
@@ -700,8 +706,10 @@ func moduleResponseError(status int) error {
 	switch {
 	case status == http.StatusOK:
 		return nil
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return ErrModuleRejected
+	case status == http.StatusUnauthorized:
+		return ErrTokenInvalid
+	case status == http.StatusForbidden:
+		return ErrTierRejected
 	case status == http.StatusNotFound:
 		return ErrModuleUnavailable
 	default:

@@ -10,15 +10,21 @@
 package characters
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"alslime/internal/api/apierror"
 	"alslime/internal/api/apiresponse"
 	"alslime/internal/config"
+	"alslime/internal/coreapi"
 	charsvc "alslime/internal/domain/characters"
+	sponsorsvc "alslime/internal/domain/sponsor"
+	"alslime/internal/features"
+	"alslime/internal/i18n"
 	storage "alslime/internal/storage/charfilters"
 )
 
@@ -27,6 +33,181 @@ func Register(mux *http.ServeMux, svc *charsvc.Service) {
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterTags, handleTags(svc))
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterFilters, handleFilters(svc))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeCharacterFiltersRebuild, handleRebuild(svc))
+	mux.HandleFunc(http.MethodPut+" "+config.APIPrefix+routeCharacterTagsByDir, handleSaveTags(svc))
+}
+
+// RegisterEmotionPrompts は表情画像生成用の表情プロンプト（emotion_prompts.json）ルートを mux へ登録する。
+// 「/characters/emotion-prompts」は「/characters/{name}/...」より具体的なため、Go 1.22 の mux で優先される。
+func RegisterEmotionPrompts(mux *http.ServeMux, svc *charsvc.EmotionPromptsService) {
+	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeEmotionPrompts, handleGetEmotionPrompts(svc))
+	mux.HandleFunc(http.MethodPut+" "+config.APIPrefix+routeEmotionPrompts, handleSaveEmotionPrompts(svc))
+}
+
+func handleGetEmotionPrompts(svc *charsvc.EmotionPromptsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		data, err := svc.Get()
+		if err != nil {
+			apierror.Write(w, apierror.Internal(err))
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+func handleSaveEmotionPrompts(svc *charsvc.EmotionPromptsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req charsvc.EmotionPrompts
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		data, err := svc.Save(req)
+		if err != nil {
+			apierror.Write(w, apierror.Internal(err))
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+// PackFetcher は認証サーバーから支援者向け配布パックを取得・検証して install へ渡す境界
+// （domain/sponsor.Service.FetchPack）。
+type PackFetcher interface {
+	FetchPack(ctx context.Context, packID string, install func(zipPath string) error) (string, error)
+}
+
+// RegisterEmotionPromptsSample は表情プロンプトのサンプルパック取り込みルートを mux へ登録する。
+// 画像生成機能が有効な支援レベルでなければ 403。取得はサーバーのトークン検証・署名検証を経る。
+func RegisterEmotionPromptsSample(mux *http.ServeMux, svc *charsvc.EmotionPromptsService, fetcher PackFetcher, gate coreapi.FeatureGate) {
+	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeEmotionPromptsSample, handleDownloadEmotionPromptsSample(svc, fetcher, gate))
+}
+
+func handleDownloadEmotionPromptsSample(svc *charsvc.EmotionPromptsService, fetcher PackFetcher, gate coreapi.FeatureGate) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if gate == nil || !gate.Enabled(string(features.FeatureComfyUI)) {
+			apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorImageGenRequired))
+			return
+		}
+		// 言語ごとに別パック。lang は UI 言語（ja / en など）で、パック ID の一部になるため書式を絞る。
+		var req emotionPromptsSampleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		lang := strings.ToLower(strings.TrimSpace(req.Lang))
+		if lang == "" {
+			lang = config.I18NDefaultLang
+		}
+		if !samplePackLangPattern.MatchString(lang) {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidLang))
+			return
+		}
+		var result charsvc.EmotionPromptsMergeResult
+		version, err := fetcher.FetchPack(r.Context(), emotionPromptsPackIDPrefix+lang, func(zipPath string) error {
+			merged, mergeErr := svc.MergeFromZip(zipPath)
+			if mergeErr != nil {
+				return mergeErr
+			}
+			result = merged
+			return nil
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, sponsorsvc.ErrModuleNoToken):
+				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
+			case errors.Is(err, sponsorsvc.ErrModuleRejected):
+				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorModuleRejected))
+			case errors.Is(err, sponsorsvc.ErrTokenInvalid):
+				apierror.Write(w, apierror.NewKey(http.StatusUnauthorized, i18n.KeyErrorSponsorTokenInvalid))
+			case errors.Is(err, sponsorsvc.ErrTierRejected):
+				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorTierRejected))
+			case errors.Is(err, sponsorsvc.ErrModuleUnavailable), errors.Is(err, charsvc.ErrEmotionPromptsPackMissing):
+				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
+			default:
+				apierror.Write(w, apierror.WrapKey(http.StatusBadGateway, i18n.KeyErrorSponsorModuleInstallFailed, err))
+			}
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: emotionPromptsSampleResponse{
+			Version: version, Added: result.Added, Skipped: result.Skipped, Prompts: result.Prompts,
+		}})
+	}
+}
+
+// RegisterLinkedSettings はキャラクターの設定紐づけ（linked_settings.json）ルートを mux へ登録する。
+func RegisterLinkedSettings(mux *http.ServeMux, svc *charsvc.LinkedSettingsService) {
+	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterLinkedSettings, handleGetLinkedSettings(svc))
+	mux.HandleFunc(http.MethodPut+" "+config.APIPrefix+routeCharacterLinkedSettings, handleSaveLinkedSettings(svc))
+}
+
+// handleSaveTags は tags.json を書き込み、続けてマスタを再構築する。
+func handleSaveTags(svc *charsvc.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req saveTagsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		if req.Tags == nil {
+			req.Tags = []string{}
+		}
+		filters, stats, err := svc.SaveTags(r.PathValue(pathParamDirName), req.Work, req.Tags)
+		if err != nil {
+			switch {
+			case errors.Is(err, storage.ErrInvalidDirName):
+				apierror.Write(w, apierror.BadRequestKey(errKeyInvalidName))
+			case errors.Is(err, fs.ErrNotExist):
+				apierror.Write(w, apierror.NotFoundKey(errKeyCharacterNotFound))
+			default:
+				apierror.Write(w, apierror.Internal(err))
+			}
+			return
+		}
+		// 書き込んだ値を読み直さず、正規化後の値をそのまま返す（work は空なら nil）。
+		var work *string
+		if req.Work != nil && *req.Work != "" {
+			work = req.Work
+		}
+		writeJSON(w, saveTagsResponse{Work: work, Tags: req.Tags, Filters: filters, Stats: stats})
+	}
+}
+
+func handleGetLinkedSettings(svc *charsvc.LinkedSettingsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := svc.Get(r.PathValue(pathParamCharacterName))
+		if err != nil {
+			writeLinkedSettingsError(w, err)
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+func handleSaveLinkedSettings(svc *charsvc.LinkedSettingsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req charsvc.LinkedSettings
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		data, err := svc.Save(r.PathValue(pathParamCharacterName), req)
+		if err != nil {
+			writeLinkedSettingsError(w, err)
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+func writeLinkedSettingsError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, charsvc.ErrInvalidName):
+		apierror.Write(w, apierror.BadRequestKey(errKeyInvalidName))
+	case errors.Is(err, charsvc.ErrCharacterNotFound):
+		apierror.Write(w, apierror.NotFoundKey(errKeyCharacterNotFound))
+	default:
+		apierror.Write(w, apierror.Internal(err))
+	}
 }
 
 // RegisterImages はキャラクター画像系ルートを mux へ登録する。

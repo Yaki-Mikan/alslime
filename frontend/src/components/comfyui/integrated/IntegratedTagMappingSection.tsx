@@ -29,7 +29,7 @@ import type {
     TemplateInfo,
 } from '../../../api/comfyui';
 import { createComfyUIText, formatComfyText } from '../i18n';
-import type { I18NCatalog } from '../../../api/i18n';
+import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { formatDanbooruTag, formatTriggerLine } from '../danbooru-format';
 import { useComfyLoras } from '../useComfyLoras';
 import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
@@ -180,22 +180,33 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
     }, []);
 
     // タグフィールド更新
+    // 関数型更新にしている：同一イベント内で続けて呼んでも（簡易モードの強度は
+    // strengthModel と strengthClip を続けて更新する）、前の更新を基に積み重なるようにするため。
     const updateTagField = useCallback((field: keyof TagEntry, value: any) => {
-        if (!mappingData || selectedTagIndex === null) return;
-        const newTags = [...mappingData.tags];
-        newTags[selectedTagIndex] = { ...newTags[selectedTagIndex], [field]: value };
-        setMappingData({ ...mappingData, tags: newTags });
+        if (selectedTagIndex === null) return;
+        setMappingData(prev => {
+            if (!prev) return prev;
+            const newTags = [...prev.tags];
+            newTags[selectedTagIndex] = { ...newTags[selectedTagIndex], [field]: value };
+            return { ...prev, tags: newTags };
+        });
         setIsDirty(true);
-    }, [mappingData, selectedTagIndex]);
+    }, [selectedTagIndex]);
 
     // LoRA更新
     const updateTagLora = useCallback((loraIndex: number, field: keyof TagLoraEntry, value: any) => {
-        if (!mappingData || selectedTagIndex === null) return;
-        const tag = mappingData.tags[selectedTagIndex];
-        const newLora = [...tag.lora];
-        newLora[loraIndex] = { ...newLora[loraIndex], [field]: value };
-        updateTagField('lora', newLora);
-    }, [mappingData, selectedTagIndex, updateTagField]);
+        if (selectedTagIndex === null) return;
+        setMappingData(prev => {
+            if (!prev) return prev;
+            const tag = prev.tags[selectedTagIndex];
+            const newLora = [...tag.lora];
+            newLora[loraIndex] = { ...newLora[loraIndex], [field]: value };
+            const newTags = [...prev.tags];
+            newTags[selectedTagIndex] = { ...tag, lora: newLora };
+            return { ...prev, tags: newTags };
+        });
+        setIsDirty(true);
+    }, [selectedTagIndex]);
 
     // Danbooru検索
     const handleDanbooruSearch = useCallback(async () => {
@@ -331,7 +342,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-cyan-500"
                 >
                     {categories.map(cat => (
-                        <option key={cat.id} value={cat.id}>{cat.label}</option>
+                        <option key={cat.id} value={cat.id}>{resolveMessage(uiCatalog, `comfyui.tagCategory.${cat.id}`, cat.label)}</option>
                     ))}
                 </select>
             </div>

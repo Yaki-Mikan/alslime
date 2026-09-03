@@ -7,11 +7,12 @@
  * - アップロード・切り抜き・削除ボタン
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Upload, Scissors, Trash2, ImageIcon, SlidersHorizontal, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Upload, Scissors, Trash2, ImageIcon, SlidersHorizontal, AlertCircle, Sparkles } from 'lucide-react';
 import { ImageCropModal } from './ImageCropModal';
 import { EmotionCatalogModal } from '../settings/EmotionCatalogModal';
+import { EmotionDropdown } from '../common/EmotionDropdown';
 import {
     getEmotionCatalog,
     pruneOrphanEmotionImages,
@@ -20,13 +21,22 @@ import {
 import type { EmotionCatalogEntry } from '../../api/emotion-catalog';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { notifyCharacterImagesUpdated } from '../../lib/characterImageEvents';
-import { CHARACTER_IMAGE_I18N_KEYS, CHARACTER_IMAGE_TEXT_FALLBACK_JA, COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, EMOTION_CATALOG_I18N_KEYS, EMOTION_CATALOG_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { CHARACTER_IMAGE_I18N_KEYS, CHARACTER_IMAGE_TEXT_FALLBACK_JA, COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, EMOTION_CATALOG_I18N_KEYS, EMOTION_CATALOG_TEXT_FALLBACK_JA, EMOTION_IMAGE_GEN_I18N_KEYS, EMOTION_IMAGE_GEN_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { authFetch } from '../../lib/authFetch';
+
+// 埋め込み時の段階レイアウトの閾値（パネル自身の幅・px）
+const EMBEDDED_WIDE_MIN_WIDTH = 560;
+const EMBEDDED_MEDIUM_MIN_WIDTH = 380;
 
 interface CharacterImagePanelProps {
     characterName: string;
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // 設定ファイルエディタへの埋め込み：開閉ヘッダー・外枠を出さず常時展開し、プレビューを大きくする
+    embedded?: boolean;
+    // 表情画像生成（画像生成の利用条件を満たすときだけボタンを出す。埋め込み時のみ）
+    imageGenEnabled?: boolean;
+    onOpenEmotionImageGen?: (emotion: string) => void;
 }
 
 interface ImageInfo {
@@ -41,9 +51,12 @@ interface ImageInfo {
 export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
     characterName,
     backendUrl,
-    uiCatalog = null
+    uiCatalog = null,
+    embedded = false,
+    imageGenEnabled = false,
+    onOpenEmotionImageGen,
 }) => {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(embedded);
     const [emotions, setEmotions] = useState<EmotionCatalogEntry[]>([]);
     const [selectedEmotion, setSelectedEmotion] = useState<string>('default');
     const [imageInfo, setImageInfo] = useState<Record<string, ImageInfo>>({});
@@ -55,12 +68,59 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
     const [isPruneConfirmOpen, setIsPruneConfirmOpen] = useState(false);
     const [isPruning, setIsPruning] = useState(false);
     const [pruneNotice, setPruneNotice] = useState<string | null>(null);
+    // 埋め込み時はパネル自身の幅で段階的にレイアウトを変える
+    //   wide   : 画像を右、操作群を左に縦並び（ボタンは文字付き）
+    //   medium : 画像の下に操作群（ボタンは文字付き）
+    //   compact: 画像の下に操作群（ボタンはアイコンのみ・右寄せ）
+    const contentRef = useRef<HTMLDivElement>(null);
+    const [panelWidth, setPanelWidth] = useState(0);
+    useEffect(() => {
+        if (!embedded || !isOpen) return;
+        const el = contentRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(entries => {
+            for (const entry of entries) setPanelWidth(entry.contentRect.width);
+        });
+        observer.observe(el);
+        setPanelWidth(el.clientWidth);
+        return () => observer.disconnect();
+    }, [embedded, isOpen]);
+    const layout: 'wide' | 'medium' | 'compact' = !embedded
+        ? 'medium'
+        : panelWidth >= EMBEDDED_WIDE_MIN_WIDTH ? 'wide'
+        : panelWidth >= EMBEDDED_MEDIUM_MIN_WIDTH ? 'medium'
+        : 'compact';
+    const iconOnly = embedded && layout === 'compact';
+
+    // 埋め込み時：プレビュー枠の上でホイールを回すと表情を前後に切り替える。
+    // React の onWheel は passive 登録で画面スクロールを止められないため、直接リスナーを付ける。
+    const previewRef = useRef<HTMLDivElement>(null);
+    const emotionsRef = useRef<EmotionCatalogEntry[]>([]);
+    emotionsRef.current = emotions;
+    useEffect(() => {
+        if (!embedded || !isOpen) return;
+        const el = previewRef.current;
+        if (!el) return;
+        const handleWheel = (e: WheelEvent) => {
+            const list = emotionsRef.current;
+            if (list.length === 0 || e.deltaY === 0) return;
+            e.preventDefault();
+            setSelectedEmotion(current => {
+                const idx = list.findIndex(emotion => emotion.name === current);
+                const step = e.deltaY > 0 ? 1 : -1;
+                const next = (idx < 0 ? 0 : idx + step + list.length) % list.length;
+                return list[next].name;
+            });
+        };
+        el.addEventListener('wheel', handleWheel, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheel);
+    }, [embedded, isOpen]);
     // プレビュー枠へのドラッグ&ドロップ中か（ハイライト表示用）
     const [isDragOver, setIsDragOver] = useState(false);
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
-        CHARACTER_IMAGE_TEXT_FALLBACK_JA[key] || EMOTION_CATALOG_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
+        CHARACTER_IMAGE_TEXT_FALLBACK_JA[key] || EMOTION_CATALOG_TEXT_FALLBACK_JA[key] || EMOTION_IMAGE_GEN_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
     const formatText = (template: string, values: Record<string, string | number>) =>
         Object.entries(values).reduce((text, [key, value]) => text.split(`{{${key}}}`).join(String(value)), template);
@@ -101,6 +161,7 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
             fetchEmotions();
             fetchImageInfo();
         }
+        // fetchImageInfo は characterName に依存するため、埋め込み時のキャラ切替でも再取得される
     }, [isOpen, fetchEmotions, fetchImageInfo]);
 
     // 画像アップロード（ボタン選択・ドラッグ&ドロップ共通）
@@ -318,8 +379,9 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
     if (!characterName) return null;
 
     return (
-        <div className="mt-4 border border-gray-700 rounded-lg overflow-hidden">
-            {/* ヘッダー（開閉ボタン） */}
+        <div className={embedded ? '' : 'mt-4 border border-gray-700 rounded-lg overflow-hidden'}>
+            {/* ヘッダー（開閉ボタン）。埋め込み時は常時展開のため出さない */}
+            {!embedded && (
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full flex items-center justify-between p-3 bg-gray-800/80 hover:bg-gray-800 transition-colors"
@@ -330,14 +392,18 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                 </div>
                 {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
             </button>
+            )}
 
             {/* コンテンツ */}
             {isOpen && (
-                <div className="p-4 bg-gray-900 space-y-4">
+                <div ref={contentRef} className="p-4 bg-gray-900 space-y-4">
+                    {/* wide では画像を右・操作群を左に横並び（flex-row-reverse）、それ以外は画像の下に操作群 */}
+                    <div className={layout === 'wide' ? 'flex flex-row-reverse gap-5 items-start' : 'space-y-4'}>
                     {/* 画像プレビュー（ドラッグ&ドロップで選択中の心情の元画像としてアップロード） */}
-                    <div className="flex justify-center">
+                    <div className={layout === 'wide' ? 'flex-1 min-w-0 flex justify-center' : 'flex justify-center'}>
                         <div
-                            className={`relative w-32 h-32 rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center transition-shadow ${isDragOver ? 'ring-2 ring-blue-400' : ''}`}
+                            ref={previewRef}
+                            className={`relative ${!embedded ? 'w-32 h-32' : layout === 'wide' ? 'w-72 h-72' : 'w-56 h-56'} rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center transition-shadow ${isDragOver ? 'ring-2 ring-blue-400' : ''}`}
                             title={t(CHARACTER_IMAGE_I18N_KEYS.dropHint)}
                             onDragOver={(e) => {
                                 e.preventDefault();
@@ -374,6 +440,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                         </div>
                     </div>
 
+                    {/* 操作群（心情・通知・ボタン・画像状態）。wide では固定幅の細い列にして画像を主役にする */}
+                    <div className={layout === 'wide' ? 'w-56 shrink-0 space-y-3' : 'space-y-4'}>
                     {/* 心情プルダウン */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
@@ -387,17 +455,13 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                                 <SlidersHorizontal size={16} />
                             </button>
                         </div>
-                        <select
+                        {/* 心情の選択（閉：表示名のみ／開：表示名＋説明。表情画像生成モーダルと共用） */}
+                        <EmotionDropdown
+                            emotions={emotions}
                             value={selectedEmotion}
-                            onChange={(e) => setSelectedEmotion(e.target.value)}
-                            className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg p-2"
-                        >
-                            {emotions.map((emotion) => (
-                                <option key={emotion.name} value={emotion.name}>
-                                    {emotion.label || emotion.name} - {emotion.description}{emotion.enabled ? '' : t(EMOTION_CATALOG_I18N_KEYS.disabledSuffix)}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={setSelectedEmotion}
+                            disabledSuffix={t(EMOTION_CATALOG_I18N_KEYS.disabledSuffix)}
+                        />
                     </div>
 
                     {/* 無効な表情を選択中の注意 */}
@@ -422,10 +486,10 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                         </div>
                     )}
 
-                    {/* ボタン群 */}
-                    <div className="flex gap-2">
+                    {/* ボタン群。wide は縦並び・medium は横並び（いずれも文字付き）、compact はアイコンのみで右寄せ */}
+                    <div className={layout === 'wide' ? 'flex flex-col gap-2' : iconOnly ? 'flex justify-end gap-2' : 'flex gap-2'}>
                         {/* アップロードボタン */}
-                        <label className="flex-1">
+                        <label className={iconOnly ? '' : 'flex-1'} title={iconOnly ? t(CHARACTER_IMAGE_I18N_KEYS.upload) : undefined}>
                             <input
                                 type="file"
                                 accept="image/jpeg,image/png,image/webp"
@@ -433,12 +497,12 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                                 className="hidden"
                                 disabled={isLoading}
                             />
-                            <div className={`flex items-center justify-center gap-1 p-2 rounded-lg cursor-pointer transition-colors ${isLoading
+                            <div className={`flex items-center justify-center gap-1 ${iconOnly ? 'p-2 rounded-md' : 'p-2 rounded-lg'} cursor-pointer transition-colors ${isLoading
                                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 : 'bg-blue-600 hover:bg-blue-500 text-white'
                                 }`}>
                                 <Upload size={16} />
-                                <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.upload)}</span>
+                                {!iconOnly && <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.upload)}</span>}
                             </div>
                         </label>
 
@@ -446,28 +510,49 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                         <button
                             onClick={handleOpenCrop}
                             disabled={isLoading || !imageInfo[selectedEmotion]?.hasOriginal}
-                            className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-lg transition-colors ${isLoading || !imageInfo[selectedEmotion]?.hasOriginal
+                            title={iconOnly ? t(CHARACTER_IMAGE_I18N_KEYS.crop) : undefined}
+                            className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading || !imageInfo[selectedEmotion]?.hasOriginal
                                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 : 'bg-green-600 hover:bg-green-500 text-white'
                                 }`}
                         >
                             <Scissors size={16} />
-                            <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.crop)}</span>
+                            {!iconOnly && <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.crop)}</span>}
                         </button>
 
                         {/* 削除ボタン */}
                         <button
                             onClick={handleDelete}
                             disabled={isLoading || (!imageInfo[selectedEmotion]?.hasOriginal && !imageInfo[selectedEmotion]?.hasIcon)}
-                            className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-lg transition-colors ${isLoading || (!imageInfo[selectedEmotion]?.hasOriginal && !imageInfo[selectedEmotion]?.hasIcon)
+                            title={iconOnly ? t(CHARACTER_IMAGE_I18N_KEYS.delete) : undefined}
+                            className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading || (!imageInfo[selectedEmotion]?.hasOriginal && !imageInfo[selectedEmotion]?.hasIcon)
                                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 : 'bg-red-600 hover:bg-red-500 text-white'
                                 }`}
                         >
                             <Trash2 size={16} />
-                            <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.delete)}</span>
+                            {!iconOnly && <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.delete)}</span>}
                         </button>
                     </div>
+
+                    {/* 表情画像生成（埋め込み時かつ画像生成の利用条件を満たすときだけ） */}
+                    {embedded && imageGenEnabled && onOpenEmotionImageGen && (
+                        <div className={iconOnly ? 'flex justify-end' : 'flex'}>
+                            <button
+                                type="button"
+                                onClick={() => onOpenEmotionImageGen(selectedEmotion)}
+                                disabled={isLoading}
+                                title={t(EMOTION_IMAGE_GEN_I18N_KEYS.button)}
+                                className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    : 'bg-purple-600 hover:bg-purple-500 text-white'
+                                    }`}
+                            >
+                                <Sparkles size={16} />
+                                {!iconOnly && <span className="text-sm">{t(EMOTION_IMAGE_GEN_I18N_KEYS.button)}</span>}
+                            </button>
+                        </div>
+                    )}
 
                     {/* 画像状態表示 */}
                     <div className="text-xs text-gray-500 space-y-1">
@@ -475,7 +560,10 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                         <div>{t(CHARACTER_IMAGE_I18N_KEYS.icon)}: {imageInfo[selectedEmotion]?.hasIcon ? `✓ ${t(CHARACTER_IMAGE_I18N_KEYS.available)}` : `✗ ${t(CHARACTER_IMAGE_I18N_KEYS.missing)}`}</div>
                     </div>
 
-                    {/* 定義に無い表情画像の一括削除 */}
+                    </div>
+                    </div>
+
+                    {/* 定義に無い表情画像の一括削除（画像・操作群の下） */}
                     <div className="pt-2 border-t border-gray-800">
                         <button
                             onClick={() => setIsPruneConfirmOpen(true)}

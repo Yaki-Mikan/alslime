@@ -82,6 +82,14 @@ func Register(mux *http.ServeMux, svc *domain.Service, gate coreapi.FeatureGate)
 	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenInstruction, handleGetConfigGenInstruction(svc))
 	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenInstruction, handleSaveConfigGenInstruction(svc))
 	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenInstructionReset, handleResetConfigGenInstruction(svc))
+
+	// 設定自動生成テンプレート（入力項目・設定ファイル）。複数ファイルの CRUD と既定。
+	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenTemplates, handleListConfigGenTemplates(svc))
+	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenTemplate, handleGetConfigGenTemplate(svc))
+	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenTemplate, handleSaveConfigGenTemplate(svc))
+	mux.HandleFunc(http.MethodDelete+" "+base+routeConfigGenTemplate, handleDeleteConfigGenTemplate(svc))
+	mux.HandleFunc(http.MethodGet+" "+base+routeConfigGenTemplateDefaults, handleGetConfigGenTemplateDefaults(svc))
+	mux.HandleFunc(http.MethodPost+" "+base+routeConfigGenTemplateDefaults, handleSaveConfigGenTemplateDefault(svc))
 }
 
 // withImageGenGate は FeatureComfyUI が無効なら 403 を返すミドルウェア。
@@ -537,5 +545,89 @@ func isNameError(err error) bool {
 func writeJSON(w http.ResponseWriter, v any) {
 	if err := apiresponse.WriteJSON(w, http.StatusOK, v); err != nil {
 		apierror.Write(w, apierror.Internal(err))
+	}
+}
+
+// ---- 設定自動生成テンプレート ----
+
+func handleListConfigGenTemplates(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		names, err := svc.ListConfigGenTemplates(r.PathValue(pathParamTarget), r.PathValue(pathParamLocale), r.PathValue(pathParamKind))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if names == nil {
+			names = []string{}
+		}
+		writeJSON(w, names)
+	}
+}
+
+func handleGetConfigGenTemplate(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, err := svc.ReadConfigGenTemplate(r.PathValue(pathParamTarget), r.PathValue(pathParamLocale), r.PathValue(pathParamKind), r.PathValue(pathParamTemplateName))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, contentResponse{Content: content})
+	}
+}
+
+func handleSaveConfigGenTemplate(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, ok := decodeContent(w, r)
+		if !ok {
+			return
+		}
+		if err := svc.WriteConfigGenTemplate(r.PathValue(pathParamTarget), r.PathValue(pathParamLocale), r.PathValue(pathParamKind), r.PathValue(pathParamTemplateName), content); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, successResponse{Success: true})
+	}
+}
+
+func handleDeleteConfigGenTemplate(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.DeleteConfigGenTemplate(r.PathValue(pathParamTarget), r.PathValue(pathParamLocale), r.PathValue(pathParamKind), r.PathValue(pathParamTemplateName)); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, successResponse{Success: true})
+	}
+}
+
+func handleGetConfigGenTemplateDefaults(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		defaults, err := svc.ConfigGenTemplateDefaults()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, defaults)
+	}
+}
+
+type saveConfigGenTemplateDefaultRequest struct {
+	Target string `json:"target"`
+	Locale string `json:"locale"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+}
+
+func handleSaveConfigGenTemplateDefault(svc *domain.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req saveConfigGenTemplateDefaultRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(errKeyInvalidJSONBody))
+			return
+		}
+		if err := svc.SaveConfigGenTemplateDefault(req.Target, req.Locale, req.Kind, req.Name); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, successResponse{Success: true})
 	}
 }

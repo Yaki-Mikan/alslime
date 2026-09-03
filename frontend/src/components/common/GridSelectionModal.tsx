@@ -13,7 +13,8 @@ export const GridSelectionModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     onSelect: (value: string) => void;
-    options: { label: string; value: string; description?: string }[];
+    // imageUrl があるカードは画像を背景に敷いた正方形カード（キャラカード）として描く
+    options: { label: string; value: string; description?: string; imageUrl?: string }[];
     title: string;
     emptyLabel?: string;
     searchable?: boolean;
@@ -115,6 +116,32 @@ export const GridSelectionModal: React.FC<{
                         )}
                         {filteredOptions.map(opt => {
                             const isSelected = selectedValue !== undefined && selectedValue !== '' && opt.value === selectedValue;
+                            if (opt.imageUrl) {
+                                // キャラカード：正方形アイコンを背景に敷き、下端のグラデーション帯の上に名前を重ねる
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        ref={isSelected ? selectedRef : undefined}
+                                        onClick={() => onSelect(opt.value)}
+                                        className={`relative overflow-hidden rounded transition-colors border group aspect-square min-h-[80px] ${isSelected
+                                            ? 'bg-blue-600/20 border-blue-500'
+                                            : 'border-gray-700/50 hover:border-blue-500/50'}`}
+                                    >
+                                        <img
+                                            src={opt.imageUrl}
+                                            alt=""
+                                            loading="lazy"
+                                            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${isSelected ? 'opacity-70' : 'opacity-60 group-hover:opacity-80'}`}
+                                        />
+                                        <div className="absolute inset-x-0 bottom-0 pt-8 pb-2 px-2 bg-gradient-to-t from-gray-900/95 via-gray-900/70 to-transparent">
+                                            <div className={`font-bold break-words w-full text-center drop-shadow ${isSelected ? 'text-blue-200' : 'text-gray-100 group-hover:text-blue-300'}`}>{opt.label}</div>
+                                            {opt.description && (
+                                                <div className={`text-xs mt-0.5 text-center ${isSelected ? 'text-blue-200/80' : 'text-gray-300'}`}>{opt.description}</div>
+                                            )}
+                                        </div>
+                                    </button>
+                                );
+                            }
                             return (
                                 <button
                                     key={opt.value}

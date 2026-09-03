@@ -61,9 +61,8 @@ const STATE_FALLBACK_JA: Record<EntitlementState, string> = {
     invalid: '無効なトークン',
 };
 
-// ログイン完了待ちポーリングの間隔と上限（backend 側リスナーは 5 分でタイムアウト）。
+// ログイン完了待ちのローカル状態確認間隔。ログイン期限はサーバー応答へ追随する。
 const LOGIN_POLL_INTERVAL_MS = 2000;
-const LOGIN_POLL_LIMIT_MS = 5 * 60 * 1000;
 
 // GitHub Sponsors の支援ページ（「支援者になる」ボタンの飛び先）。
 const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
@@ -72,6 +71,7 @@ const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
 export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, uiLanguage, onModulesChanged }) => {
     const [status, setStatus] = useState<SponsorStatus | null>(null);
     const [authUrl, setAuthUrl] = useState<string | null>(null);
+    const [loginExpiresAt, setLoginExpiresAt] = useState<string | null>(null);
     const [isBusy, setIsBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [modules, setModules] = useState<ModuleStatusEntry[]>([]);
@@ -139,6 +139,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         if (!isOpen) {
             stopPolling();
             setAuthUrl(null);
+            setLoginExpiresAt(null);
             setError(null);
             setInstallNotice(null);
             return;
@@ -314,18 +315,19 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         setError(null);
         setAuthUrl(null);
         try {
-            const { authUrl: nextUrl } = await startSponsorLogin(backendUrl);
+            const { authUrl: nextUrl, expiresAt: nextExpiresAt } = await startSponsorLogin(backendUrl);
             setAuthUrl(nextUrl);
+            setLoginExpiresAt(nextExpiresAt);
             // ポップアップブロック時に備え、リンクも画面に残す（下の「開かない場合」導線）。
             window.open(nextUrl, '_blank', 'noopener');
-            const startedAt = Date.now();
             stopPolling();
             pollTimer.current = window.setInterval(async () => {
                 const next = await load();
                 const finished = next !== null && !next.loginPending;
-                if (finished || Date.now() - startedAt > LOGIN_POLL_LIMIT_MS) {
+                if (finished) {
                     stopPolling();
                     setAuthUrl(null);
+                    setLoginExpiresAt(null);
                     setIsBusy(false);
                 }
             }, LOGIN_POLL_INTERVAL_MS);
@@ -401,7 +403,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
+            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] border border-gray-700 overflow-y-auto custom-scrollbar">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800">
                     <div className="flex items-center gap-2">
                         <Heart size={18} className="text-pink-400" />
@@ -558,8 +560,13 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
                     )}
 
                     {loginPending && (
-                        <div className="text-sm text-cyan-300">
-                            {t('sponsor.loginPending', 'ブラウザでログインを完了してください...')}
+                        <div className="space-y-2 rounded border border-cyan-900/50 bg-cyan-950/20 px-3 py-3 text-sm text-cyan-300">
+                            <p>{t('sponsor.loginPending', 'ブラウザでログインを完了してください...')}</p>
+                            {loginExpiresAt && (
+                                <p className="text-xs text-gray-500">
+                                    {t('sponsor.loginExpires', 'ログイン期限')}: {new Date(loginExpiresAt).toLocaleTimeString()}
+                                </p>
+                            )}
                             {authUrl && (
                                 <a
                                     href={authUrl}

@@ -1,6 +1,6 @@
 // Package sponsor は支援者機能のログイン・トークン管理フロー（Phase D-3。14番 7章-3）。
 //
-// entitlement サーバーとの通信（OAuth 誘導・localhost コールバック受け・refresh）と、
+// entitlement サーバーとの通信（OAuth 誘導・認証結果ポーリング・refresh）と、
 // TokenStore への保存判断を担う。トークンの署名検証・tier 判定は core 側 gate
 // （featuresimpl）の責務で、本パッケージは gate.Entitlement() の結果だけを見る。
 // トークン値・URL クエリはログへ出さない（安全要件§8-1）。
@@ -12,10 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,14 +57,9 @@ const (
 	LoginErrorInvalidToken = "invalid_token"
 	// LoginErrorServer はサーバー側が明示エラーを返した（コールバックの error クエリ）。
 	LoginErrorServer = "server_error"
+	// LoginErrorExpired は認証セッションのローカル停止期限が到来した。
+	LoginErrorExpired = "expired"
 )
-
-// serverNotASponsor は entitlement サーバーが「認証成功だが有効な支援なし」を
-// 示すために error クエリで返す値。これは失敗ではなく Free ログイン成功として扱う。
-const serverNotASponsor = "not_a_sponsor"
-
-// loginTimeout はコールバック待ち受けの上限。過ぎたらリスナーを閉じる。
-const loginTimeout = 5 * time.Minute
 
 // Status は支援者機能の現在状態（GET /api/sponsor/status の本文）。
 type Status struct {
@@ -76,6 +72,8 @@ type Status struct {
 	// LoginedAsFree は直近ログインが GitHub 認証成功・有効な支援なし（Free 扱い）
 	// だったとき true。これは失敗ではなくログイン成功の一種。
 	LoginedAsFree bool `json:"loginedAsFree,omitempty"`
+	// LoginExpiresAt は進行中ログインの表示用期限。停止判定はローカル deadline を使う。
+	LoginExpiresAt string `json:"loginExpiresAt,omitempty"`
 	// Notice は entitlement サーバーから受領した開発者お知らせ文言（未受領は空。
 	// 作業予定14番）。ログイン完了時と refresh 時に取り直され、それまで保持される。
 	Notice string `json:"notice,omitempty"`
@@ -105,6 +103,7 @@ type Service struct {
 	uiLang  func() string
 
 	mu            sync.Mutex
+	loginStartMu  sync.Mutex
 	login         *loginSession
 	lastError     string
 	loginedAsFree bool
@@ -151,11 +150,20 @@ func (s *Service) ConfigureNotice(notices NoticeStore, uiLang func() string) {
 	s.uiLang = uiLang
 }
 
-// loginSession は進行中のコールバック待ち受け。
+// loginSession は進行中の認証サーバー結果ポーリング。
 type loginSession struct {
-	srv   *http.Server
-	ln    net.Listener
-	timer *time.Timer
+	id               string
+	pollSecret       string
+	deadline         time.Time
+	displayExpiresAt time.Time
+	pollInterval     time.Duration
+	cancel           context.CancelFunc
+}
+
+// LoginStart はフロントへ返すログイン開始情報。秘密値は含めない。
+type LoginStart struct {
+	AuthURL   string `json:"authUrl"`
+	ExpiresAt string `json:"expiresAt"`
 }
 
 // New は Service を生成する。
@@ -193,86 +201,218 @@ func (s *Service) Status() Status {
 		LastLoginError: s.lastError,
 		LoginedAsFree:  s.loginedAsFree,
 		Notice:         notice,
+		LoginExpiresAt: loginExpiresAt(s.login),
 	}
 }
 
-// StartLogin はコールバック待ち受けを開始し、ブラウザで開くべき認可 URL を返す。
-//
-// 127.0.0.1 の一時ポートで GET /oauth-done を待ち、entitlement サーバーが
-// リダイレクトで渡すトークンを受け取る（14番 3章の localhost リダイレクト方式）。
-// 進行中のログインがあれば閉じて新しく始める（ボタン連打・やり直しを許容）。
-func (s *Service) StartLogin() (authURL string, err error) {
+func loginExpiresAt(session *loginSession) string {
+	if session == nil || session.displayExpiresAt.IsZero() {
+		return ""
+	}
+	return session.displayExpiresAt.UTC().Format(time.RFC3339)
+}
+
+// StartLogin は認証サーバー上の一回性セッションを開始し、結果ポーリングを起動する。
+func (s *Service) StartLogin() (LoginStart, error) {
+	s.loginStartMu.Lock()
+	defer s.loginStartMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.closeLoginLocked()
 	s.lastError = ""
 	s.loginedAsFree = false
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("sponsor: listen callback port: %w", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /oauth-done", s.handleOAuthDone)
-	srv := &http.Server{Handler: mux}
-	session := &loginSession{srv: srv, ln: ln}
-	session.timer = time.AfterFunc(loginTimeout, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.login == session {
-			s.closeLoginLocked()
-		}
-	})
-	s.login = session
-
-	go func() {
-		// Serve はリスナーを閉じると ErrServerClosed 等で戻る。正常系のため無視。
-		_ = srv.Serve(ln)
-	}()
-
-	return fmt.Sprintf("%s/auth/github/start?redirect_port=%d", s.serverURL, port), nil
-}
-
-// handleOAuthDone は entitlement サーバーからのリダイレクトを受ける。
-func (s *Service) handleOAuthDone(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-
-	code := ""
-	free := false
-	switch {
-	case q.Get("error") == serverNotASponsor:
-		// GitHub 認証は成功したが有効な支援なし。失敗ではなく Free ログイン成功扱い。
-		free = true
-	case q.Get("error") != "":
-		// 想定外の error 値はサーバー異常として丸める。
-		code = LoginErrorServer
-	case q.Get("token") != "":
-		code = s.acceptToken(q.Get("token"))
-	default:
-		code = LoginErrorServer
-	}
-
-	s.mu.Lock()
-	s.lastError = code
-	s.loginedAsFree = free
 	s.mu.Unlock()
 
-	writeLoginResultPage(w, code == "", free)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, s.serverURL+"/auth/github/session", nil)
+	if err != nil {
+		return LoginStart{}, err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return LoginStart{}, err
+	}
+	receivedAt := time.Now()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		return LoginStart{}, fmt.Errorf("sponsor: login session status %d", resp.StatusCode)
+	}
+	var body struct {
+		AuthURL          string `json:"authUrl"`
+		SessionID        string `json:"sessionId"`
+		PollSecret       string `json:"pollSecret"`
+		ExpiresAt        string `json:"expiresAt"`
+		ExpiresInSeconds int64  `json:"expiresInSeconds"`
+		PollAfterSeconds int64  `json:"pollAfterSeconds"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return LoginStart{}, err
+	}
+	displayExpiresAt, err := time.Parse(time.RFC3339, body.ExpiresAt)
+	if err != nil || body.ExpiresInSeconds <= 0 || body.PollAfterSeconds <= 0 ||
+		body.ExpiresInSeconds > math.MaxInt64/int64(time.Second) ||
+		body.PollAfterSeconds > math.MaxInt64/int64(time.Second) ||
+		body.PollAfterSeconds >= body.ExpiresInSeconds ||
+		body.SessionID == "" || body.PollSecret == "" || !validGitHubAuthURL(body.AuthURL) {
+		return LoginStart{}, errors.New("sponsor: invalid login session response")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	session := &loginSession{
+		id: body.SessionID, pollSecret: body.PollSecret,
+		deadline:         receivedAt.Add(time.Duration(body.ExpiresInSeconds) * time.Second),
+		displayExpiresAt: displayExpiresAt, pollInterval: time.Duration(body.PollAfterSeconds) * time.Second,
+		cancel: cancel,
+	}
+	s.mu.Lock()
+	s.closeLoginLocked()
+	s.login = session
+	s.mu.Unlock()
+	go s.pollLogin(ctx, session)
+	return LoginStart{AuthURL: body.AuthURL, ExpiresAt: body.ExpiresAt}, nil
+}
 
-	// ハンドラ内から自分のサーバーを閉じるためデッドロック回避で遅延させる。
-	go func() {
-		// ログイン成功（Free 含む）ならお知らせを取得してから待ち受けを閉じる。
-		// loginPending 解除を検知したフロントのポーリングが拾う Status に
-		// 文言が載っている順序を保証する（ブラウザへの応答は既に返済み）。
-		if code == "" {
-			s.fetchNotice(context.Background())
+func validGitHubAuthURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "https" && parsed.Host == "github.com" && parsed.Path == "/login/oauth/authorize"
+}
+
+func (s *Service) pollLogin(ctx context.Context, session *loginSession) {
+	delay := session.pollInterval
+	for {
+		remaining := time.Until(session.deadline)
+		if remaining <= 0 {
+			s.finishLogin(session, LoginErrorExpired, false, false)
+			return
 		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.closeLoginLocked()
-	}()
+		wait := delay
+		if wait > remaining {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		nextDelay, done := s.pollLoginOnce(ctx, session)
+		if done {
+			return
+		}
+		delay = nextDelay
+	}
+}
+
+func (s *Service) pollLoginOnce(ctx context.Context, session *loginSession) (time.Duration, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.serverURL+"/auth/github/session/"+url.PathEscape(session.id)+"/result", nil)
+	if err != nil {
+		return session.pollInterval, false
+	}
+	req.Header.Set("Authorization", "Bearer "+session.pollSecret)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return session.pollInterval, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return pollRetryDelay(session, resp.Header.Get("Retry-After")), false
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		var pending struct {
+			PollAfterSeconds int64 `json:"pollAfterSeconds"`
+		}
+		if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&pending) == nil && pending.PollAfterSeconds > 0 {
+			return boundedPollDelay(session, pending.PollAfterSeconds), false
+		}
+		return boundedPollDelay(session, 0), false
+	}
+	if resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode <= 599 {
+		return pollRetryDelay(session, resp.Header.Get("Retry-After")), false
+	}
+	if resp.StatusCode != http.StatusOK {
+		s.finishLogin(session, LoginErrorServer, false, false)
+		return 0, true
+	}
+	var result struct {
+		Status string `json:"status"`
+		Token  string `json:"token"`
+		Error  string `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+		return session.pollInterval, false
+	}
+	switch result.Status {
+	case "entitled":
+		if result.Token == "" {
+			return session.pollInterval, false
+		}
+		s.finishLoginWithToken(session, result.Token)
+		return 0, true
+	case "free":
+		s.finishLogin(session, "", true, true)
+		return 0, true
+	case "failed":
+		s.finishLogin(session, LoginErrorServer, false, false)
+		return 0, true
+	default:
+		return session.pollInterval, false
+	}
+}
+
+func pollRetryDelay(session *loginSession, rawRetryAfter string) time.Duration {
+	seconds, err := strconv.ParseInt(strings.TrimSpace(rawRetryAfter), 10, 64)
+	if err != nil || seconds <= 0 {
+		return boundedPollDelay(session, 0)
+	}
+	return boundedPollDelay(session, seconds)
+}
+
+func boundedPollDelay(session *loginSession, seconds int64) time.Duration {
+	delay := session.pollInterval
+	if seconds > 0 && seconds <= math.MaxInt64/int64(time.Second) {
+		delay = time.Duration(seconds) * time.Second
+	}
+	if session.deadline.IsZero() {
+		return delay
+	}
+	remaining := time.Until(session.deadline)
+	if remaining <= 0 {
+		return 0
+	}
+	if delay > remaining {
+		return remaining
+	}
+	return delay
+}
+
+func (s *Service) finishLogin(session *loginSession, code string, free, success bool) {
+	s.mu.Lock()
+	if s.login != session {
+		s.mu.Unlock()
+		return
+	}
+	s.lastError = code
+	s.loginedAsFree = free
+	s.closeLoginLocked()
+	s.mu.Unlock()
+	if success {
+		s.fetchNotice(context.Background())
+	}
+}
+
+func (s *Service) finishLoginWithToken(session *loginSession, resultToken string) {
+	s.mu.Lock()
+	if s.login != session {
+		s.mu.Unlock()
+		return
+	}
+	code := s.acceptToken(resultToken)
+	s.lastError = code
+	s.loginedAsFree = false
+	s.closeLoginLocked()
+	s.mu.Unlock()
+	if code == "" {
+		s.fetchNotice(context.Background())
+	}
 }
 
 // acceptToken は受領トークンを検証してから確定保存する。失敗コードを返す（成功は空）。
@@ -309,6 +449,7 @@ func (s *Service) acceptToken(token string) string {
 // （お知らせはログイン時に取得するものなので、ログイン状態と寿命を揃える）。
 func (s *Service) Logout() error {
 	s.mu.Lock()
+	s.closeLoginLocked()
 	s.lastError = ""
 	s.loginedAsFree = false
 	s.mu.Unlock()
@@ -426,6 +567,11 @@ const (
 func (s *Service) RunAutoRefresh(ctx context.Context) {
 	timer := time.NewTimer(autoRefreshFirstWait)
 	defer timer.Stop()
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.closeLoginLocked()
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -458,34 +604,12 @@ func (s *Service) refreshIfNeeded(ctx context.Context) {
 	logging.Info("sponsor: entitlement token refreshed")
 }
 
-// closeLoginLocked は進行中ログインの待ち受けを閉じる（mu 保持前提）。
+// closeLoginLocked は進行中ログインのポーリングを閉じる（mu 保持前提）。
 func (s *Service) closeLoginLocked() {
 	if s.login == nil {
 		return
 	}
 	session := s.login
 	s.login = nil
-	session.timer.Stop()
-	// Close はリスナーも閉じる。コールバック応答は書き終わっている前提で即時 Close でよい。
-	_ = session.srv.Close()
-}
-
-// writeLoginResultPage はブラウザ側へ完了ページを返す（このタブは閉じてよい旨）。
-// アプリ本体の状態はフロントが /api/sponsor/status のポーリングで拾う。
-//
-// ok=true かつ free=false: 支援者としてログイン成功。
-// ok=true かつ free=true : GitHub 認証成功・有効な支援なし（Free ログイン成功）。
-// ok=false               : ログイン失敗（トークン検証失敗・サーバー異常）。
-func writeLoginResultPage(w http.ResponseWriter, ok bool, free bool) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	title, body := "ログイン完了 / Sign-in complete", "AlSlime へ戻ってください。このタブは閉じて構いません。<br>Return to AlSlime. You can close this tab."
-	switch {
-	case ok && free:
-		title = "ログイン完了（Free） / Signed in (Free)"
-		body = "GitHub 認証に成功しました。Free プランで利用できます。AlSlime へ戻ってください。<br>Signed in with GitHub. You can use the Free plan. Return to AlSlime."
-	case !ok:
-		title = "ログイン失敗 / Sign-in failed"
-		body = "AlSlime に戻り、表示されたエラーを確認してください。<br>Return to AlSlime and check the error shown there."
-	}
-	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>%s</title></head><body style="font-family:sans-serif;text-align:center;margin-top:4rem"><h2>%s</h2><p>%s</p></body></html>`, title, title, body)
+	session.cancel()
 }

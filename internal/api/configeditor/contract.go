@@ -39,6 +39,14 @@ const (
 	routeConfigGenInstruction      = "/configgen-instruction/{instructionId}"
 	routeConfigGenInstructionReset = "/configgen-instruction/{instructionId}/reset"
 	pathParamInstructionID         = "instructionId"
+
+	// 設定自動生成テンプレート（入力項目・設定ファイル）。対象 → 言語 → 種類 → 名前。
+	routeConfigGenTemplates        = "/configgen-templates/{target}/{locale}/{kind}"
+	routeConfigGenTemplate         = "/configgen-template/{target}/{locale}/{kind}/{name}"
+	routeConfigGenTemplateDefaults = "/configgen-template-defaults"
+	pathParamTarget                = "target"
+	pathParamLocale                = "locale"
+	pathParamKind                  = "kind"
 )
 
 // Config Editor API が返す利用者向けエラーの i18n キー。

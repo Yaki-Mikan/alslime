@@ -8,6 +8,8 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { AudioLines, ChevronDown, ChevronRight, Cpu, Download, Loader2, Mic, Play, Plug, Save, Search, Smile, Square, Trash2, Upload, Users, Wand2, X } from 'lucide-react';
+import { useIsWideScreen } from '../../hooks/useIsWideScreen';
+import { CollapsibleSectionHeader } from '../common/CollapsibleSectionHeader';
 import { deleteTTSVoice, encodeTTSLatent, fetchTTSHealth, fetchTTSRuntimeModels, fetchTTSRuntimeProfiles, fetchTTSVoices, getTTSCharacterConfig, getTTSConfig, getTTSServerCapabilities, previewTTS, restartTTSRuntime, saveTTSCharacterConfig, saveTTSConfig, setTTSRuntimeModel, setTTSRuntimeProfile, testTTSConnection, unloadTTSRuntimeModel, uploadTTSVoice } from '../../api/tts';
 import type { TTSCharacterConfig, TTSConfig, TTSConnectionTestResult, TTSReadTarget, TTSResponseFormat, TTSRuntimeModel, TTSRuntimeProfilesResult, TTSRuntimeState, TTSServerCapabilitiesResult, TTSVoice } from '../../api/tts';
 import { getCharacterTags } from '../../api/files';
@@ -38,6 +40,10 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
 }) => {
     const t = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
 
+    const isWideScreen = useIsWideScreen();
+    // 狭画面で縦積みにした時の右側（文体指示＋読み上げテスト）の開閉
+    const [rightOpen, setRightOpen] = useState(true);
+    const showRight = isWideScreen || rightOpen;
     const [config, setConfig] = useState<TTSConfig | null>(null);
     const [apiKeyInput, setApiKeyInput] = useState('');
     const [clearApiKey, setClearApiKey] = useState(false);
@@ -68,6 +74,8 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
     const [isVoiceListOpen, setIsVoiceListOpen] = useState(false);
     const [voiceSearch, setVoiceSearch] = useState('');
     const [voicesLoaded, setVoicesLoaded] = useState(false);
+    // 直近に登録したVoice ID（音声アップロード・Latent登録の直後に試聴できるよう一覧の上に出す）。
+    const [recentVoiceId, setRecentVoiceId] = useState<string | null>(null);
     // 読み上げテスト文。null は未編集（表示時にカタログの既定文へ解決する。べた書き回避）。
     const [previewText, setPreviewText] = useState<string | null>(null);
     const effectivePreviewText = previewText ?? t('tts.voicePanel.previewText', 'こんにちは。音声のテストです。');
@@ -350,18 +358,38 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
         }
     };
 
-    const loadVoices = async () => {
+    const loadVoices = async (): Promise<TTSVoice[] | null> => {
         setVoicesLoading(true);
         try {
             const list = await fetchTTSVoices(backendUrl);
             setVoices(list);
             setVoicesLoaded(true);
+            return list;
         } catch (error) {
             console.error('[TTSIntegratedSettingsModal] voices load failed:', error);
             showNotice(t('tts.voices.loadFailed', 'Voice一覧の取得に失敗しました'));
+            return null;
         } finally {
             setVoicesLoading(false);
         }
+    };
+
+    // 登録前のVoice ID集合。一覧未読込なら取得して基準にする（失敗時は空扱い）。
+    const snapshotVoiceIds = async (): Promise<Set<string>> => {
+        if (voicesLoaded) return new Set(voices.map(voice => voice.id));
+        try {
+            return new Set((await fetchTTSVoices(backendUrl)).map(voice => voice.id));
+        } catch {
+            return new Set();
+        }
+    };
+
+    // 登録前後の一覧差分から新規Voice IDを特定して「直近の登録音声」に控える。
+    // 差分が取れない（同名上書き等）場合は入力したIDを使う。
+    const markRecentVoice = (before: Set<string>, after: TTSVoice[] | null, fallback: string) => {
+        const added = after?.find(voice => !before.has(voice.id));
+        const id = added?.id ?? fallback.trim();
+        setRecentVoiceId(id || null);
     };
 
     const stopPreview = () => {
@@ -398,11 +426,13 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
         if (!uploadVoiceId.trim() || !uploadFile || isUploading) return;
         setIsUploading(true);
         try {
-            await uploadTTSVoice(backendUrl, uploadVoiceId.trim(), uploadFile);
+            const before = await snapshotVoiceIds();
+            const newId = uploadVoiceId.trim();
+            await uploadTTSVoice(backendUrl, newId, uploadFile);
             setUploadVoiceId('');
             setUploadFile(null);
             showNotice(t('tts.voices.uploaded', 'Voiceを登録しました'));
-            await loadVoices();
+            markRecentVoice(before, await loadVoices(), newId);
         } catch (error) {
             console.error('[TTSIntegratedSettingsModal] voice upload failed:', error);
             showNotice(t('tts.voices.uploadFailed', 'Voiceの登録に失敗しました'));
@@ -443,6 +473,7 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
         if (!target) return;
         try {
             await deleteTTSVoice(backendUrl, target);
+            if (recentVoiceId === target) setRecentVoiceId(null);
             await loadVoices();
         } catch (error) {
             console.error('[TTSIntegratedSettingsModal] voice delete failed:', error);
@@ -500,6 +531,7 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
         if (!latentAudioFile || latentBusy) return;
         setLatentBusy(true);
         try {
+            const before = mode === 'register' ? await snapshotVoiceIds() : new Set<string>();
             const blob = await encodeTTSLatent(backendUrl, { ...latentParams(), file: latentAudioFile, mode });
             if (mode === 'download' && blob) {
                 const name = latentDisplayName.trim() || latentVoiceId.trim() || 'latent';
@@ -512,7 +544,7 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                 showNotice(t('tts.latent.downloaded', 'Latentをダウンロードしました'));
             } else {
                 showNotice(t('tts.latent.registered', 'LatentをVoiceとして登録しました'));
-                await loadVoices();
+                markRecentVoice(before, await loadVoices(), latentVoiceId);
             }
         } catch (error) {
             console.error('[TTSIntegratedSettingsModal] latent encode failed:', error);
@@ -527,10 +559,11 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
         if (!droppedLatent || latentBusy) return;
         setLatentBusy(true);
         try {
+            const before = await snapshotVoiceIds();
             await encodeTTSLatent(backendUrl, { ...latentParams(), file: droppedLatent, mode: 'register' });
             showNotice(t('tts.latent.registered', 'LatentをVoiceとして登録しました'));
             setDroppedLatent(null);
-            await loadVoices();
+            markRecentVoice(before, await loadVoices(), latentVoiceId);
         } catch (error) {
             console.error('[TTSIntegratedSettingsModal] latent register failed:', error);
             showNotice(t('tts.latent.failed', 'Latent変換に失敗しました'));
@@ -752,12 +785,12 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                 style={{ width: '90vw', height: '90vh' }}
             >
                 {/* ヘッダー */}
-                <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
+                <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-700 bg-gray-800 shrink-0 ${isWideScreen ? '' : 'flex-wrap'}`}>
                     <AudioLines size={20} className="text-orange-400" />
                     <h2 className="text-lg font-semibold text-gray-100">
                         {t('tts.settings.title', 'TTS統合設定')}
                     </h2>
-                    {headerTabs}
+                    {isWideScreen ? headerTabs : <div className="basis-full order-last">{headerTabs}</div>}
                     {notice && <span className="text-xs text-orange-300">{notice}</span>}
                     {isDirty && <span className="ml-auto text-xs text-yellow-400">{t('tts.settings.unsaved', '未保存')}</span>}
                     <button
@@ -770,8 +803,8 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                 </div>
 
                 {/* メイン: 設定セクション縦積み（読み上げテストエリアが入るフェーズで左右分割へ拡張する） */}
-                <div className="flex flex-1 overflow-hidden">
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+                <div className={isWideScreen ? 'flex flex-1 overflow-hidden' : 'flex flex-col flex-1 overflow-y-auto'}>
+                    <div className={isWideScreen ? 'flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4' : 'shrink-0 border-b border-gray-700 p-5 space-y-4'}>
                         {/* 接続設定セクション */}
                         <div className="border border-orange-600/40 rounded-lg overflow-hidden">
                             <button
@@ -788,13 +821,13 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                                         <label className="block text-xs text-gray-400 mb-1">
                                             {t('tts.settings.connectionUrl', 'エンドポイントURL')}
                                         </label>
-                                        <div className="flex items-center gap-2">
+                                        <div className={isWideScreen ? 'flex items-center gap-2' : 'flex flex-col gap-2'}>
                                             <input
                                                 type="text"
                                                 value={config.connectionUrl}
                                                 onChange={e => updateConfig('connectionUrl', e.target.value)}
                                                 placeholder="http://127.0.0.1:8088"
-                                                className="flex-1 bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded px-3 py-2 outline-none focus:border-orange-500"
+                                                className="flex-1 w-full min-w-0 bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded px-3 py-2 outline-none focus:border-orange-500"
                                             />
                                             <button
                                                 onClick={handleConnectionTest}
@@ -984,7 +1017,7 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                                                     className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded px-2 py-1.5 outline-none focus:border-orange-500"
                                                 >
                                                     {(engineProfiles?.profiles ?? []).map(profile => (
-                                                        <option key={profile.id} value={profile.id}>{profile.label}</option>
+                                                        <option key={profile.id} value={profile.id}>{t(`tts.engine.profileLabel.${profile.id}`, profile.label)}</option>
                                                     ))}
                                                 </select>
                                                 <button
@@ -1036,6 +1069,25 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                             </button>
                             {isVoicesOpen && (
                                 <div className="p-4 space-y-4">
+                                    {/* 直近の登録音声（登録直後に一覧から探さず試聴するための1件表示） */}
+                                    <div className="space-y-1.5">
+                                        <span className="block text-xs text-gray-300">{t('tts.voices.recent', '直近の登録音声')}</span>
+                                        {recentVoiceId ? (
+                                            <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/60 border border-gray-700 rounded">
+                                                <span className="text-sm text-gray-200 truncate">{recentVoiceId}</span>
+                                                <button
+                                                    onClick={() => void handlePreview(recentVoiceId)}
+                                                    className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded transition-colors"
+                                                    title={previewingId === recentVoiceId ? t('tts.button.stop', '停止') : t('tts.voices.preview', '試聴')}
+                                                >
+                                                    {previewingId === recentVoiceId ? <Square size={13} /> : <Play size={13} />}
+                                                    <span>{previewingId === recentVoiceId ? t('tts.button.stop', '停止') : t('tts.voices.preview', '試聴')}</span>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-500 px-1">{t('tts.voices.recentNone', 'なし')}</p>
+                                        )}
+                                    </div>
                                     <div className="space-y-1.5">
                                         {/* 見出し行＝開閉ボタン（既定は閉。数百件規模でも開くまで一覧を描画しない） */}
                                         <div className="flex items-center gap-2">
@@ -1573,8 +1625,17 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                         </div>
                     </div>
 
-                    {/* 右半分: 文体指示セクション＋読み上げテスト用エリア（設計04の2章。左右半々） */}
-                    <div className="w-1/2 shrink-0 border-l border-gray-700 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                    {/* 右半分: 文体指示セクション＋読み上げテスト用エリア（設計04の2章。左右半々。狭画面では開閉見出し付きで下に積む） */}
+                    <div className={isWideScreen ? 'w-1/2 shrink-0 border-l border-gray-700 overflow-y-auto custom-scrollbar p-4 space-y-3' : 'shrink-0'}>
+                        {!isWideScreen && (
+                            <CollapsibleSectionHeader
+                                label={t('tts.settings.sectionStyleTest', '文体指示・読み上げテスト')}
+                                open={rightOpen}
+                                onToggle={() => setRightOpen(v => !v)}
+                            />
+                        )}
+                        {showRight && (
+                        <div className={isWideScreen ? 'space-y-3' : 'p-4 space-y-3'}>
                         {/* 文体指示セクション（要件9.8: Irodori-TTS用文体指示（絵文字）のON/OFF。読み上げテストの上に置く） */}
                         <div className="border border-orange-600/40 rounded-lg overflow-hidden">
                             <button
@@ -1660,6 +1721,8 @@ export const TTSIntegratedSettingsModal: React.FC<Props> = ({
                                 <span className="text-xs text-gray-400">{testElapsed.toFixed(1)}{t('tts.latent.seconds', '秒')}</span>
                             )}
                         </div>
+                        </div>
+                        )}
                     </div>
                 </div>
             </div>

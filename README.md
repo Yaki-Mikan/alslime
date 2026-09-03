@@ -78,7 +78,7 @@ GitHub Sponsors支援者向けのIrodori-TTS連携では、キャラクターの
 
 [GitHub Releases](https://github.com/Yaki-Mikan/alslime/releases) から、お使いのOS向けのファイルをダウンロードして展開します。**すべての機能を含むのは配布版です。**
 
-- **Windows**: `alslime-X.Y.Z-windows-amd64.zip` を展開し、`alslime.exe` をダブルクリックで起動します
+- **Windows**: `alslime-X.Y.Z-windows-amd64.zip` を展開し、`start-alslime.bat` をダブルクリックで起動します（本体が起動し、ブラウザで画面が開きます）
 - **Linux**: `alslime-X.Y.Z-linux-amd64.tar.gz` を展開（`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`）し、`./alslime` で起動します（実行権限は付与済みです）
 
 ### ソースからビルドする

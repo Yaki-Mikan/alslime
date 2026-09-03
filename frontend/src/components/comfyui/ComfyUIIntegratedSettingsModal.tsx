@@ -8,6 +8,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, ChevronDown, ChevronRight, Users, Tag, Palette, FileText, Workflow } from 'lucide-react';
+import { useIsWideScreen } from '../../hooks/useIsWideScreen';
+import { CollapsibleSectionHeader } from '../common/CollapsibleSectionHeader';
 import {
     getCharacterImageGenConfig,
     saveCharacterImageGenConfig,
@@ -74,6 +76,10 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
 }) => {
     const { INTEGRATED_SETTINGS_TITLE, COMMON, DANBOORU, SECTION_NAMES } = createComfyUIText(uiCatalog);
     // ===== セクション開閉 =====
+    const isWideScreen = useIsWideScreen();
+    // 狭画面で縦積みにした時の右側（ワークフロー＋テスト生成）の開閉
+    const [rightOpen, setRightOpen] = useState(true);
+    const showRight = isWideScreen || rightOpen;
     const [isCharacterOpen, setIsCharacterOpen] = useState(true);
     const [isTagMappingOpen, setIsTagMappingOpen] = useState(true);
     const [isDirectiveOpen, setIsDirectiveOpen] = useState(false);
@@ -300,8 +306,8 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                 style={{ width: '90vw', height: '90vh' }}
             >
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
-                    <div className="flex items-center gap-4">
+                <div className={`flex justify-between gap-3 px-6 py-4 border-b border-gray-700 bg-gray-800 shrink-0 ${isWideScreen ? 'items-center' : 'items-start'}`}>
+                    <div className={isWideScreen ? 'flex items-center gap-4' : 'flex flex-col gap-2 flex-1 min-w-0'}>
                         <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
                             <Palette size={20} className="text-purple-400" />
                             {INTEGRATED_SETTINGS_TITLE}
@@ -316,16 +322,46 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                     </button>
                 </div>
 
-                {/* メインコンテンツ: 左右分割 */}
-                <div className="flex flex-1 overflow-hidden">
+                {/* メインコンテンツ: 左右分割（狭画面では縦積み） */}
+                <div className={isWideScreen ? 'flex flex-1 overflow-hidden' : 'flex flex-col flex-1 overflow-y-auto'}>
                     {/* ===== 左側: 設定エリア（スクロール可） ===== */}
-                    <div className="w-1/2 overflow-y-auto custom-scrollbar border-r border-gray-700 p-5 space-y-4">
+                    <div className={isWideScreen ? 'w-1/2 overflow-y-auto custom-scrollbar border-r border-gray-700 p-5 space-y-4' : 'shrink-0 border-b border-gray-700 p-5 space-y-4'}>
                         {/* タグ・トリガーワード形式設定（即時保存） */}
                         <div className="border border-gray-700 rounded-lg p-4 bg-gray-800/30 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-medium text-gray-400">
                                 <Tag size={16} className="text-green-400" />
                                 {SECTION_NAMES.TAG_TRIGGER_FORMAT}
                             </div>
+                            {!isWideScreen ? (
+                            /* 狭画面: ラベルの下にプルダウンを縦に並べる */
+                            <div className="flex flex-col gap-3">
+                                <div>
+                                    <span className="block text-xs text-gray-500 mb-1">{DANBOORU.LABELS.DANBOORU_TAGS}</span>
+                                    <select
+                                        value={effectiveDanbooruTagFormat}
+                                        onChange={e => handleChangeDanbooruFormat(e.target.value as DanbooruTagFormat)}
+                                        className="w-full min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500"
+                                    >
+                                        <option value="underscore">{COMMON.MESSAGES.UNDERSCORE}</option>
+                                        <option value="space">{COMMON.MESSAGES.SPACE}</option>
+                                        <option value="anima">{COMMON.MESSAGES.ANIMA}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <span className="block text-xs text-gray-500 mb-1">{DANBOORU.LABELS.TRIGGER_WORDS}</span>
+                                    <select
+                                        value={effectiveTriggerWordFormat}
+                                        onChange={e => handleChangeTriggerFormat(e.target.value as TriggerWordFormat)}
+                                        className="w-full min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-cyan-500"
+                                    >
+                                        <option value="raw">{COMMON.MESSAGES.RAW}</option>
+                                        <option value="underscore">{COMMON.MESSAGES.UNDERSCORE}</option>
+                                        <option value="space">{COMMON.MESSAGES.SPACE}</option>
+                                        <option value="anima">{COMMON.MESSAGES.ANIMA}</option>
+                                    </select>
+                                </div>
+                            </div>
+                            ) : (
                             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                                 {/* Danbooruタグ形式（2択） */}
                                 <div className="flex items-center gap-2">
@@ -338,6 +374,10 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                         <button type="button" onClick={() => handleChangeDanbooruFormat('space')}
                                             className={`px-3 py-1 text-xs rounded transition-colors ${effectiveDanbooruTagFormat === 'space' ? 'bg-green-700 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
                                             {COMMON.MESSAGES.SPACE}
+                                        </button>
+                                        <button type="button" onClick={() => handleChangeDanbooruFormat('anima')}
+                                            className={`px-3 py-1 text-xs rounded transition-colors ${effectiveDanbooruTagFormat === 'anima' ? 'bg-green-700 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                                            {COMMON.MESSAGES.ANIMA}
                                         </button>
                                     </div>
                                 </div>
@@ -357,9 +397,14 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                             className={`px-3 py-1 text-xs rounded transition-colors ${effectiveTriggerWordFormat === 'space' ? 'bg-cyan-700 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
                                             {COMMON.MESSAGES.SPACE}
                                         </button>
+                                        <button type="button" onClick={() => handleChangeTriggerFormat('anima')}
+                                            className={`px-3 py-1 text-xs rounded transition-colors ${effectiveTriggerWordFormat === 'anima' ? 'bg-cyan-700 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                                            {COMMON.MESSAGES.ANIMA}
+                                        </button>
                                     </div>
                                 </div>
                             </div>
+                            )}
                             <p className="text-xs text-gray-500">
                                 {COMMON.MESSAGES.FORMAT_AUTO_SAVE_DESC}
                             </p>
@@ -431,6 +476,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                             uiCatalog={uiCatalog}
                                             templates={templates}
                                             showHeading={false}
+                                            stacked={!isWideScreen}
                                         />
                                     </CollapsibleSection>
 
@@ -472,9 +518,17 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                         </div>
                     </div>
 
-                    {/* ===== 右側: ワークフロー選択 + テスト生成（sticky固定） ===== */}
-                    <div className="w-1/2 overflow-y-auto custom-scrollbar p-5">
-                        <div className="sticky top-0 space-y-4">
+                    {/* ===== 右側: ワークフロー選択 + テスト生成（sticky固定。狭画面では開閉見出し付きで下に積む） ===== */}
+                    <div className={isWideScreen ? 'w-1/2 overflow-y-auto custom-scrollbar p-5' : 'shrink-0'}>
+                        {!isWideScreen && (
+                            <CollapsibleSectionHeader
+                                label={resolveMessage(uiCatalog, 'comfyui.integrated.sectionWorkflowTest', 'ワークフロー・テスト生成')}
+                                open={rightOpen}
+                                onToggle={() => setRightOpen(v => !v)}
+                            />
+                        )}
+                        {showRight && (
+                        <div className={isWideScreen ? 'sticky top-0 space-y-4' : 'p-5 space-y-4'}>
                             <IntegratedWorkflowSection
                                 backendUrl={backendUrl}
                                 templates={templates}
@@ -494,6 +548,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                 uiCatalog={uiCatalog}
                             />
                         </div>
+                        )}
                     </div>
                 </div>
             </div>

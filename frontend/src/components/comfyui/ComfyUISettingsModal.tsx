@@ -7,7 +7,7 @@
  * - 保存済みテンプレート一覧（デフォルト選択・削除）
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from '../../lib/axios';
 import { X, Wifi, WifiOff, Upload, Download, Trash2, CheckCircle, AlertCircle, Loader2, Users, FolderOpen, Tag, Palette, FileText, Save, Workflow } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
@@ -21,6 +21,12 @@ import { ComfyUIGenerateTestModal } from './ComfyUIGenerateTestModal';
 import { createComfyUIText, formatComfyText } from './i18n';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { CLAUDE_EFFORT_VALUES, normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
+import {
+    DEFAULT_ANTIGRAVITY_THINKING,
+    antigravityThinkingLevelsOf,
+    normalizeAntigravityThinking,
+    type AntigravityThinking,
+} from '../../constants/antigravity';
 import {
     getComfyUIConfig,
     saveComfyUIConfig,
@@ -79,6 +85,11 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
         xhigh: COMMON.BUTTONS.CLAUDE_EFFORT_XHIGH,
         max: COMMON.BUTTONS.CLAUDE_EFFORT_MAX,
     };
+    const antigravityThinkingLabels: Record<AntigravityThinking, string> = {
+        low: COMMON.BUTTONS.ANTIGRAVITY_THINKING_LOW,
+        medium: COMMON.BUTTONS.ANTIGRAVITY_THINKING_MEDIUM,
+        high: COMMON.BUTTONS.ANTIGRAVITY_THINKING_HIGH,
+    };
     // 接続設定
     const [connectionUrl, setConnectionUrl] = useState('http://127.0.0.1:8188');
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
@@ -97,12 +108,26 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [tagJudgeClaudeModel, setTagJudgeClaudeModel] = useState<ClaudeTagJudgeModel>('claude-sonnet-4-6');
     const [tagJudgeClaudeEffort, setTagJudgeClaudeEffort] = useState<ClaudeEffort>('');
     const [tagJudgeAntigravityModel, setTagJudgeAntigravityModel] = useState<AntigravityTagJudgeModel>('antigravity');
+    const [tagJudgeAntigravityThinking, setTagJudgeAntigravityThinking] = useState<AntigravityThinking>(DEFAULT_ANTIGRAVITY_THINKING);
     const [tagJudgeTimeoutSeconds, setTagJudgeTimeoutSeconds] = useState(180);
 
     // モデルオプション（APIから動的取得）
     const [geminiModelOptions, setGeminiModelOptions] = useState<{ value: GeminiTagJudgeModel; label: string }[]>([]);
     const [claudeModelOptions, setClaudeModelOptions] = useState<{ value: ClaudeTagJudgeModel; label: string }[]>([]);
-    const [antigravityModelOptions, setAntigravityModelOptions] = useState<{ value: AntigravityTagJudgeModel; label: string }[]>([]);
+    const [antigravityModelOptions, setAntigravityModelOptions] = useState<{ value: AntigravityTagJudgeModel; label: string; thinkingLevels?: string[] }[]>([]);
+    // Antigravity の Thinking 選択肢は選択中モデルの thinkingLevels（サーバ正本）から出し、
+    // 選べないレベルは Low へ落とす。
+    const antigravityThinkingLevels = useMemo(
+        () => (tagJudgeProvider === 'antigravity'
+            ? antigravityThinkingLevelsOf(antigravityModelOptions.find(o => o.value === tagJudgeAntigravityModel))
+            : []),
+        [tagJudgeProvider, antigravityModelOptions, tagJudgeAntigravityModel]
+    );
+    useEffect(() => {
+        if (antigravityThinkingLevels.length > 0 && !antigravityThinkingLevels.includes(tagJudgeAntigravityThinking)) {
+            setTagJudgeAntigravityThinking(normalizeAntigravityThinking(tagJudgeAntigravityThinking, antigravityThinkingLevels));
+        }
+    }, [antigravityThinkingLevels, tagJudgeAntigravityThinking]);
 
     // テスト結果
     const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -157,7 +182,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
         const fetchModels = async () => {
             try {
                 const res = await axios.get(`${backendUrl}/api/models`);
-                const models: { id: string; name: string; description: string }[] = res.data.models ?? [];
+                const models: { id: string; name: string; description: string; thinkingLevels?: string[] }[] = res.data.models ?? [];
                 setGeminiModelOptions(
                     models
                         .filter(m => m.id.startsWith('gemini-') || m.id.startsWith('flash-thinking-'))
@@ -171,7 +196,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 setAntigravityModelOptions(
                     models
                         .filter(m => m.id === 'antigravity' || m.id.startsWith('antigravity:'))
-                        .map(m => ({ value: m.id, label: m.description }))
+                        .map(m => ({ value: m.id, label: m.description, thinkingLevels: m.thinkingLevels }))
                 );
             } catch (e) {
                 // モデルリストの正本はサーバの AVAILABLE_MODELS (/api/models)。
@@ -210,6 +235,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             setTagJudgeClaudeModel(config.tagJudgeClaudeModel || 'claude-sonnet-4-6');
             setTagJudgeClaudeEffort(normalizeClaudeEffort(config.tagJudgeClaudeEffort));
             setTagJudgeAntigravityModel(config.tagJudgeAntigravityModel || 'antigravity');
+            setTagJudgeAntigravityThinking(normalizeAntigravityThinking(config.tagJudgeAntigravityThinking));
             setTagJudgeTimeoutSeconds(config.tagJudgeTimeoutSeconds ?? 180);
             setLightweightImageSaveEnabled(config.lightweightImageSave?.enabled || false);
             setLightweightImageFormat(config.lightweightImageSave?.format || 'avif');
@@ -418,6 +444,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 tagJudgeClaudeModel,
                 tagJudgeClaudeEffort,
                 tagJudgeAntigravityModel,
+                tagJudgeAntigravityThinking,
                 tagJudgeTimeoutSeconds,
                 lightweightImageSave: {
                     enabled: lightweightImageSaveEnabled,
@@ -475,7 +502,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             <Wifi size={16} className="text-green-400" />
                             {SECTION_NAMES.CONNECTION_SETTINGS}
                         </h4>
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 lg:flex-row">
                             <input
                                 type="text"
                                 value={connectionUrl}
@@ -484,7 +511,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                     setTestResult(null);
                                 }}
                                 placeholder="http://127.0.0.1:8188"
-                                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
                             />
                             <button
                                 onClick={handleTestConnection}
@@ -541,7 +568,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 <option value="antigravity">Antigravity CLI</option>
                             </select>
                         </label>
-                        <div className={`grid grid-cols-1 gap-3 ${tagJudgeProvider === 'claude' ? 'sm:grid-cols-2' : ''}`}>
+                        <div className={`grid grid-cols-1 gap-3 ${tagJudgeProvider === 'claude' || antigravityThinkingLevels.length > 0 ? 'sm:grid-cols-2' : ''}`}>
                             <label className="space-y-1 block">
                                 <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
                                 <select
@@ -580,6 +607,20 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                     >
                                         {CLAUDE_EFFORT_VALUES.map((effort) => (
                                             <option key={effort || 'default'} value={effort}>{claudeEffortLabels[effort]}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                            {tagJudgeProvider === 'antigravity' && antigravityThinkingLevels.length > 0 && (
+                                <label className="space-y-1 block">
+                                    <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANTIGRAVITY_THINKING}</span>
+                                    <select
+                                        value={tagJudgeAntigravityThinking}
+                                        onChange={(e) => setTagJudgeAntigravityThinking(e.target.value as AntigravityThinking)}
+                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                    >
+                                        {antigravityThinkingLevels.map((level) => (
+                                            <option key={level} value={level}>{antigravityThinkingLabels[level]}</option>
                                         ))}
                                     </select>
                                 </label>

@@ -35,14 +35,20 @@ const clockSkew = 5 * time.Minute
 // certsFallbackTTL は Cache-Control が読めなかった場合の証明書キャッシュ保持時間。
 const certsFallbackTTL = 30 * time.Minute
 
+// certsRetryInterval は証明書取得に失敗したあと、次に取得を試みるまでの間隔。
+// 失敗のたびに毎リクエストが取得を試みると、Google 側の障害中に全リクエストが
+// 取得待ち（最長 client.Timeout）で直列化してしまうため間隔を空ける。
+const certsRetryInterval = time.Minute
+
 // Middleware は Firebase IDトークン検証の本体。
 type Middleware struct {
 	projectID   string
 	allowedUIDs map[string]struct{}
 
-	mu        sync.Mutex
+	mu        sync.Mutex // certs / certsWait の読み書きを守る（HTTP 取得中は握らない）
+	fetchMu   sync.Mutex // 証明書の HTTP 取得を 1 本に絞る
 	certs     map[string]*rsa.PublicKey
-	certsWait time.Time // このキャッシュの有効期限
+	certsWait time.Time // このキャッシュの有効期限（取得失敗時は次の再試行時刻）
 	client    *http.Client
 	now       func() time.Time
 }
@@ -182,28 +188,66 @@ func (m *Middleware) verifyIDToken(token string) (string, error) {
 // publicKey は kid に対応する Google 公開証明書の RSA 公開鍵を返す。
 // 証明書は Cache-Control の max-age に従いメモリキャッシュする。
 func (m *Middleware) publicKey(kid string) (*rsa.PublicKey, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.certs == nil || m.now().After(m.certsWait) {
-		certs, ttl, err := m.fetchCerts()
-		if err != nil {
-			// 取得失敗時、期限切れでも手元のキャッシュがあれば継続利用する
-			// （Google 側の一時障害で全リクエストを落とさないため）。
-			if m.certs == nil {
-				return nil, err
-			}
-		} else {
-			m.certs = certs
-			m.certsWait = m.now().Add(ttl)
-		}
+	certs, err := m.currentCerts()
+	if err != nil {
+		return nil, err
 	}
-
-	key, ok := m.certs[kid]
+	key, ok := certs[kid]
 	if !ok {
 		return nil, fmt.Errorf("kid %q に対応する公開鍵が見つからない", kid)
 	}
 	return key, nil
+}
+
+// currentCerts は有効なキャッシュがあればそれを返し、期限切れなら取得し直す。
+//
+// HTTP 取得は fetchMu で 1 本に絞り、その間 mu は解放しておく。手元にキャッシュが
+// あるリクエストは取得完了を待たず、期限切れのキャッシュで検証を続ける
+// （初回取得だけは全リクエストが完了を待つ）。
+func (m *Middleware) currentCerts() (map[string]*rsa.PublicKey, error) {
+	m.mu.Lock()
+	certs := m.certs
+	fresh := certs != nil && !m.now().After(m.certsWait)
+	m.mu.Unlock()
+	if fresh {
+		return certs, nil
+	}
+
+	if certs != nil {
+		if !m.fetchMu.TryLock() {
+			// 別のリクエストが取得中。期限切れでも手元のキャッシュで続行する。
+			return certs, nil
+		}
+	} else {
+		m.fetchMu.Lock()
+	}
+	defer m.fetchMu.Unlock()
+
+	// 取得権を待っている間に別のリクエストが更新済みならそれを使う。
+	m.mu.Lock()
+	if m.certs != nil && !m.now().After(m.certsWait) {
+		certs = m.certs
+		m.mu.Unlock()
+		return certs, nil
+	}
+	m.mu.Unlock()
+
+	fetched, ttl, err := m.fetchCerts()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err != nil {
+		// 取得失敗時は次の再試行まで間隔を空ける。期限切れでも手元のキャッシュが
+		// あれば継続利用する（Google 側の一時障害で全リクエストを落とさないため）。
+		m.certsWait = m.now().Add(certsRetryInterval)
+		if m.certs == nil {
+			return nil, err
+		}
+		return m.certs, nil
+	}
+	m.certs = fetched
+	m.certsWait = m.now().Add(ttl)
+	return fetched, nil
 }
 
 // fetchCerts は Google の公開証明書一覧を取得し、kid→RSA公開鍵の表と

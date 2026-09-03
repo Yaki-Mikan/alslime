@@ -81,6 +81,8 @@ const (
 	CharacterSettingsDirName = "settings"
 	// CharacterImageGenConfigFileName はキャラ別画像生成設定ファイル名。
 	CharacterImageGenConfigFileName = "image_gen_config.json"
+	// CharacterLinkedSettingsFileName はキャラ別の設定紐づけ（個別性格・服装・背景の自動投入と追加設定）ファイル名。
+	CharacterLinkedSettingsFileName = "linked_settings.json"
 	// CharacterImageDirName はキャラディレクトリ配下の画像ディレクトリ名。
 	CharacterImageDirName = "images"
 	// CharacterOriginalImageDirName はキャラ画像の元画像ディレクトリ名。
@@ -99,6 +101,8 @@ const (
 	RelationOptionsFile = "roleplay/global/settings/relation_options.json"
 	// ReplacementConfigFile は置換設定（/api/settings/replacement-config）の正本。
 	ReplacementConfigFile = "roleplay/global/settings/replacement_config.json"
+	// EmotionPromptsFile は表情画像生成で使う表情ごとのプロンプト（キャラクター共通）。
+	EmotionPromptsFile = "roleplay/global/settings/emotion_prompts.json"
 	// EmotionDefinitionsFile は SSRP 応答時に参照する心情定義ファイル。
 	EmotionDefinitionsFile = "roleplay/global/settings/emotion_definitions.json"
 	// EmotionCatalogFile は表情種別の管理用ファイル（無効な表情も含む正本）。
@@ -387,7 +391,7 @@ const (
 	// 配下のディレクトリ名はサーバー生成の Connection ID（Label は使わない）。
 	OpenAICompatConnectionPromptsDir = OpenAICompatPromptsDir + "/connections"
 	// ConfigGenPromptsDir は設定自動生成（config-generate）で AI へ渡す指示ファイル群
-	// のルート。配下は <対象種別>/<方式>.<locale>.md（同梱デフォルトを firstrun が
+	// のルート。配下は <locale>/<対象種別>/<方式>.md（同梱デフォルトを firstrun が
 	// 配置し、設定ファイルエディタから書き換える。無ければ実行時に同梱デフォルトへ戻る）。
 	ConfigGenPromptsDir = "roleplay/global/prompts/configgen"
 	// OpenAICompatInstructionMaxBytes は API 指示本文（共通・プリセット・接続別）
@@ -422,7 +426,17 @@ func OpenAICompatPresetPromptFile(preset, locale string) string {
 // （target は対象種別 ID（"character" 等）、method は方式 ID（"two_step_1" 等）、
 // locale は "ja"｜"en"）。
 func ConfigGenInstructionFile(target, method, locale string) string {
-	return ConfigGenPromptsDir + "/" + target + "/" + method + "." + locale + ".md"
+	return ConfigGenPromptsDir + "/" + locale + "/" + target + "/" + method + ".md"
+}
+
+// ConfigGenTemplateDefaultsFile は設定自動生成テンプレート（入力項目・設定ファイル）の
+// 既定名を記録するファイル（{ "<locale>": { "<target>": { "search": name, "setting": name } } }）。
+const ConfigGenTemplateDefaultsFile = ConfigGenPromptsDir + "/_defaults.json"
+
+// ConfigGenTemplateDir は設定自動生成テンプレートのディレクトリ論理パスを返す。
+// 言語 → 対象 → テンプレートの種類（"search_templates"｜"setting_templates"）。
+func ConfigGenTemplateDir(target, locale, dirName string) string {
+	return ConfigGenPromptsDir + "/" + locale + "/" + target + "/" + dirName
 }
 
 // OpenAICompatConnectionPromptDir は接続別追加指示ディレクトリの論理パスを返す。
@@ -509,6 +523,13 @@ var SamplePackURLs = map[string]string{
 	"en": "https://github.com/Yaki-Mikan/alslime/releases/download/sample-pack/sample-pack-en.zip",
 }
 
+// TemplatePackURLs は設定自動生成用テンプレートパック（手動作成向けテンプレートと
+// 設定自動生成指示）の配布 URL。言語コード → GitHub Releases アセット URL。
+var TemplatePackURLs = map[string]string{
+	"ja": "https://github.com/Yaki-Mikan/alslime/releases/download/template-pack/template-pack-ja.zip",
+	"en": "https://github.com/Yaki-Mikan/alslime/releases/download/template-pack/template-pack-en.zip",
+}
+
 // ハウスキーピング（使い捨て一時ファイルの掃除）のしきい値。
 //
 // 19_ハウスキーピング設計.md に基づく。RuntimeTempDir 配下の純粋な使い捨て
@@ -522,4 +543,7 @@ const (
 	HousekeepingTempMaxAgeSeconds = 24 * 60 * 60
 	// HousekeepingIntervalSeconds は定期掃除の実行間隔（秒）。既定 1 時間。
 	HousekeepingIntervalSeconds = 60 * 60
+	// ConfigGenDialogSessionMaxAgeSeconds は設定自動生成の対話セッション履歴の保持秒数。
+	// 最終更新（mtime）がこれより古いものを削除する。既定 30 日。
+	ConfigGenDialogSessionMaxAgeSeconds = 30 * 24 * 60 * 60
 )

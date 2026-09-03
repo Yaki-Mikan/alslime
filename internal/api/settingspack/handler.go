@@ -49,6 +49,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("POST "+config.APIPrefix+"/settings-pack/export", handleExport(deps))
 	mux.HandleFunc("GET "+config.APIPrefix+"/settings-pack/inbox", handleInbox(deps))
 	mux.HandleFunc("POST "+config.APIPrefix+"/settings-pack/download-samples", handleDownloadSamples(deps))
+	mux.HandleFunc("POST "+config.APIPrefix+"/settings-pack/download-templates", handleDownloadTemplates(deps))
 }
 
 // InboxState は起動時取り込み結果の保持（background goroutine が Set、handler が Get）。

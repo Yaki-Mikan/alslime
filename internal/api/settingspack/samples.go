@@ -70,19 +70,68 @@ func handleDownloadSamples(deps Deps) http.HandlerFunc {
 	}
 }
 
+// handleDownloadTemplates は設定自動生成用テンプレートパック（手動作成向けテンプレートと
+// 設定自動生成指示）を取得して取り込む。取得・取り込みの経路はサンプルパックと同じ。
+//
+// POST /api/settings-pack/download-templates
+//
+//	body: {"lang": "ja", "policy": "skip"}（policy 省略時 skip）
+func handleDownloadTemplates(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req downloadSamplesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey("settingsPack.error.invalidRequest"))
+			return
+		}
+		url, ok := config.TemplatePackURLs[req.Lang]
+		if !ok {
+			apierror.Write(w, apierror.BadRequestKey("settingsPack.templates.errorUnsupportedLang"))
+			return
+		}
+		policy := syspack.ImportPolicy(req.Policy)
+		if policy == "" {
+			policy = syspack.PolicySkip
+		}
+		if !syspack.ValidPolicy(policy) {
+			apierror.Write(w, apierror.BadRequestKey("settingsPack.error.invalidPolicy"))
+			return
+		}
+		zipPath, cleanup, apiErr := fetchPack(url, "settingsPack.templates.errorDownloadFailed")
+		if apiErr != nil {
+			apierror.Write(w, apiErr)
+			return
+		}
+		defer cleanup()
+		result, err := deps.Manager.Import(zipPath, syspack.ImportOptions{
+			Policy:          policy,
+			ImageGenAllowed: imageGenAllowed(deps.Gate),
+		})
+		if err != nil {
+			apierror.Write(w, packError(err))
+			return
+		}
+		writeJSON(w, result)
+	}
+}
+
 // fetchSamplePack は url の zip を一時ファイルへダウンロードする。
 // 呼び出し側は cleanup を必ず defer すること。
 // サイズ上限は通常アップロードと同じ SettingsPackMaxUploadBytes を適用する。
 func fetchSamplePack(url string) (zipPath string, cleanup func(), apiErr *apierror.Error) {
+	return fetchPack(url, "settingsPack.samples.errorDownloadFailed")
+}
+
+// fetchPack は url の zip を一時ファイルへダウンロードする（失敗時のメッセージキーを指定）。
+func fetchPack(url, failKey string) (zipPath string, cleanup func(), apiErr *apierror.Error) {
 	client := &http.Client{Timeout: config.SamplePackDownloadTimeoutSeconds * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return "", nil, apierror.WrapKey(http.StatusBadGateway, "settingsPack.samples.errorDownloadFailed", err)
+		return "", nil, apierror.WrapKey(http.StatusBadGateway, failKey, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, apierror.WrapKey(http.StatusBadGateway, "settingsPack.samples.errorDownloadFailed",
-			fmt.Errorf("sample pack download: unexpected status %d for %s", resp.StatusCode, url))
+		return "", nil, apierror.WrapKey(http.StatusBadGateway, failKey,
+			fmt.Errorf("pack download: unexpected status %d for %s", resp.StatusCode, url))
 	}
 
 	tmp, err := os.CreateTemp("", "alslime-sample-pack-*.zip")
@@ -96,7 +145,7 @@ func fetchSamplePack(url string) (zipPath string, cleanup func(), apiErr *apierr
 	if err != nil {
 		_ = tmp.Close()
 		remove()
-		return "", nil, apierror.WrapKey(http.StatusBadGateway, "settingsPack.samples.errorDownloadFailed", err)
+		return "", nil, apierror.WrapKey(http.StatusBadGateway, failKey, err)
 	}
 	if err := tmp.Close(); err != nil {
 		remove()

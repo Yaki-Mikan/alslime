@@ -2,7 +2,7 @@
  * config-gen.ts - 設定ファイル自動作成（AI 生成）API クライアント
  *
  * submit / status / cancel と、じっくり作成（2段階）でユーザーが手直しする
- * 調査メモの取得・保存を提供する。
+ * 調査メモの取得・保存、対話作成のセッション操作を提供する。
  */
 
 import axios from '../lib/axios';
@@ -13,16 +13,26 @@ export interface ConfigGenSubmitRequest {
     categoryId: string;
     method: ConfigGenMethod;
     step?: number; // two_step のみ 1 | 2
+    /** キャラクター名（キャラクター種別）。他種別ではファイル名と同じ値を入れる（互換） */
     characterName: string;
+    /** 作品名（キャラクター種別のみ必須） */
     workTitle: string;
     /** 調査メモの所在ディレクトリ（通常はキャラクター名。設定ファイルの配置は常にキャラクター名基準） */
     dirName: string;
+    /** 成果物ファイル名（拡張子なし）。キャラクター種別では characterName と同じ */
+    fileName?: string;
     model?: string;
     claudeEffort?: string;
+    antigravityThinking?: string;
     timeoutMinutes?: number;
     locale?: string;
     /** 設定作成備考（ユーザーの要望・指示。指示ファイルへ結合される） */
     notes?: string;
+    /** 左エディタの内容（入力項目テンプレートの差し込み。空なら同梱テンプレート） */
+    editorContent?: string;
+    /** 使うテンプレート名（空なら既定） */
+    searchTemplate?: string;
+    settingTemplate?: string;
 }
 
 export interface ConfigGenProgressEntry {
@@ -39,6 +49,9 @@ export interface ConfigGenResultFile {
     dirName: string;
     fileName: string;
     relPath: string;
+    /** 対話作成のみ */
+    sessionId?: string;
+    fileHash?: string;
 }
 
 export interface ConfigGenStatus {
@@ -147,4 +160,97 @@ export const saveResearchMemo = async (
         `${backendUrl}/api/config-gen/research/${encodeURIComponent(categoryId)}/${encodeURIComponent(dirName)}/${encodeURIComponent(characterName)}`,
         { content }
     );
+};
+
+// ---- 対話作成 ----
+
+export interface ConfigGenDialogMessage {
+    role: 'user' | 'agent';
+    content: string;
+    timestamp: string;
+    jobId?: string;
+    /** AI 応答が中止・失敗で得られなかったターン */
+    canceled?: boolean;
+}
+
+export interface ConfigGenDialogSession {
+    sessionId: string;
+    categoryId: string;
+    dirName: string;
+    fileName: string;
+    /** 正規位置にまだ保存されていない新規作成 */
+    isNew: boolean;
+    /** サーバーが最後に確認した正規ファイルの内容ハッシュ（sha256） */
+    fileHash: string;
+    /** 正規ファイルの現在の本文（新規なら開始時に渡した editorContent） */
+    fileContent: string;
+    messages: ConfigGenDialogMessage[];
+}
+
+export interface ConfigGenDialogStartRequest {
+    categoryId: string;
+    dirName?: string;
+    fileName: string;
+    provider?: string;
+    model?: string;
+    locale?: string;
+    /** 新規作成時の下書き（手動作成向けテンプレート＋ユーザー記入） */
+    editorContent?: string;
+    /** 既存セッションを削除して新しく始める */
+    reset?: boolean;
+}
+
+export const startConfigGenDialog = async (
+    backendUrl: string,
+    req: ConfigGenDialogStartRequest
+): Promise<ConfigGenDialogSession> => {
+    const response = await axios.post(`${backendUrl}/api/config-gen/dialog/start`, req);
+    return response.data;
+};
+
+export interface ConfigGenDialogSendRequest {
+    sessionId: string;
+    message: string;
+    editorContent: string;
+    /** 送信時点の左エディタ内容の sha256（計算できなければ空。サーバーが補う） */
+    editorHash: string;
+    model?: string;
+    claudeEffort?: string;
+    antigravityThinking?: string;
+    timeoutMinutes?: number;
+    locale?: string;
+    /** 使う設定ファイルテンプレート名（空なら既定） */
+    settingTemplate?: string;
+}
+
+export const sendConfigGenDialog = async (
+    backendUrl: string,
+    req: ConfigGenDialogSendRequest
+): Promise<{ jobId: string }> => {
+    const response = await axios.post(`${backendUrl}/api/config-gen/dialog/send`, req);
+    return response.data;
+};
+
+export const getConfigGenDialog = async (
+    backendUrl: string,
+    sessionId: string
+): Promise<ConfigGenDialogSession> => {
+    const response = await axios.get(`${backendUrl}/api/config-gen/dialog/${encodeURIComponent(sessionId)}`);
+    return response.data;
+};
+
+export const deleteConfigGenDialog = async (backendUrl: string, sessionId: string): Promise<void> => {
+    await axios.delete(`${backendUrl}/api/config-gen/dialog/${encodeURIComponent(sessionId)}`);
+};
+
+/** 本文の sha256（16 進）。サーバーと同じ規則（UTF-8 バイト列）。計算できない環境では空を返す。 */
+export const contentHash = async (content: string): Promise<string> => {
+    try {
+        if (typeof crypto === 'undefined' || !crypto.subtle) return '';
+        const data = new TextEncoder().encode(content);
+        const digest = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+        return '';
+    }
 };

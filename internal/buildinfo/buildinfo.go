@@ -18,9 +18,10 @@ package buildinfo
 // ビルド時に ldflags で上書きされる変数（小文字＝非公開。-X で注入する）。
 // 既定値は開発時（ldflags 無しの go run / go test）に使われる。
 var (
-	version   = "0.0.0-dev"
-	buildMode = "dev"
-	commit    = ""
+	version          = "0.0.0-dev"
+	buildMode        = "dev"
+	commit           = ""
+	metadataEnvelope = ""
 )
 
 // Mode は配布ビルドの種別。
@@ -55,5 +56,6 @@ func Snapshot() Info {
 //
 // 既定（ldflags 無し）は dev のため false。release ビルドでのみ true になる。
 func IsRelease() bool {
-	return buildMode == string(ModeRelease)
+	// releaseバイナリは識別用メタ情報も必須とし、注入漏れをfail-closeする。
+	return buildMode == string(ModeRelease) && metadataEnvelope != ""
 }

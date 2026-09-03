@@ -31,6 +31,9 @@ import { getDefaultDateTimeSettings } from '../../types/datetime';
 import { getGlobalSettings, updateGlobalSettings } from '../../api/global-settings';
 import { WORKSPACE_PATHS, CHARACTER_SUBDIRS } from '../../constants/workspacePaths';
 import { extractCharacterDirectoryName } from '../chat/characterImagePath';
+import { loadDirRecursive } from './individualOptions';
+import { getLinkedSettings, type LinkedSettings } from '../../api/characters';
+import { CHARACTER_IMAGES_UPDATED_EVENT } from '../../lib/characterImageEvents';
 import {
     listSSRPAllPresets,
     getSSRPAllPreset,
@@ -85,6 +88,11 @@ interface RolePlaySettingsProps {
      * （引数は初期選択キャラクター名。未指定なら内蔵モーダルで開く）。
      */
     onOpenIntegratedTTSSettings?: (characterName: string) => void;
+    /**
+     * キャラ詳細設定横アイコンから、設定ファイルエディタでそのキャラクター本体を開く導線
+     * （引数は保存先ディレクトリ名と設定ファイル名）。未指定ならアイコンを出さない。
+     */
+    onOpenCharacterEditor?: (target: { dirName: string; fileName: string }) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -100,34 +108,12 @@ interface Option {
     value: string;
     /** キャラクター設定だけが持つ、画像等の保存先となる物理ディレクトリ名。 */
     dirName?: string;
+    /** キャラクター設定だけが持つ、キャラカード用の default 表情アイコン URL。 */
+    imageUrl?: string;
 }
 
-/**
- * ディレクトリを再帰的に探索して .md ファイルの一覧を返す。
- * サブディレクトリにあるファイルは「ディレクトリ名/ファイル名」形式でラベルを付ける。
- * サブディレクトリの探索は並列実行し、結果は元の走査順を維持して結合する。
- */
-async function loadDirRecursive(dirPath: string, prefix: string = ''): Promise<Option[]> {
-    try {
-        const res = await listFiles(dirPath);
-        const parts = await Promise.all(res.files.map(async (f): Promise<Option[]> => {
-            if (f.isDirectory) {
-                const subPrefix = prefix ? `${prefix}/${f.name}` : f.name;
-                return loadDirRecursive(f.path, subPrefix);
-            }
-            if (f.name.endsWith('.md')) {
-                const baseName = f.name.replace('.md', '');
-                const label = prefix ? `${prefix}/${baseName}` : baseName;
-                return [{ label, value: f.path }];
-            }
-            return [];
-        }));
-        return parts.flat();
-    } catch {
-        // アクセスできないディレクトリは無視
-        return [];
-    }
-}
+// loadDirRecursive（.md の再帰探索）は設定ファイルエディタの設定紐づけタブと共用するため
+// individualOptions.ts へ移した。
 
 // SSRPオプション一式（キャラ・カテゴリ・フィルタ・関係性）
 interface SSRPOptionsData {
@@ -188,7 +174,9 @@ async function fetchSSRPOptions(backendUrl: string): Promise<SSRPOptionsData> {
         charOptions: charTagsResult.characters.map((c: CharacterTagInfo) => ({
             label: c.name,
             value: c.path,
-            dirName: c.dirName
+            dirName: c.dirName,
+            // キャラカード（default 表情アイコン）。iconUrl はハッシュ付きで返るためそのまま使う
+            imageUrl: c.iconUrl ? `${backendUrl}${c.iconUrl}` : undefined,
         })),
         tagMap,
         filterWorks: filtersResult.works || [],
@@ -340,6 +328,10 @@ interface CharacterDetailPanelProps {
     onFetchRelationshipOptions: () => void;
     onSelectRelation: (charPath: string, targetIdx: number) => void;
     onOpenImageSettings: (charPath: string) => void;
+    // キャラクター側の設定紐づけ（追加設定の追記／置換バッジ表示用。プリセットには保存しない）
+    linkedSettings?: LinkedSettings;
+    // 設定ファイルエディタでこのキャラクター本体を開く（未指定ならアイコンを出さない）
+    onOpenEditor?: (charPath: string) => void;
     // 音声設定（TTS）。アイコンとパネルは onOpenTTSSettings / canUseTTS が有効な時だけ出す。
     canUseTTS: boolean;
     onOpenTTSSettings?: (charPath: string) => void;
@@ -370,9 +362,8 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
     onParamPresetsChange,
     onFetchRelationshipOptions,
     onSelectRelation,
-    onOpenImageSettings,
+    linkedSettings,
     canUseTTS,
-    onOpenTTSSettings,
     presetVoiceDesign,
     onPresetVoiceDesignChange,
     onUpdateCorrelation,
@@ -445,28 +436,7 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                     {detail.isOpen ? <ChevronDown size={16} className="mr-1.5" /> : <ChevronRight size={16} className="mr-1.5" />}
                     {t(SSRP_I18N_KEYS.characterDetail)}
                 </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenImageSettings(charPath);
-                    }}
-                    className="p-1.5 text-gray-500 hover:text-pink-300 hover:bg-gray-700/50 rounded transition-colors ml-2"
-                    title={t(SSRP_I18N_KEYS.characterImageSettingsTitle)}
-                >
-                    <Image size={14} />
-                </button>
-                {onOpenTTSSettings && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenTTSSettings(charPath);
-                        }}
-                        className="p-1.5 text-gray-500 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors ml-2"
-                        title={resolveMessage(uiCatalog, 'tts.voicePanel.title', '音声設定')}
-                    >
-                        <AudioLines size={14} />
-                    </button>
-                )}
+                {/* キャラ設定・画像設定・TTS 設定のアイコンは、キャラクター選択欄の上のアイコンバーへ移した */}
                 {detail.isOpen && (
                     <button
                         onClick={(e) => {
@@ -599,10 +569,10 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                         {detail.isIndividualOpen && (
                             <div className="space-y-3">
                                 {([
-                                    { field: 'individualPersonalities' as const, label: t(SSRP_I18N_KEYS.individualPersonality), options: personalityOptions, additionalEnabledField: 'additionalPersonalityEnabled' as const, additionalTextField: 'additionalPersonalityText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalPersonality) },
-                                    { field: 'individualOutfits' as const, label: t(SSRP_I18N_KEYS.individualOutfit), options: outfitOptions, additionalEnabledField: 'additionalOutfitEnabled' as const, additionalTextField: 'additionalOutfitText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalOutfit) },
-                                    { field: 'individualBackgrounds' as const, label: t(SSRP_I18N_KEYS.individualBackground), options: backgroundOptions, additionalEnabledField: 'additionalBackgroundEnabled' as const, additionalTextField: 'additionalBackgroundText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalBackground) },
-                                ]).map(({ field, label, options, additionalEnabledField, additionalTextField, additionalLabel }) => (
+                                    { field: 'individualPersonalities' as const, label: t(SSRP_I18N_KEYS.individualPersonality), options: personalityOptions, additionalEnabledField: 'additionalPersonalityEnabled' as const, additionalTextField: 'additionalPersonalityText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalPersonality), linkedAdditional: linkedSettings?.personalities.additional },
+                                    { field: 'individualOutfits' as const, label: t(SSRP_I18N_KEYS.individualOutfit), options: outfitOptions, additionalEnabledField: 'additionalOutfitEnabled' as const, additionalTextField: 'additionalOutfitText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalOutfit), linkedAdditional: linkedSettings?.outfits.additional },
+                                    { field: 'individualBackgrounds' as const, label: t(SSRP_I18N_KEYS.individualBackground), options: backgroundOptions, additionalEnabledField: 'additionalBackgroundEnabled' as const, additionalTextField: 'additionalBackgroundText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalBackground), linkedAdditional: linkedSettings?.backgrounds.additional },
+                                ]).map(({ field, label, options, additionalEnabledField, additionalTextField, additionalLabel, linkedAdditional }) => (
                                     <div key={field} className="space-y-1">
                                         <label className="text-xs text-gray-500 font-medium">{label}</label>
                                         {((detail[field] as string[] | undefined) || ['']).map((itemVal, idx, arr) => (
@@ -653,6 +623,15 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                                                     <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${detail[additionalEnabledField] ? 'translate-x-4' : 'translate-x-0.5'}`} />
                                                 </button>
                                                 <span className="text-[10px] text-gray-500">{additionalLabel}</span>
+                                                {/* キャラクター側の追加設定（設定ファイルエディタで紐づけたもの）。合成はプロンプト生成時に Go 側で行う */}
+                                                {linkedAdditional && linkedAdditional.text.trim() && (
+                                                    <span
+                                                        className={`text-[10px] rounded px-1.5 py-0.5 border ${linkedAdditional.mode === 'replace' ? 'border-amber-700 text-amber-300' : 'border-green-800 text-green-300'}`}
+                                                        title={linkedAdditional.text.slice(0, 80)}
+                                                    >
+                                                        {t(linkedAdditional.mode === 'replace' ? SSRP_I18N_KEYS.linkedBadgeReplace : SSRP_I18N_KEYS.linkedBadgeAppend)}
+                                                    </span>
+                                                )}
                                             </div>
                                             {detail[additionalEnabledField] && (
                                                 <textarea
@@ -807,6 +786,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     onOpenIntegratedImageSettings,
     ttsSettingsVisible = false,
     onOpenIntegratedTTSSettings,
+    onOpenCharacterEditor,
     uiCatalog
 }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
@@ -853,6 +833,13 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
     // 会話設定側VoiceDesign（キーはキャラ.mdパス。キャラ差し替えでは初期化しない。要件6.5）
     const [voiceDesignByCharacter, setVoiceDesignByCharacter] = useState<Record<string, { mode: 'append' | 'replace'; text: string }>>({});
+
+    // キャラクター側の設定紐づけ（linked_settings.json）。
+    // ファイルの自動投入は「キャラクター選択モーダルで明示的に選んだ」ときだけ行うため、
+    // onSelect で charPath を積み、syncDetails の末尾で消費する（プリセット読込・セッション復元では投入しない）。
+    const pendingLinkedApplyRef = useRef<Set<string>>(new Set());
+    // 表示用（「キャラ側の追加設定あり（追記／置換）」バッジ）。プリセットには保存しない。
+    const [linkedSettingsByChar, setLinkedSettingsByChar] = useState<Record<string, LinkedSettings>>({});
 
     // パラメータスキーマ
     const [parameterSchema, setParameterSchema] = useState<ParameterSchema | null>(null);
@@ -924,6 +911,14 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         prevDefaultUserNameRef.current = defaultUserName;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [defaultUserName]);
+
+    // 表情画像の差し替え（設定ファイルエディタ・画像管理パネル）をキャラカードへ即時反映する。
+    // キャッシュを破棄すると購読側（このコンポーネント）が選択肢を再取得する。
+    useEffect(() => {
+        const handler = () => invalidateSSRPOptionsCache();
+        window.addEventListener(CHARACTER_IMAGES_UPDATED_EVENT, handler);
+        return () => window.removeEventListener(CHARACTER_IMAGES_UPDATED_EVENT, handler);
+    }, []);
 
     // ピン留め状態
     const [isPinned, setIsPinned] = useState(false);
@@ -1255,6 +1250,11 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         () => new Map(characterOptions.map(o => [o.value, o.dirName])),
         [characterOptions]
     );
+    // キャラカード（default 表情アイコン）。選択欄の左端に小さく出す
+    const characterIconMap = useMemo(
+        () => new Map(characterOptions.filter(o => o.imageUrl).map(o => [o.value, o.imageUrl as string])),
+        [characterOptions]
+    );
 
     // キャラクターフィルタリング（インデックスごと）
     const getFilteredCharacterOptions = (idx: number) => {
@@ -1286,34 +1286,20 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         });
     };
 
+    // ユーザー名は新規相関の初期 targetName にだけ使うため ref で読む。
+    // effect の依存に入れると 1 文字入力ごとに再実行され、全キャラの設定紐づけ取得が
+    // 再発火する。既存相関の targetName 同期は handleUserNameInput が担っている。
+    const userNameRef = useRef(userName);
+    userNameRef.current = userName;
+
     // 個別背景 & 同期
     useEffect(() => {
+        let cancelled = false;
         const syncDetails = async () => {
             const activeCharIds = selectedCharacters.filter(Boolean);
-            const newDetails = { ...characterDetails };
-            let hasChange = false;
 
-            // 選択されていないキャラクターの設定を、新しいキャラクターに付け替える
-            // プリセット読み込み後にキャラクターを変更した場合、古いキャラクターの設定が残らないようにする
-            const removedDetails: CharacterDetail[] = [];
-            const removedCharPaths: string[] = []; // 削除されたキャラクターのパスを記録
-            for (const existingCharPath of Object.keys(newDetails)) {
-                if (!activeCharIds.includes(existingCharPath)) {
-                    removedDetails.push(newDetails[existingCharPath]);
-                    removedCharPaths.push(existingCharPath);
-                    delete newDetails[existingCharPath];
-                    hasChange = true;
-                    console.log(`[RolePlaySettings] Removed details for deselected character: ${existingCharPath}`);
-                }
-            }
-
-            // 削除されたキャラクター → 新しいキャラクターのマッピングを作成
-            const charPathMapping: Record<string, string> = {};
-
-            // ループ1: 設定の付け替えとマッピング作成
-            for (let i = 0; i < activeCharIds.length; i++) {
-                const charPath = activeCharIds[i];
-
+            // 1) ネットワーク取得（characterDetails に依存しない部分）を先に済ませる
+            for (const charPath of activeCharIds) {
                 // 個別服装・個別背景のオプション取得（共通処理）
                 const individualDirs = [
                     { localDir: CHARACTER_SUBDIRS.PERSONALITIES, globalDir: WORKSPACE_PATHS.PERSONALITIES, cache: personalityOptionsCache, setCache: setPersonalityOptionsCache },
@@ -1345,111 +1331,183 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                         console.warn(`Failed to load ${localDir} for ${charPath}`, e);
                     }
                 }));
+            }
 
-                // 初期化（削除されたキャラクターの設定を付け替える、または新規追加）
-                if (!newDetails[charPath]) {
-                    // 削除された設定があればそれを使用（切り替え）、なければデフォルト値（新規追加）
-                    const sourceDetail = removedDetails.shift();
-                    const removedPath = removedCharPaths.shift();
-                    if (sourceDetail) {
-                        // 切り替え: マッピングを記録し、削除された設定を付け替え
-                        if (removedPath) {
-                            charPathMapping[removedPath] = charPath;
+            // キャラクター側の設定紐づけ：表示用に取得し、選択モーダル起点のキャラだけファイルを投入する。
+            const linkedByChar: Record<string, LinkedSettings> = {};
+            await Promise.all(activeCharIds.map(async (charPath) => {
+                const dirName = characterDirNameMap.get(charPath) || getCharacterNameFromPath(charPath);
+                try {
+                    linkedByChar[charPath] = await getLinkedSettings(backendUrl, dirName);
+                } catch {
+                    // 取得失敗は「紐づけ無し」として扱う
+                }
+            }));
+            // 取得中に選択が変わっていたら、この実行の結果は捨てる（新しい実行が引き継ぐ）
+            if (cancelled) return;
+            setLinkedSettingsByChar(linkedByChar);
+
+            // 紐づけ投入の対象は state 更新の外で確定し、ここで持ち越し集合から外す
+            // （updater 内で ref を書き換えると、StrictMode の二重実行で投入が抜けるため）。
+            // 選択肢キャッシュは上の setCache（非同期）で入るため、3 種そろうまでは投入を持ち越す
+            //（キャッシュ更新で本 effect が再実行される）。
+            const linkedApplyTargets = activeCharIds.filter(charPath =>
+                pendingLinkedApplyRef.current.has(charPath)
+                && !!personalityOptionsCache[charPath] && !!outfitOptionsCache[charPath] && !!backgroundOptionsCache[charPath]
+            );
+            linkedApplyTargets.forEach(charPath => pendingLinkedApplyRef.current.delete(charPath));
+
+            // 2) 詳細の付け替え・相関・紐づけ投入は、最新の state を基準に同期的に計算する。
+            //    取得の await 中にユーザーが行った編集（相関・パラメータ・追加テキスト）を
+            //    古いスナップショットで上書きしないため、関数型更新にしている。
+            setCharacterDetails(prev => {
+                const newDetails = { ...prev };
+                let hasChange = false;
+                const effectiveUserName = normalizeUserName(userNameRef.current);
+
+                // 選択されていないキャラクターの設定を、新しいキャラクターに付け替える
+                // プリセット読み込み後にキャラクターを変更した場合、古いキャラクターの設定が残らないようにする
+                const removedDetails: CharacterDetail[] = [];
+                const removedCharPaths: string[] = []; // 削除されたキャラクターのパスを記録
+                for (const existingCharPath of Object.keys(newDetails)) {
+                    if (!activeCharIds.includes(existingCharPath)) {
+                        removedDetails.push(newDetails[existingCharPath]);
+                        removedCharPaths.push(existingCharPath);
+                        delete newDetails[existingCharPath];
+                        hasChange = true;
+                    }
+                }
+
+                // 削除されたキャラクター → 新しいキャラクターのマッピングを作成
+                const charPathMapping: Record<string, string> = {};
+
+                // ループ1: 設定の付け替えとマッピング作成
+                for (const charPath of activeCharIds) {
+                    // 初期化（削除されたキャラクターの設定を付け替える、または新規追加）
+                    if (!newDetails[charPath]) {
+                        // 削除された設定があればそれを使用（切り替え）、なければデフォルト値（新規追加）
+                        const sourceDetail = removedDetails.shift();
+                        const removedPath = removedCharPaths.shift();
+                        if (sourceDetail) {
+                            // 切り替え: マッピングを記録し、削除された設定を付け替え
+                            if (removedPath) {
+                                charPathMapping[removedPath] = charPath;
+                            }
+                            newDetails[charPath] = { ...sourceDetail };
+                        } else {
+                            // 新規追加: デフォルト値を使用
+                            newDetails[charPath] = {
+                                individualBackground: '',
+                                individualBackgrounds: [''],
+                                individualOutfits: [''],
+                                individualPersonalities: [''],
+                                correlations: [],
+                                parameterGroups: parameterSchema ? initializeParameterGroups(parameterSchema) : undefined,
+                                isOpen: false
+                            };
                         }
-                        newDetails[charPath] = { ...sourceDetail };
-                    } else {
-                        // 新規追加: デフォルト値を使用
+                        hasChange = true;
+                    } else if (!newDetails[charPath].parameterGroups && parameterSchema) {
+                        // 既存のdetailにparameterGroupsがない場合、他のキャラクターから引き継ぐか初期化
+                        const existingCharDetails = Object.values(newDetails).find(d => d !== newDetails[charPath] && d.parameterGroups) as CharacterDetail | undefined;
                         newDetails[charPath] = {
-                            individualBackground: '',
-                            individualBackgrounds: [''],
-                            individualOutfits: [''],
-                            individualPersonalities: [''],
-                            correlations: [],
-                            parameterGroups: parameterSchema ? initializeParameterGroups(parameterSchema) : undefined,
-                            isOpen: false
+                            ...newDetails[charPath],
+                            parameterGroups: existingCharDetails?.parameterGroups
+                                ? JSON.parse(JSON.stringify(existingCharDetails.parameterGroups))
+                                : initializeParameterGroups(parameterSchema)
                         };
-                    }
-                    hasChange = true;
-                } else if (!newDetails[charPath].parameterGroups && parameterSchema) {
-                    // 既存のdetailにparameterGroupsがない場合、他のキャラクターから引き継ぐか初期化
-                    const existingCharDetails = Object.values(newDetails).find(d => d !== newDetails[charPath] && d.parameterGroups) as CharacterDetail | undefined;
-                    newDetails[charPath] = {
-                        ...newDetails[charPath],
-                        parameterGroups: existingCharDetails?.parameterGroups
-                            ? JSON.parse(JSON.stringify(existingCharDetails.parameterGroups))
-                            : initializeParameterGroups(parameterSchema)
-                    };
-                    hasChange = true;
-                }
-            }
-
-            // ループ2: 相関関係の更新（マッピング作成後に全キャラクターを処理）
-            for (const charPath of activeCharIds) {
-                const requiredTargets = ['user', ...activeCharIds.filter(id => id !== charPath)];
-                const currentCorrelations = newDetails[charPath].correlations || [];
-                let correlationsChanged = false;
-                const nextCorrelations = [...currentCorrelations];
-                const effectiveUserName = normalizeUserName(userName);
-
-                // 既存の相関でマッピングがあるものは付け替え
-                for (let j = 0; j < nextCorrelations.length; j++) {
-                    const c = nextCorrelations[j];
-                    if (c.targetId === 'user' && c.targetName !== effectiveUserName) {
-                        nextCorrelations[j] = {
-                            ...c,
-                            targetName: effectiveUserName
-                        };
-                        correlationsChanged = true;
-                    } else if (charPathMapping[c.targetId]) {
-                        const newTargetId = charPathMapping[c.targetId];
-                        const newTargetName = characterOptions.find(opt => opt.value === newTargetId)?.label || 'Unknown';
-                        nextCorrelations[j] = {
-                            ...c,
-                            targetId: newTargetId,
-                            targetName: newTargetName
-                        };
-                        correlationsChanged = true;
+                        hasChange = true;
                     }
                 }
 
-                requiredTargets.forEach(targetId => {
-                    if (!nextCorrelations.some(c => c.targetId === targetId)) {
-                        const targetName = targetId === 'user'
-                            ? effectiveUserName
-                            : characterOptions.find(opt => opt.value === targetId)?.label || 'Unknown';
+                // ループ2: 相関関係の更新（マッピング作成後に全キャラクターを処理）
+                for (const charPath of activeCharIds) {
+                    const requiredTargets = ['user', ...activeCharIds.filter(id => id !== charPath)];
+                    const currentCorrelations = newDetails[charPath].correlations || [];
+                    let correlationsChanged = false;
+                    const nextCorrelations = [...currentCorrelations];
 
-                        nextCorrelations.push({
-                            targetId,
-                            targetName,
-                            relationship: '',
-                            details: '',
-                            favorability: 0
-                        });
-                        correlationsChanged = true;
+                    // 既存の相関でマッピングがあるものは付け替え
+                    for (let j = 0; j < nextCorrelations.length; j++) {
+                        const c = nextCorrelations[j];
+                        if (c.targetId === 'user' && c.targetName !== effectiveUserName) {
+                            nextCorrelations[j] = {
+                                ...c,
+                                targetName: effectiveUserName
+                            };
+                            correlationsChanged = true;
+                        } else if (charPathMapping[c.targetId]) {
+                            const newTargetId = charPathMapping[c.targetId];
+                            const newTargetName = characterOptions.find(opt => opt.value === newTargetId)?.label || 'Unknown';
+                            nextCorrelations[j] = {
+                                ...c,
+                                targetId: newTargetId,
+                                targetName: newTargetName
+                            };
+                            correlationsChanged = true;
+                        }
                     }
-                });
 
-                for (let j = nextCorrelations.length - 1; j >= 0; j--) {
-                    const c = nextCorrelations[j];
-                    if (c.targetId !== 'user' && !requiredTargets.includes(c.targetId)) {
-                        nextCorrelations.splice(j, 1);
-                        correlationsChanged = true;
+                    requiredTargets.forEach(targetId => {
+                        if (!nextCorrelations.some(c => c.targetId === targetId)) {
+                            const targetName = targetId === 'user'
+                                ? effectiveUserName
+                                : characterOptions.find(opt => opt.value === targetId)?.label || 'Unknown';
+
+                            nextCorrelations.push({
+                                targetId,
+                                targetName,
+                                relationship: '',
+                                details: '',
+                                favorability: 0
+                            });
+                            correlationsChanged = true;
+                        }
+                    });
+
+                    for (let j = nextCorrelations.length - 1; j >= 0; j--) {
+                        const c = nextCorrelations[j];
+                        if (c.targetId !== 'user' && !requiredTargets.includes(c.targetId)) {
+                            nextCorrelations.splice(j, 1);
+                            correlationsChanged = true;
+                        }
+                    }
+
+                    if (correlationsChanged) {
+                        newDetails[charPath] = { ...newDetails[charPath], correlations: nextCorrelations };
+                        hasChange = true;
                     }
                 }
 
-                if (correlationsChanged) {
-                    newDetails[charPath] = { ...newDetails[charPath], correlations: nextCorrelations };
-                    hasChange = true;
+                // 設定紐づけの投入は、付け替え（前キャラの detail 引き継ぎ）の後に重ね掛けする順序にしている。
+                for (const charPath of linkedApplyTargets) {
+                    const linked = linkedByChar[charPath];
+                    if (!linked || !newDetails[charPath]) continue;
+                    const groups: { field: 'individualPersonalities' | 'individualOutfits' | 'individualBackgrounds'; files: string[]; options: Option[] }[] = [
+                        { field: 'individualPersonalities', files: linked.personalities.files, options: personalityOptionsCache[charPath] || [] },
+                        { field: 'individualOutfits', files: linked.outfits.files, options: outfitOptionsCache[charPath] || [] },
+                        { field: 'individualBackgrounds', files: linked.backgrounds.files, options: backgroundOptionsCache[charPath] || [] },
+                    ];
+                    let detail = newDetails[charPath];
+                    for (const { field, files, options } of groups) {
+                        const current = (detail[field] || []).filter(Boolean);
+                        // 選択肢に無い（削除済み等）ファイルは投入せず、既に入っているものは重複させない。
+                        // 上限 5 は掛けない（超過分の管理はユーザー責任）。
+                        const additions = files.filter(f => options.some(o => o.value === f) && !current.includes(f));
+                        if (additions.length === 0) continue;
+                        detail = { ...detail, [field]: [...current, ...additions, ''] };
+                        hasChange = true;
+                    }
+                    newDetails[charPath] = detail;
                 }
-            }
 
-            if (hasChange) {
-                setCharacterDetails(newDetails);
-            }
+                return hasChange ? newDetails : prev;
+            });
         };
         // parameterSchema が更新されたら実行して初期値を適用したいので依存に入れる
         syncDetails();
-    }, [selectedCharacters, backgroundOptionsCache, outfitOptionsCache, characterOptions, parameterSchema, userName]);
+        return () => { cancelled = true; };
+    }, [selectedCharacters, personalityOptionsCache, backgroundOptionsCache, outfitOptionsCache, characterOptions, parameterSchema]);
 
     // 親コンポーネントから現在の設定を取得するためのハンドラ
     React.useImperativeHandle(ref, () => ({
@@ -2090,28 +2148,77 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                         </div>
                                                     )}
                                                 </div>
-                                                {/* キャラクター選択（プリセットと同様のグリッド選択モーダルを開く） + 削除ボタン */}
+                                                {/* アイコンバー：キャラ設定・画像設定・TTS 設定・削除（選択欄の上の一行） */}
+                                                {(val || (idx !== selectedCharacters.length - 1 && selectedCharacters.length > 1)) && (
+                                                    <div className="flex items-center justify-end gap-0.5 bg-blue-950/60 border border-blue-900/60 rounded-md px-1.5 py-0.5">
+                                                        {val && onOpenCharacterEditor && (
+                                                            <button
+                                                                onClick={() => onOpenCharacterEditor({
+                                                                    dirName: characterDirNameMap.get(val) || getCharacterNameFromPath(val),
+                                                                    fileName: getCharacterSettingNameFromPath(val),
+                                                                })}
+                                                                className="p-1.5 text-gray-400 hover:text-green-300 hover:bg-gray-700/50 rounded transition-colors"
+                                                                title={t(SSRP_I18N_KEYS.characterEditorOpenTitle)}
+                                                            >
+                                                                <FileText size={14} />
+                                                            </button>
+                                                        )}
+                                                        {val && (
+                                                            <button
+                                                                onClick={() => openImageSettingsForCharacter(val)}
+                                                                className="p-1.5 text-gray-400 hover:text-pink-300 hover:bg-gray-700/50 rounded transition-colors"
+                                                                title={t(SSRP_I18N_KEYS.characterImageSettingsTitle)}
+                                                            >
+                                                                <Image size={14} />
+                                                            </button>
+                                                        )}
+                                                        {val && ttsSettingsVisible && (
+                                                            <button
+                                                                onClick={() => openTTSSettingsForCharacter(val)}
+                                                                className="p-1.5 text-gray-400 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors"
+                                                                title={resolveMessage(uiCatalog, 'tts.voicePanel.title', '音声設定')}
+                                                            >
+                                                                <AudioLines size={14} />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => setSelectedCharacters(prev => listWithDelete(idx, prev))}
+                                                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700/50 rounded transition-colors"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {/* キャラクター選択（プリセットと同様のグリッド選択モーダルを開く） */}
                                                 <div className="flex gap-2">
                                                     <div className="flex-1 min-w-0 space-y-1">
                                                         {/* 選択表示ボタン */}
-                                                        <div
-                                                            onClick={() => setCharDropdownOpenIdx(idx)}
-                                                            className="w-full bg-gray-800 border border-gray-700 rounded-md p-2 text-sm text-gray-200 cursor-pointer hover:border-blue-500 transition-colors flex items-center justify-between"
-                                                        >
-                                                            <span className={val ? 'text-gray-200 truncate' : 'text-gray-500'}>
-                                                                {val ? (characterLabelMap.get(val) || val) : t(SSRP_I18N_KEYS.characterSelect)}
-                                                            </span>
-                                                            <Search size={12} className="text-gray-500 shrink-0 ml-1" />
-                                                        </div>
+                                                        {(() => {
+                                                            // キャラカード：default 表情の画像を選択欄の背景いっぱいに敷き、名前を重ねる
+                                                            const cardUrl = val ? characterIconMap.get(val) : undefined;
+                                                            return (
+                                                                <div
+                                                                    onClick={() => setCharDropdownOpenIdx(idx)}
+                                                                    className={`relative overflow-hidden w-full bg-gray-800 border border-gray-700 rounded-md text-sm cursor-pointer hover:border-blue-500 transition-colors flex items-center justify-between ${cardUrl ? 'h-20' : 'p-2'}`}
+                                                                >
+                                                                    {cardUrl && (
+                                                                        <>
+                                                                            <img
+                                                                                src={cardUrl}
+                                                                                alt=""
+                                                                                className="absolute inset-0 w-full h-full object-cover object-center opacity-70"
+                                                                            />
+                                                                            <div className="absolute inset-0 bg-gradient-to-r from-gray-900/85 via-gray-900/40 to-transparent" />
+                                                                        </>
+                                                                    )}
+                                                                    <span className={`relative z-10 truncate flex-1 ${cardUrl ? 'px-3 font-semibold text-base text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]' : (val ? 'text-gray-200' : 'text-gray-500')}`}>
+                                                                        {val ? (characterLabelMap.get(val) || val) : t(SSRP_I18N_KEYS.characterSelect)}
+                                                                    </span>
+                                                                    <Search size={12} className={`relative z-10 shrink-0 ml-1 ${cardUrl ? 'mr-3 text-gray-200 drop-shadow' : 'text-gray-500'}`} />
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
-                                                    {(val || (idx !== selectedCharacters.length - 1 && selectedCharacters.length > 1)) && (
-                                                        <button
-                                                            onClick={() => setSelectedCharacters(prev => listWithDelete(idx, prev))}
-                                                            className="text-gray-500 hover:text-red-400 p-2 rounded hover:bg-gray-800 transition-colors"
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    )}
                                                 </div>
                                                 {val && characterDetails[val] && (
                                                     <CharacterDetailPanel
@@ -2134,6 +2241,13 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                         onFetchRelationshipOptions={fetchRelationshipOptions}
                                                         onSelectRelation={handleSelectRelation}
                                                         onOpenImageSettings={openImageSettingsForCharacter}
+                                                        linkedSettings={linkedSettingsByChar[val]}
+                                                        onOpenEditor={onOpenCharacterEditor
+                                                            ? charPath => onOpenCharacterEditor({
+                                                                dirName: characterDirNameMap.get(charPath) || getCharacterNameFromPath(charPath),
+                                                                fileName: getCharacterSettingNameFromPath(charPath),
+                                                            })
+                                                            : undefined}
                                                         canUseTTS={ttsSettingsVisible}
                                                         onOpenTTSSettings={ttsSettingsVisible ? openTTSSettingsForCharacter : undefined}
                                                         presetVoiceDesign={voiceDesignByCharacter[val]}
@@ -2343,6 +2457,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                     : []}
                 onSelect={(val) => {
                     if (charDropdownOpenIdx !== null && val) {
+                        // 明示的な選択（新規・差し替えとも）だけが設定紐づけの投入対象
+                        pendingLinkedApplyRef.current.add(val);
                         setSelectedCharacters(prev => listWithChange(charDropdownOpenIdx, val, prev));
                     }
                     setCharDropdownOpenIdx(null);

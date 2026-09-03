@@ -57,6 +57,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
     const [isEditing, setIsEditing] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
     const debounceTimerRef = useRef<number | null>(null);
+    const pendingSettingsRef = useRef<DateTimeSettingsState | null>(null);
     const yearOptions = generateYearOptions();
     const t = (key: string) => resolveMessage(
         uiCatalog,
@@ -99,15 +100,24 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
         };
     }, []);
 
-    // debounce付きのonChange
+    // debounce付きのonChange。
+    // 送信待ちの設定は ref に保持し、各更新はそれを基準にマージする。
+    // props の dateTimeSettings を基準にすると、500ms 以内に別フィールドを続けて
+    // 変更したとき（年→月など）、親へ反映される前の古い値から作り直して先の変更が消える。
     const debouncedOnChange = (newSettings: DateTimeSettingsState) => {
+        pendingSettingsRef.current = newSettings;
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
         }
         debounceTimerRef.current = window.setTimeout(() => {
-            onChange?.(newSettings);
+            const pending = pendingSettingsRef.current;
+            pendingSettingsRef.current = null;
+            if (pending) {
+                onChange?.(pending);
+            }
         }, 500);
     };
+    const baseSettings = () => pendingSettingsRef.current ?? dateTimeSettings;
 
     // 表示条件: dateTimeSettings.enabledがtrue（インクリメントなしでも時刻表示は可能）
     const shouldShow = dateTimeSettings?.enabled;
@@ -135,11 +145,12 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
 
     // セッション時刻を更新（debounce付き）
     const updateSessionTime = (field: keyof DateTimeValue, value: number) => {
-        if (!dateTimeSettings?.currentSessionTime) return;
+        const base = baseSettings();
+        if (!base?.currentSessionTime) return;
         debouncedOnChange({
-            ...dateTimeSettings,
+            ...base,
             currentSessionTime: {
-                ...dateTimeSettings.currentSessionTime,
+                ...base.currentSessionTime,
                 [field]: value
             }
         });
@@ -147,13 +158,14 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
 
     // インクリメント設定時間を更新（debounce付き）
     const updateIncrementValues = (field: keyof IncrementValues, value: number) => {
-        if (!dateTimeSettings?.increment) return;
+        const base = baseSettings();
+        if (!base?.increment) return;
         debouncedOnChange({
-            ...dateTimeSettings,
+            ...base,
             increment: {
-                ...dateTimeSettings.increment,
+                ...base.increment,
                 values: {
-                    ...dateTimeSettings.increment.values,
+                    ...base.increment.values,
                     [field]: value
                 }
             }
@@ -162,12 +174,13 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
 
     // 次のインクリメント時間を更新（debounce付き）
     const updateNextIncrement = (field: keyof IncrementValues, value: number) => {
-        if (!dateTimeSettings?.increment) return;
-        const currentNextIncrement = dateTimeSettings.increment.nextIncrement ?? { ...dateTimeSettings.increment.values };
+        const base = baseSettings();
+        if (!base?.increment) return;
+        const currentNextIncrement = base.increment.nextIncrement ?? { ...base.increment.values };
         debouncedOnChange({
-            ...dateTimeSettings,
+            ...base,
             increment: {
-                ...dateTimeSettings.increment,
+                ...base.increment,
                 nextIncrement: {
                     ...currentNextIncrement,
                     [field]: value

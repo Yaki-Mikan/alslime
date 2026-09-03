@@ -1,6 +1,17 @@
 import type { DanbooruTagFormat, TriggerWordFormat } from '../../api/comfyui';
 
+/**
+ * Anima向け表記。半角スペース区切りにした上で、括弧を \( \) にエスケープする
+ * （例: char (series) → char \(series\)）。既にエスケープ済みの括弧は二重にしない。
+ */
+export function formatAnima(value: string): string {
+    return value
+        .replace(/_/g, ' ')
+        .replace(/\\?([()])/g, '\\$1');
+}
+
 export function formatDanbooruTag(value: string, format: DanbooruTagFormat): string {
+    if (format === 'anima') return formatAnima(value);
     return format === 'space' ? value.replace(/_/g, ' ') : value;
 }
 
@@ -11,6 +22,7 @@ export function formatDanbooruTag(value: string, format: DanbooruTagFormat): str
  *   space      … _ をスペースに寄せる
  */
 export function formatTriggerWord(value: string, format: TriggerWordFormat): string {
+    if (format === 'anima') return formatAnima(value);
     if (format === 'space') return value.replace(/_/g, ' ');
     if (format === 'underscore') return value.replace(/ /g, '_');
     return value;
@@ -35,7 +47,7 @@ export function formatTriggerLine(line: string, format: TriggerWordFormat): stri
  * 表記揺れ（アンダーバー/スペース）と大小文字を吸収して比較キーにする。
  */
 function normalizeWordKey(word: string): string {
-    return word.trim().replace(/_/g, ' ').toLowerCase();
+    return word.trim().replace(/_/g, ' ').replace(/\\([()])/g, '$1').toLowerCase();
 }
 
 /**

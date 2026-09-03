@@ -4,12 +4,13 @@
 
 import axios from '../lib/axios';
 import type { ClaudeEffort } from '../constants/claude';
+import type { AntigravityThinking } from '../constants/antigravity';
 
 // 型定義
 export type DirectiveMode = 'danbooru_only' | 'natural_language' | 'danbooru_third_person' | 'natural_language_third_person' | 'natural_language_short' | 'natural_language_third_person_short';
-export type DanbooruTagFormat = 'underscore' | 'space';
+export type DanbooruTagFormat = 'underscore' | 'space' | 'anima';
 /** トリガーワードのコピー時変換。raw=変換なし / underscore=スペース→_ / space=_→スペース */
-export type TriggerWordFormat = 'raw' | 'underscore' | 'space';
+export type TriggerWordFormat = 'raw' | 'underscore' | 'space' | 'anima';
 export type TagJudgeProvider = 'gemini' | 'claude' | 'antigravity';
 export type GeminiTagJudgeModel = string;
 export type ClaudeTagJudgeModel = string;
@@ -27,6 +28,7 @@ export interface ComfyUIConfig {
     tagJudgeClaudeModel: ClaudeTagJudgeModel;
     tagJudgeClaudeEffort: ClaudeEffort;
     tagJudgeAntigravityModel: AntigravityTagJudgeModel;
+    tagJudgeAntigravityThinking: AntigravityThinking;
     tagJudgeTimeoutSeconds: number;
     lightweightImageSave: LightweightImageSaveConfig;
     /** 選択中のプレースホルダプリセット名（空/未設定は未選択） */

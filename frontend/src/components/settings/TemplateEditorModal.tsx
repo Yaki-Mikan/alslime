@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { CodeEditor } from '../common/CodeEditor';
 import { X, Save, Trash2, Plus, FilePlus, Star } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import {
@@ -230,11 +231,11 @@ export const TemplateEditorModal: React.FC<Props> = ({ isOpen, onClose, backendU
 
                         {/* 本文エリア */}
                         <div className="flex-1 overflow-y-auto px-4 py-3">
-                            <textarea
+                            <CodeEditor
                                 value={content}
-                                onChange={e => { setContent(e.target.value); setIsDirty(true); }}
-                                className="w-full h-full bg-transparent border-none text-sm text-gray-200 focus:outline-none resize-none font-mono"
+                                onChange={v => { setContent(v); setIsDirty(true); }}
                                 placeholder={t(CONFIG_EDITOR_I18N_KEYS.templateContentPlaceholder)}
+                                uiCatalog={uiCatalog}
                             />
                         </div>
                     </div>

@@ -1,4 +1,4 @@
-﻿// Package configeditor は設定編集 UI 用のファイル・テンプレート操作の保存先を担う。
+// Package configeditor は設定編集 UI 用のファイル・テンプレート操作の保存先を担う。
 //
 // カテゴリ定義（正本）は domain/configeditor が持ち、本 storage は「解決済みカテゴリ」
 // （domain.Category）を受け取ってファイル操作する（交換日記 32）。
@@ -415,4 +415,147 @@ func (s *Store) resolveExistingIfExists(logical string) (string, bool, error) {
 // sortFileEntries は名前順で安定ソートする。
 func sortFileEntries(entries []FileEntry) {
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+}
+
+// ---- 設定自動生成テンプレート（言語 → 対象 → 種類 → 名前） ----
+
+// configGenTemplateDefaultsMu は _defaults.json の読み→マージ→書き戻しを直列化する。
+var configGenTemplateDefaultsMu sync.Mutex
+
+// configGenTemplateLogical はテンプレートファイルの論理パス（名前は safename 検証済み）。
+func configGenTemplateLogical(target, locale, dirName, name string) (string, error) {
+	validName, err := safename.Validate(name)
+	if err != nil {
+		return "", err
+	}
+	return config.ConfigGenTemplateDir(target, locale, dirName) + "/" + validName + mdExt, nil
+}
+
+// ListConfigGenTemplates はディレクトリ内のテンプレート名一覧を返す（無ければ空）。
+func (s *Store) ListConfigGenTemplates(target, locale, dirName string) ([]string, error) {
+	dirAbs, ok, err := s.resolveExistingIfExists(config.ConfigGenTemplateDir(target, locale, dirName))
+	if err != nil || !ok {
+		return []string{}, err
+	}
+	dirents, err := os.ReadDir(dirAbs)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0)
+	for _, d := range dirents {
+		if d.IsDir() || !strings.HasSuffix(d.Name(), mdExt) {
+			continue
+		}
+		name := strings.TrimSuffix(d.Name(), mdExt)
+		if _, verr := safename.Validate(name); verr != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// ReadConfigGenTemplate はテンプレート内容を返す。未存在は ErrNotExist。
+func (s *Store) ReadConfigGenTemplate(target, locale, dirName, name string) (string, error) {
+	logical, err := configGenTemplateLogical(target, locale, dirName, name)
+	if err != nil {
+		return "", err
+	}
+	return s.readText(logical)
+}
+
+// ConfigGenTemplateExists はテンプレートの存在確認。
+func (s *Store) ConfigGenTemplateExists(target, locale, dirName, name string) (bool, error) {
+	logical, err := configGenTemplateLogical(target, locale, dirName, name)
+	if err != nil {
+		return false, err
+	}
+	return s.exists(logical)
+}
+
+// WriteConfigGenTemplate はテンプレートを保存する（上書き）。
+func (s *Store) WriteConfigGenTemplate(target, locale, dirName, name, content string) error {
+	logical, err := configGenTemplateLogical(target, locale, dirName, name)
+	if err != nil {
+		return err
+	}
+	return s.writeText(logical, content)
+}
+
+// DeleteConfigGenTemplate はテンプレートを削除する。
+func (s *Store) DeleteConfigGenTemplate(target, locale, dirName, name string) error {
+	logical, err := configGenTemplateLogical(target, locale, dirName, name)
+	if err != nil {
+		return err
+	}
+	return s.remove(logical)
+}
+
+// ConfigGenTemplateDefaults は既定テンプレート名（言語 → 対象 → 種類 → 名前）。
+type ConfigGenTemplateDefaults map[string]map[string]map[string]string
+
+// LoadConfigGenTemplateDefaults は _defaults.json を読む。無ければ空。破損は空フォールバック。
+func (s *Store) LoadConfigGenTemplateDefaults() (ConfigGenTemplateDefaults, error) {
+	out := ConfigGenTemplateDefaults{}
+	abs, ok, err := s.resolveExistingIfExists(config.ConfigGenTemplateDefaultsFile)
+	if err != nil || !ok {
+		return out, err
+	}
+	raw, rerr := jsonstore.ReadRaw(abs)
+	if rerr != nil {
+		return out, nil
+	}
+	for locale, byTarget := range raw {
+		tm, ok := byTarget.(map[string]any)
+		if !ok {
+			continue
+		}
+		for target, byKind := range tm {
+			km, ok := byKind.(map[string]any)
+			if !ok {
+				continue
+			}
+			for kind, name := range km {
+				ns, ok := name.(string)
+				if !ok {
+					continue
+				}
+				if out[locale] == nil {
+					out[locale] = map[string]map[string]string{}
+				}
+				if out[locale][target] == nil {
+					out[locale][target] = map[string]string{}
+				}
+				out[locale][target][kind] = ns
+			}
+		}
+	}
+	return out, nil
+}
+
+// SaveConfigGenTemplateDefault は既定テンプレート名を保存する（マージ。空名は解除）。
+func (s *Store) SaveConfigGenTemplateDefault(target, locale, kind, name string) error {
+	configGenTemplateDefaultsMu.Lock()
+	defer configGenTemplateDefaultsMu.Unlock()
+	defaults, err := s.LoadConfigGenTemplateDefaults()
+	if err != nil {
+		return err
+	}
+	if defaults[locale] == nil {
+		defaults[locale] = map[string]map[string]string{}
+	}
+	if defaults[locale][target] == nil {
+		defaults[locale][target] = map[string]string{}
+	}
+	if name == "" {
+		delete(defaults[locale][target], kind)
+	} else {
+		defaults[locale][target][kind] = name
+	}
+	path, err := s.resolver.ResolveForCreateMkdirAll(config.ConfigGenTemplateDefaultsFile, config.DirPerm)
+	if err != nil {
+		return err
+	}
+	return jsonstore.WriteJSON(path, defaults)
 }

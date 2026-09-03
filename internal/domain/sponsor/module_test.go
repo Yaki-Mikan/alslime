@@ -144,3 +144,12 @@ func signPackPayload(t *testing.T, priv ed25519.PrivateKey, manifest companionPa
 	}
 	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, payload))
 }
+
+func TestModuleResponseError_認証失効と権限不足を分離する(t *testing.T) {
+	if err := moduleResponseError(http.StatusUnauthorized); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("401=%v want=%v", err, ErrTokenInvalid)
+	}
+	if err := moduleResponseError(http.StatusForbidden); !errors.Is(err, ErrTierRejected) {
+		t.Fatalf("403=%v want=%v", err, ErrTierRejected)
+	}
+}

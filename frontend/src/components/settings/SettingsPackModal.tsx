@@ -334,7 +334,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                             <div className="space-y-3">
                                 {Object.entries(grouped).map(([cls, members]) => (
                                     <div key={cls} className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-                                        <div className="text-xs text-gray-500 mb-2">{CLASS_GROUP_LABELS[cls] || cls}</div>
+                                        <div className="text-xs text-gray-500 mb-2">{resolveMessage(uiCatalog, `settingsPack.classGroup.${cls}`, CLASS_GROUP_LABELS[cls] || cls)}</div>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                                             {members.map(kind => (
                                                 <label key={kind.id} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-gray-100">
@@ -344,7 +344,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                                         onChange={() => toggleKind(kind.id)}
                                                         className="accent-emerald-500"
                                                     />
-                                                    <span className="truncate">{kind.label}</span>
+                                                    <span className="truncate">{resolveMessage(uiCatalog, `settingsPack.kind.${kind.id}`, kind.label)}</span>
                                                 </label>
                                             ))}
                                         </div>

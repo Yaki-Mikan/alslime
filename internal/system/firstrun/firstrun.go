@@ -28,11 +28,16 @@ var defaultsFS embed.FS
 const defaultsRoot = "defaults"
 
 // Ensure は workspaceRoot 配下の初期ディレクトリと同梱デフォルトを整える。
+// 設定自動生成テンプレートの旧構成は、同梱デフォルトの書き出しより先に
+// 新構成へ転置する（後に回すと旧位置の利用者ファイルと同梱ファイルが二重になる）。
 func Ensure(workspaceRoot string) error {
 	for _, dir := range workspaceDirs() {
 		if err := os.MkdirAll(filepath.Join(workspaceRoot, filepath.FromSlash(dir)), config.DirPerm); err != nil {
 			return err
 		}
+	}
+	if err := MigrateConfigGenLayout(workspaceRoot); err != nil {
+		return err
 	}
 	return writeDefaults(workspaceRoot)
 }

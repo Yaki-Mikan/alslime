@@ -41,7 +41,7 @@ AlSlime is a front end for AI CLIs. Depending on which AI you want to use, **sub
 
 Download the file for your OS from GitHub Releases and extract it. **The distribution build is the full-featured edition.**
 
-- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip`
+- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip` (it contains the executable `alslime.exe` and the launcher `start-alslime.bat`)
 - **Linux**: extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`). The binary is already executable, so you can run it as-is
 
 ### Building from source
@@ -62,7 +62,10 @@ AlSlime creates conversation data and settings (such as the `roleplay` folder) *
 
 ### Startup and the first screen
 
-When you run the executable, a local server that runs only on your own PC starts up, and **the screen opens automatically in your usual browser**.
+On startup, a local server that runs only on your own PC starts up.
+
+- **Windows**: double-click `start-alslime.bat`. It starts the executable (`alslime.exe`), and after a few seconds **the screen opens automatically in your usual browser**. If you run `alslime.exe` directly, the browser does not open automatically; open the address shown in the console in your browser instead.
+- **Linux**: run `./alslime`. In a session with a GUI, **the screen opens automatically in your usual browser**.
 
 ![Terms of Use consent screen shown at first startup](../images/ja/01-01-eula-gate.png)
 
@@ -72,6 +75,7 @@ On first startup, the Terms of Use consent screen appears here (see the next sec
 >
 > - Open the address shown in the console (usually `http://127.0.0.1:3000`) directly in your browser.
 > - AlSlime cannot start if another application is already using port 3000. In that case, change the port as described in "6. Advanced Startup Settings" in this chapter, or close the other application.
+> - On Windows, if you change the port, also update the port number in the address inside `start-alslime.bat`.
 > - For other problems, see [11 Troubleshooting](11-troubleshooting.md).
 
 ## 4. Agreeing to the Terms of Use
@@ -130,7 +134,7 @@ You can also use environment variables (they take precedence over the settings f
 | `PORT` | Listening port number |
 | `HOST` | Listening address |
 | `WORKSPACE_ROOT` | Folder where data is stored (defaults to the startup folder if unset) |
-| `ALSLIME_NO_BROWSER` | Set to any value to disable opening the browser automatically at startup |
+| `ALSLIME_NO_BROWSER` | Set to any value to disable opening the browser automatically at startup (Linux only; on Windows the browser is opened by `start-alslime.bat`, so this variable has no effect) |
 
 ---
 

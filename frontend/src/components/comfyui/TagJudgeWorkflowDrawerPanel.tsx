@@ -38,6 +38,7 @@ export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCat
                         backendUrl={backendUrl}
                         uiCatalog={uiCatalog}
                         showHeading={false}
+                        stacked
                     />
                 </div>
             )}

@@ -69,6 +69,36 @@ Registering images for a character displays them as icons next to messages durin
 
 6. For a registered image, "Crop" in the same panel redoes the crop, and "Delete" removes it.
 
+### Editing everything in the Config File Editor
+
+When you open an existing file of the "Character" category in the Config File Editor, the window switches to three columns, and the character's extra settings appear as tabs in the middle.
+
+| Tab | What it does |
+| --- | --- |
+| Expressions | Same as the image management panel above. Drop an image onto the preview to register it as the source image, and click the preview to open the crop screen |
+| Image generation | Same items as "Character image generation settings" in the integrated image generation settings (shown only when the sponsor feature is enabled and the image generation module is connected) |
+| Voice | Same items as the character assignment in TTS settings (shown only when the sponsor feature is enabled and the TTS module is connected) |
+| Linked settings | Link individual personality / outfit & hair / background files to this character. When you pick the character in chat settings, the linked files are added to its individual settings automatically (already-selected files are not duplicated). You can also keep "character-side additional settings", combined with the preset's additional settings by **append** (use both) or **replace** (use only the character side) |
+
+At the bottom of the right column there is a "Tags" area where you register the work and tags used by the chat settings filters. The character tag list is refreshed as soon as you save.
+
+- The middle tabs and the tag area become available after the character file itself has been saved once (the save folder must exist).
+- Each middle tab saves independently. A tab with unsaved changes shows a marker.
+- A character with a `default` expression image is shown as a card with that image in the character picker of the chat settings.
+
+### Creating expression images with image generation (sponsor feature)
+
+When the image generation module is connected, the expression image area shows a "Generate expression image" button. It opens the expression image generation screen:
+
+1. On the left, pick the target character and expression. You can keep several prompts per expression (give it a title and press "Save prompt"; the trash icon deletes one).
+2. On the right, choose a workflow, set the count, and press "Generate". The generated images are listed.
+3. Click an image to select it and press "Use selected image as expression image". It is registered as the source image for that expression, and the crop screen opens right away.
+4. Crop and save; the result becomes the icon for that expression.
+
+- The expression prompt goes into `{{EMOTION}}` in the workflow. If the workflow has no `{{EMOTION}}`, it is appended to the end of `{{EXTRA_POSITIVE}}`.
+- "Generate" is disabled while the character image generation settings have unsaved changes. Save them first.
+- Generated images are discarded when the screen is closed. Only the one you applied as the expression image remains.
+
 ## 4. Viewing Character Status During a Conversation
 
 During a conversation, the button at the left end of the header (Session status) opens the left drawer.
@@ -84,10 +114,14 @@ Character data is stored in `roleplay/characters/` in the startup folder, one fo
 
 ```text
 roleplay/characters/<character name>/
-├── settings/   … character settings (Markdown)
+├── settings/
+│   ├── <character name>.md    … character settings (Markdown)
+│   ├── tags.json              … work and tags (edited in the editor's tag area)
+│   └── linked_settings.json   … linked settings (linked files and character-side additional settings)
+├── personalities/ , outfits_hair/ , backgrounds/ … individual settings only for this character (Markdown)
 └── images/
     ├── originals/   … source images per emotion
-    └── icons/       … cropped icons
+    └── icons/       … cropped icons (default.png becomes the character card)
 ```
 
 You can edit the settings Markdown directly in a text editor, or copy the whole folder as a backup.

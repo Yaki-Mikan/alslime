@@ -78,7 +78,7 @@ Each AI CLI may require a separate plan or subscription with its provider. Plans
 
 Download the file for your OS from [GitHub Releases](https://github.com/Yaki-Mikan/alslime/releases) and extract it. **The prebuilt release is the full-featured edition.**
 
-- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip` and double-click `alslime.exe`
+- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip` and double-click `start-alslime.bat` (it starts the server and opens the screen in your browser)
 - **Linux**: extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`) and run `./alslime` (the binary is already executable)
 
 ### Build from Source
