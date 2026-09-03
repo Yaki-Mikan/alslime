@@ -798,13 +798,13 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                     {/* 項目設定選択部 */}
                     <div className="px-5 py-4 border-b border-gray-700 bg-gray-800/50 shrink-0">
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                             <label className="text-sm text-gray-400 whitespace-nowrap">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fileLabel)}</label>
                             <select
                                 value={selectedSchemaId || ''}
                                 onChange={(e) => e.target.value && handleSchemaChange(e.target.value)}
                                 disabled={isLoading}
-                                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
+                                className="flex-1 min-w-0 basis-full lg:basis-0 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
                             >
                                 <option value="">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.selectPrompt)}</option>
                                 {schemaList.map(schema => (

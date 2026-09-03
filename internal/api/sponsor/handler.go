@@ -35,12 +35,12 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 	})
 
 	mux.HandleFunc("POST "+config.APIPrefix+"/sponsor/login", func(w http.ResponseWriter, _ *http.Request) {
-		authURL, err := svc.StartLogin()
+		login, err := svc.StartLogin()
 		if err != nil {
 			apierror.Write(w, apierror.Internal(err))
 			return
 		}
-		writeJSON(w, map[string]string{"authUrl": authURL})
+		writeJSON(w, login)
 	})
 
 	mux.HandleFunc("POST "+config.APIPrefix+"/sponsor/logout", func(w http.ResponseWriter, _ *http.Request) {
@@ -94,6 +94,10 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
 			case errors.Is(err, sponsorsvc.ErrModuleRejected):
 				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorModuleRejected))
+			case errors.Is(err, sponsorsvc.ErrTokenInvalid):
+				apierror.Write(w, apierror.NewKey(http.StatusUnauthorized, i18n.KeyErrorSponsorTokenInvalid))
+			case errors.Is(err, sponsorsvc.ErrTierRejected):
+				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorTierRejected))
 			case errors.Is(err, sponsorsvc.ErrModuleUnavailable):
 				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
 			default:
@@ -153,6 +157,10 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
 			case errors.Is(err, sponsorsvc.ErrModuleRejected):
 				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorModuleRejected))
+			case errors.Is(err, sponsorsvc.ErrTokenInvalid):
+				apierror.Write(w, apierror.NewKey(http.StatusUnauthorized, i18n.KeyErrorSponsorTokenInvalid))
+			case errors.Is(err, sponsorsvc.ErrTierRejected):
+				apierror.Write(w, apierror.ForbiddenKey(i18n.KeyErrorSponsorTierRejected))
 			case errors.Is(err, sponsorsvc.ErrModuleUnavailable):
 				apierror.Write(w, apierror.NotFoundKey(i18n.KeyErrorSponsorModuleUnavailable))
 			default:

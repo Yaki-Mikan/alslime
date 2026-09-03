@@ -190,3 +190,43 @@ export async function getInitialContent(backendUrl: string, categoryId: string):
     const res = await axios.get(`${backendUrl}/api/config-editor/initial-content/${categoryId}`);
     return res.data.content;
 }
+
+// ---- 設定自動生成テンプレート（入力項目・設定ファイル。言語 → 対象 → 種類 → 名前） ----
+
+export type ConfigGenTemplateKind = 'search' | 'setting';
+
+/** { "<locale>": { "<target>": { "search": name, "setting": name } } } */
+export type ConfigGenTemplateDefaults = Record<string, Record<string, Partial<Record<ConfigGenTemplateKind, string>>>>;
+
+export async function listConfigGenTemplates(backendUrl: string, target: string, locale: string, kind: ConfigGenTemplateKind): Promise<string[]> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/configgen-templates/${encodeURIComponent(target)}/${encodeURIComponent(locale)}/${kind}`);
+    return res.data;
+}
+
+export async function getConfigGenTemplate(backendUrl: string, target: string, locale: string, kind: ConfigGenTemplateKind, name: string): Promise<string> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/configgen-template/${encodeURIComponent(target)}/${encodeURIComponent(locale)}/${kind}/${encodeURIComponent(name)}`);
+    return res.data.content;
+}
+
+export async function saveConfigGenTemplate(backendUrl: string, target: string, locale: string, kind: ConfigGenTemplateKind, name: string, content: string): Promise<void> {
+    await axios.post(`${backendUrl}/api/config-editor/configgen-template/${encodeURIComponent(target)}/${encodeURIComponent(locale)}/${kind}/${encodeURIComponent(name)}`, { content });
+}
+
+export async function deleteConfigGenTemplate(backendUrl: string, target: string, locale: string, kind: ConfigGenTemplateKind, name: string): Promise<void> {
+    await axios.delete(`${backendUrl}/api/config-editor/configgen-template/${encodeURIComponent(target)}/${encodeURIComponent(locale)}/${kind}/${encodeURIComponent(name)}`);
+}
+
+export async function getConfigGenTemplateDefaults(backendUrl: string): Promise<ConfigGenTemplateDefaults> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/configgen-template-defaults`);
+    return res.data ?? {};
+}
+
+export async function setConfigGenTemplateDefault(backendUrl: string, target: string, locale: string, kind: ConfigGenTemplateKind, name: string): Promise<void> {
+    await axios.post(`${backendUrl}/api/config-editor/configgen-template-defaults`, { target, locale, kind, name });
+}
+
+/** 既定名を返す（無ければ空）。 */
+export function configGenTemplateDefaultName(defaults: ConfigGenTemplateDefaults, target: string, locale: string, kind: ConfigGenTemplateKind): string {
+    return defaults?.[normalizeConfigGenInstructionLocale(locale)]?.[target]?.[kind] ?? '';
+}
+

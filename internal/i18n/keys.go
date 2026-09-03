@@ -79,6 +79,8 @@ const (
 	KeyErrorEmotionNameDuplicate      = "error.emotionNameDuplicate"
 	KeyErrorEmotionDefaultRequired    = "error.emotionDefaultRequired"
 	KeyErrorEmotionCatalogMissing     = "error.emotionCatalogMissing"
+	KeyErrorCharacterNotFound         = "error.characterNotFound"
+	KeyErrorImageGenRequired          = "error.imageGenRequired"
 	KeyErrorJobCancelUnavailable      = "error.jobCancelUnavailable"
 	KeyErrorInvalidProcessLimit       = "error.invalidProcessLimit"
 	KeyErrorInvalidServerPort         = "error.invalidServerPort"
@@ -128,6 +130,12 @@ const (
 	KeyConfigGenProgressToolUse      = "configgen.progress.toolUse"
 	KeyConfigGenProgressCompleted    = "configgen.progress.completed"
 	KeyConfigGenProgressClaudeStats  = "configgen.progress.claudeStats"
+	// 対話作成。
+	KeyErrorConfigGenDialogSessionMissing = "error.configgen.dialogSessionMissing"
+	KeyErrorConfigGenDialogConflict       = "error.configgen.dialogConflict"
+	KeyErrorConfigGenOutputEmpty          = "error.configgen.outputEmpty"
+	KeyErrorConfigGenMethodNotAllowed     = "error.configgen.methodNotAllowed"
+	KeyConfigGenProgressDialogTurn        = "configgen.progress.dialogTurn"
 
 	// Antigravity Method C テンプレートの自動復旧。
 	KeyErrorAntigravityTemplateExplicitInvalid = "error.antigravity.templateExplicitInvalid"
@@ -161,6 +169,8 @@ const (
 	KeyErrorSponsorRefreshFailed   = "error.sponsorRefreshFailed"
 	// サイドカーモジュール取得（14番 6章の本体側受け口）。
 	KeyErrorSponsorModuleRejected      = "error.sponsorModuleRejected"
+	KeyErrorSponsorTokenInvalid        = "error.sponsorTokenInvalid"
+	KeyErrorSponsorTierRejected        = "error.sponsorTierRejected"
 	KeyErrorSponsorModuleUnavailable   = "error.sponsorModuleUnavailable"
 	KeyErrorSponsorModuleInstallFailed = "error.sponsorModuleInstallFailed"
 	KeyErrorSponsorModuleCleanFailed   = "error.sponsorModuleCleanFailed"

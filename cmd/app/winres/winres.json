@@ -1,0 +1,50 @@
+{
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "alslime",
+          "version": "0.0.0.0"
+        },
+        "description": "AlSlime",
+        "minimum-os": "win10",
+        "execution-level": "as invoker",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system",
+        "disable-window-filtering": false,
+        "high-resolution-scrolling-aware": false,
+        "ultra-high-resolution-scrolling-aware": false,
+        "long-path-aware": true,
+        "printer-driver-isolation": false,
+        "gdi-scaling": false,
+        "segment-heap": false,
+        "use-common-controls-v6": false
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "0.0.0.0",
+          "product_version": "0.0.0.0",
+          "type": "Application"
+        },
+        "info": {
+          "0409": {
+            "CompanyName": "YakiMikan",
+            "FileDescription": "AlSlime Local AI Roleplay Application",
+            "FileVersion": "0.0.0.0",
+            "InternalName": "alslime",
+            "LegalCopyright": "Copyright (c) YakiMikan",
+            "OriginalFilename": "alslime.exe",
+            "ProductName": "AlSlime",
+            "ProductVersion": "0.0.0.0",
+            "Comments": "Local AI CLI frontend for character conversations. Runs a local web server and uses user-installed AI CLI tools. Stores conversation history and settings on the user's PC. Does not install services, modify system settings, or run at startup. Source: https://github.com/Yaki-Mikan/alslime"
+          }
+        }
+      }
+    }
+  }
+}

@@ -139,7 +139,7 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
                     className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 outline-none focus:border-amber-600 transition-colors"
                 >
                     {directives.map(d => (
-                        <option key={d.id} value={d.id}>{d.label}</option>
+                        <option key={d.id} value={d.id}>{resolveMessage(uiCatalog, `configEditor.comfyDirective.file.${d.id}`, d.label)}</option>
                     ))}
                 </select>
                 {selectedId && activeDirectiveMode === directiveModeForDirectiveId(selectedId) && (

@@ -482,7 +482,7 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                     {t(K.pickerManualAdd)}
                 </button>
             </div>
-            <p className="text-xs text-gray-500">{t(K.save)}で接続情報とモデル選択をまとめて保存します。</p>
+            <p className="text-xs text-gray-500">{t('apiProviders.saveHint')}</p>
         </div>
     );
 

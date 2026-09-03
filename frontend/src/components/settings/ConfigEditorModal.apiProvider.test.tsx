@@ -17,6 +17,13 @@ import {
 } from '../../api/config-editor';
 import { ConfigEditorModal } from './ConfigEditorModal';
 
+// CodeMirror は jsdom に getClientRects が無く座標計算で失敗するため textarea へ差し替える。
+vi.mock('../common/CodeEditor', () => ({
+    CodeEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+        <textarea value={value} onChange={e => onChange(e.target.value)} />
+    ),
+}));
+
 vi.mock('../../api/api-providers', () => ({
     fetchApiProviders: vi.fn(),
     fetchApiProviderSystemPrompt: vi.fn(),

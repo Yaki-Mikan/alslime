@@ -132,6 +132,17 @@ export const downloadSamplePack = async (
     return response.data;
 };
 
+// downloadTemplatePack は設定自動生成用テンプレートパック（手動作成向けテンプレートと
+// 設定自動生成指示。GitHub Releases の固定URL）をサーバー側でダウンロードして取り込む。
+export const downloadTemplatePack = async (
+    backendUrl: string,
+    lang: string,
+    policy: SettingsPackPolicy = 'skip',
+): Promise<SettingsPackImportResult> => {
+    const response = await axios.post(`${backendUrl}/api/settings-pack/download-templates`, { lang, policy });
+    return response.data;
+};
+
 // exportSettingsPack は zip をダウンロードさせる（ブラウザ保存）。
 export const exportSettingsPack = async (
     backendUrl: string,

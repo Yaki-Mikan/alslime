@@ -19,9 +19,13 @@ export const fetchSponsorStatus = async (backendUrl: string): Promise<SponsorSta
     return response.data;
 };
 
-// ログイン開始。バックエンドが localhost コールバック待ち受けを起動し、
-// ブラウザで開くべき認可 URL を返す。
-export const startSponsorLogin = async (backendUrl: string): Promise<{ authUrl: string }> => {
+// ログイン開始。バックエンドが認証サーバーの結果を取得し、ブラウザには認可 URL と
+export interface SponsorLoginStart {
+    authUrl: string;
+    expiresAt: string;
+}
+
+export const startSponsorLogin = async (backendUrl: string): Promise<SponsorLoginStart> => {
     const response = await axios.post(`${backendUrl}/api/sponsor/login`);
     return response.data;
 };

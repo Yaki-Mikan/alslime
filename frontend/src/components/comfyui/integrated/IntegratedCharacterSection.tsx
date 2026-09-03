@@ -15,9 +15,15 @@ import { formatTriggerLine, appendTriggerLineDedup } from '../danbooru-format';
 import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
 
 interface Props {
-    characters: CharacterTagInfo[];
+    // キャラクター選択ドロップダウン用。hideCharacterSelector のときは不要
+    //（設定ファイルエディタ埋め込みでは開いているキャラクターに固定するため）。
+    characters?: CharacterTagInfo[];
     selectedCharacter: string;
-    onCharacterChange: (name: string) => void;
+    onCharacterChange?: (name: string) => void;
+    // true ならキャラクター選択ドロップダウンを出さない（フォーム部分だけを使う）。
+    hideCharacterSelector?: boolean;
+    // 作品名ラベルへの補足（フィルタ用の「作品」との区別を示す文言）。
+    workNameHint?: string;
     config: CharacterImageGenConfig;
     onUpdateConfig: <K extends keyof CharacterImageGenConfig>(key: K, value: CharacterImageGenConfig[K]) => void;
     isLoading: boolean;
@@ -37,9 +43,11 @@ const createEmptyLora = () => ({ name: '', strengthModel: 1.0, strengthClip: 1.0
 const createEmptyOutfit = () => ({ name: '', prompt: '', lora: [createEmptyLora()] });
 
 export const IntegratedCharacterSection: React.FC<Props> = ({
-    characters,
+    characters = [],
     selectedCharacter,
     onCharacterChange,
+    hideCharacterSelector = false,
+    workNameHint,
     config,
     onUpdateConfig,
     isLoading,
@@ -221,7 +229,8 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
 
     return (
         <div className="space-y-4">
-            {/* キャラクター選択 */}
+            {/* キャラクター選択（エディタ埋め込みでは開いているキャラクターに固定するため出さない） */}
+            {!hideCharacterSelector && (
             <div className="space-y-2" ref={dropdownRef}>
                 <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
                     <Users size={16} className="text-pink-400" />
@@ -257,7 +266,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                     <button
                                         key={c.path}
                                         onClick={() => {
-                                            onCharacterChange(c.name);
+                                            onCharacterChange?.(c.name);
                                             setIsDropdownOpen(false);
                                             setSearchQuery('');
                                             setLoraDetailMode({});
@@ -278,6 +287,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                     </div>
                 )}
             </div>
+            )}
 
             {isLoading ? (
                 <div className="flex justify-center py-8">
@@ -290,9 +300,10 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                         <label className="text-sm font-medium text-gray-400">
                             {CHARACTER.LABELS.CHARACTER_AND_WORK}
                             <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
+                            {workNameHint && <span className="block text-xs text-gray-500 mt-0.5">{workNameHint}</span>}
                         </label>
-                        <div className="flex gap-2">
-                            <div className="flex-1 space-y-0.5">
+                        <div className="flex flex-col gap-2 lg:flex-row">
+                            <div className="flex-1 min-w-0 space-y-0.5">
                                 <span className="text-xs text-gray-500">{CHARACTER.LABELS.CHARACTER_NAME}</span>
                                 <input
                                     type="text"
@@ -302,7 +313,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
                                 />
                             </div>
-                            <div className="flex-1 space-y-0.5">
+                            <div className="flex-1 min-w-0 space-y-0.5">
                                 <span className="text-xs text-gray-500">{CHARACTER.LABELS.WORK_NAME}</span>
                                 <input
                                     type="text"

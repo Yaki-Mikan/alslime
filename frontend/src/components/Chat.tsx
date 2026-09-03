@@ -22,6 +22,7 @@ import { DEFAULT_SETTINGS } from '../types/Settings';
 import type { Settings as SettingsType } from '../types/Settings';
 import { JobProgressModal } from './JobProgressModal';
 import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHub';
+import type { OpenFileRequest } from './settings/ConfigEditorModal';
 import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
 import { TTSDrawerPanel } from './tts/TTSDrawerPanel';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
@@ -125,6 +126,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [openApiProviderInstruction, setOpenApiProviderInstruction] = useState<ApiProviderInstructionTarget | null>(null);
     // 会話設定のキャラ詳細設定横アイコンから画像生成統合設定タブを開く時の初期選択キャラクター名
     const [integratedInitialCharacter, setIntegratedInitialCharacter] = useState('');
+    // 会話設定のキャラ詳細横アイコンから、設定ファイルエディタでそのキャラクター本体を開く指定
+    const [configEditorOpenFile, setConfigEditorOpenFile] = useState<OpenFileRequest | null>(null);
 
     // 設定 State
     const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
@@ -518,6 +521,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         handleNewSession: sessionHandleNewSession,
         handleResumeSession: sessionHandleResumeSession,
         openSessionModal,
+        fetchSessions,
+        takeRestoreSessionId,
         updateSessionTitle,
         deleteSession,
         deleteSessions
@@ -552,6 +557,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         setGeminiTempFileMode,
         claudeEffort,
         selectClaudeEffort,
+        antigravityThinking,
+        selectAntigravityThinking,
         antigravityStreamGuardLimit,
         selectAntigravityStreamGuardLimit,
         actionChoices,
@@ -560,6 +567,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         handleSend,
         handleStop,
         handleRegenerate,
+        handleRegenerateWithModel,
         handleSaveEdit,
         pollJobStatus
     } = useChat({
@@ -700,6 +708,32 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
             setIsRestoringSession(false);
         }
     };
+
+    // 画面の再読込後に、直前まで開いていたセッションを再表示する。
+    // モデル一覧が届いてから一度だけ動かす（先に復元すると、後から届いた一覧へ合わせる
+    // 整合処理が復元済みのモデルを既定値で上書きするため）。
+    // 一覧に無いID（削除済み等）は何もせず、保存先は state 側の effect が既に消している。
+    const hasAttemptedRestoreRef = React.useRef(false);
+    useEffect(() => {
+        if (models.length === 0 || hasAttemptedRestoreRef.current) return;
+        hasAttemptedRestoreRef.current = true;
+        const storedId = takeRestoreSessionId();
+        if (!storedId) return;
+        (async () => {
+            try {
+                const list = await fetchSessions();
+                const target = list.find(s => s.id === storedId);
+                if (!target) {
+                    console.log('[Chat] Stored session not found in list; skip restore:', storedId);
+                    return;
+                }
+                console.log('[Chat] Restoring session after reload:', storedId);
+                await handleResumeSessionWrapper(target);
+            } catch (e) {
+                console.error('[Chat] Session restore after reload failed:', e);
+            }
+        })();
+    }, [models]);
 
     // セッション削除の確認対象（履歴モーダルのゴミ箱ボタンで設定し、確認モーダルを開く）
     const [deleteConfirmSession, setDeleteConfirmSession] = useState<{ id: string; title: string } | null>(null);
@@ -1088,6 +1122,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
                 integratedInitialCharacter={integratedInitialCharacter}
+                initialOpenFile={configEditorOpenFile}
+                onInitialOpenFileConsumed={() => setConfigEditorOpenFile(null)}
             />
 
             {/* 設定モーダル */}
@@ -1643,6 +1679,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onEditSave={handleSaveEdit}
                             onEditChange={(content) => editingState && setEditingState({ ...editingState, content })}
                             onRegenerate={handleRegenerate}
+                            onRegenerateWithModel={handleRegenerateWithModel}
+                            models={models}
+                            selectedModel={selectedModel}
+                            selectedModelProvider={selectedModelProvider}
                             isLoading={isLoading}
                             backendUrl={BACKEND_URL}
                             sessionId={currentSessionId || undefined}
@@ -1675,6 +1715,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onOpenModelSettings={() => setIsModelSettingsOpen(true)}
                             claudeEffort={claudeEffort}
                             onSelectClaudeEffort={selectClaudeEffort}
+                            antigravityThinking={antigravityThinking}
+                            onSelectAntigravityThinking={selectAntigravityThinking}
                             antigravityStreamGuardLimit={antigravityStreamGuardLimit}
                             onSelectAntigravityStreamGuardLimit={selectAntigravityStreamGuardLimit}
                             geminiTempFileMode={geminiTempFileMode}
@@ -1702,6 +1744,12 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     onRestoreSessionSettings={handleRestoreSessionSettings}
                     fallbackDirectiveMode={'C'}
                     defaultUserNameSetting={settings.defaultUserName}
+                    onOpenCharacterEditor={target => {
+                        // 設定ファイルエディタ（設定ファイルタブ）でそのキャラクター本体を開く
+                        setConfigEditorOpenFile({ categoryId: 'character', dirName: target.dirName, fileName: target.fileName });
+                        setConfigEditorInitialTab('config');
+                        setIsConfigEditorOpen(true);
+                    }}
                     imageGenSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                     onOpenIntegratedImageSettings={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive
                         ? characterName => {

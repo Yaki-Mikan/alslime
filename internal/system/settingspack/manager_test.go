@@ -493,3 +493,37 @@ func TestExport_インポートとの往復(t *testing.T) {
 		t.Fatalf("往復で内容が再現されない: %q", got)
 	}
 }
+
+func TestImport_旧構成のテンプレートパックは取込後に新構成へ寄る(t *testing.T) {
+	m, root := newTestManager(t)
+	pack := writeZip(t, t.TempDir(), map[string]string{
+		config.SettingsPackManifestFileName:                                     `{"packFormat":1,"name":"旧構成テンプレートパック"}`,
+		"roleplay/global/prompts/configgen/character/ja/search_templates/配布.md": "配布入力項目",
+		"roleplay/global/prompts/configgen/character/one_shot.ja.md":            "配布一括指示",
+		"roleplay/global/templates/character/標準.md":                             "手動作成向けテンプレート",
+	})
+
+	result, err := m.Import(pack, ImportOptions{Policy: PolicySkip})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(result.Written) != 3 {
+		t.Fatalf("3件書き込まれるはず: %+v", result.Written)
+	}
+
+	// configgen 配下は取込後の移行で新構成（言語/対象）へ寄る。
+	if got := readWorkspaceFile(t, root, "roleplay/global/prompts/configgen/ja/character/search_templates/配布.md"); got != "配布入力項目" {
+		t.Errorf("管理テンプレートが新構成に無い: %q", got)
+	}
+	if got := readWorkspaceFile(t, root, "roleplay/global/prompts/configgen/ja/character/one_shot.md"); got != "配布一括指示" {
+		t.Errorf("作成指示が新構成に無い: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash("roleplay/global/prompts/configgen/character"))); !os.IsNotExist(err) {
+		t.Errorf("旧構成ディレクトリが残っている: %v", err)
+	}
+
+	// 手動作成向けテンプレートは構成変更の対象外で、そのままの位置に入る。
+	if got := readWorkspaceFile(t, root, "roleplay/global/templates/character/標準.md"); got != "手動作成向けテンプレート" {
+		t.Errorf("手動作成向けテンプレートが取り込まれていない: %q", got)
+	}
+}

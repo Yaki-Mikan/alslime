@@ -157,6 +157,18 @@ export const useConfigGenJob = (backendUrl: string) => {
         }
     }, [backendUrl, connect]);
 
+    // 別経路（対話作成の send 等）で投入済みのジョブへ接続する。
+    const attachJob = useCallback((
+        jobId: string,
+        timeoutMinutes: number | undefined,
+        onComplete: (result: ConfigGenResultFile) => void,
+        onFinished?: (status: string) => void
+    ) => {
+        onCompleteRef.current = onComplete;
+        onFinishedRef.current = onFinished ?? null;
+        connect(jobId, timeoutMinutes, 0);
+    }, [connect]);
+
     // 実行中ジョブへの再接続（タブを開き直したとき等）。
     const attach = useCallback(async (
         onComplete: (result: ConfigGenResultFile) => void,
@@ -192,5 +204,5 @@ export const useConfigGenJob = (backendUrl: string) => {
         setState(INITIAL_STATE);
     }, [clearTimers]);
 
-    return { state, start, attach, cancel, reset };
+    return { state, start, attachJob, attach, cancel, reset };
 };

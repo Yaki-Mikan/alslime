@@ -21,6 +21,7 @@ import type { TemplateInfo } from '../../../api/comfyui';
 import { createComfyUIText, formatComfyText } from '../i18n';
 import type { I18NCatalog } from '../../../api/i18n';
 import { CollapsibleSection } from '../../settings/CollapsibleSection';
+import { useIsWideScreen } from '../../../hooks/useIsWideScreen';
 
 interface Props {
     backendUrl: string;
@@ -30,6 +31,11 @@ interface Props {
     // テンプレート追加・削除後に親側で一覧と選択状態を再取得する
     onTemplatesReload: () => Promise<void>;
     uiCatalog?: I18NCatalog | null;
+    // 見出し文言の差し替え（未指定なら「テスト生成用ワークフロー」）。表情画像生成では「ワークフロー設定」
+    title?: string;
+    // 「デフォルト保存」の保存先を差し替える（未指定なら画像生成統合設定の既定 defaultTemplateId へ保存）。
+    // 表情画像生成は自分の設定へ保存するために使う
+    onSaveDefault?: () => Promise<void>;
 }
 
 export const IntegratedWorkflowSection: React.FC<Props> = ({
@@ -39,8 +45,11 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
     onTemplateChange,
     onTemplatesReload,
     uiCatalog = null,
+    title,
+    onSaveDefault,
 }) => {
     const { SECTION_NAMES, COMMON } = createComfyUIText(uiCatalog);
+    const isWideScreen = useIsWideScreen();
 
     // セクション開閉（テスト生成の主要設定のためデフォルト開）
     const [isSectionOpen, setIsSectionOpen] = useState(true);
@@ -68,8 +77,13 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
         setSaveMessage(null);
         setSaveError(null);
         try {
-            const config = await getComfyUIConfig(backendUrl);
-            await saveComfyUIConfig(backendUrl, { ...config, defaultTemplateId: selectedTemplate });
+            if (onSaveDefault) {
+                // 保存先の差し替え（表情画像生成など、統合設定の既定とは別に持つ画面）
+                await onSaveDefault();
+            } else {
+                const config = await getComfyUIConfig(backendUrl);
+                await saveComfyUIConfig(backendUrl, { ...config, defaultTemplateId: selectedTemplate });
+            }
             setSaveMessage(COMMON.MESSAGES.DEFAULT_TEMPLATE_SAVED);
             window.setTimeout(() => setSaveMessage(null), 3000);
         } catch (error) {
@@ -78,7 +92,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
         } finally {
             setIsSavingDefault(false);
         }
-    }, [backendUrl, selectedTemplate, COMMON.MESSAGES.DEFAULT_TEMPLATE_SAVED, COMMON.MESSAGES.SAVE_FAILED]);
+    }, [backendUrl, selectedTemplate, onSaveDefault, COMMON.MESSAGES.DEFAULT_TEMPLATE_SAVED, COMMON.MESSAGES.SAVE_FAILED]);
 
     // 選択中ワークフローを削除
     const handleDelete = useCallback(async () => {
@@ -187,23 +201,25 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
             >
                 {isSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 <Workflow size={16} className="text-green-400" />
-                {SECTION_NAMES.TEST_WORKFLOW_SELECT}
+                {title || SECTION_NAMES.TEST_WORKFLOW_SELECT}
             </button>
             {isSectionOpen && (
             <div className="p-4 space-y-3">
 
             {/* ワークフロー選択 + 保存・削除 */}
             {templates.length > 0 ? (
-                <div className="flex items-center gap-2">
+                <div className={isWideScreen ? 'flex items-center gap-2' : 'flex flex-col gap-2'}>
                     <select
                         value={selectedTemplate}
                         onChange={e => onTemplateChange(e.target.value)}
-                        className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                        className="flex-1 w-full min-w-0 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
                     >
                         {templates.map(t => (
                             <option key={t.name} value={t.name}>{t.name}</option>
                         ))}
                     </select>
+                    {/* 狭画面ではアイコン群をプルダウンの下の行に置く */}
+                    <div className="flex items-center gap-2">
                     <button
                         onClick={handleSaveDefault}
                         disabled={!selectedTemplate || isSavingDefault}
@@ -229,6 +245,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     >
                         <Trash2 size={16} />
                     </button>
+                    </div>
                 </div>
             ) : (
                 <p className="text-xs text-gray-600 text-center py-2">

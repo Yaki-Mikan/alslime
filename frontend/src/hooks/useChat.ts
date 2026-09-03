@@ -15,7 +15,11 @@ import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings'
 import { normalizeClaudeEffort, type ClaudeEffort } from '../constants/claude';
 import {
     DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT,
+    DEFAULT_ANTIGRAVITY_THINKING,
+    antigravityThinkingLevelsOf,
     normalizeAntigravityStreamGuardLimit,
+    normalizeAntigravityThinking,
+    type AntigravityThinking,
 } from '../constants/antigravity';
 import type { Settings as SettingsType } from '../types/Settings';
 import { CHAT_VIEW_I18N_KEYS, CHAT_VIEW_LOCALIZED_TEXT, CHAT_VIEW_TEXT_FALLBACK_JA } from '../constants/i18n';
@@ -43,6 +47,8 @@ export interface Model {
     connectionId?: string;
     connectionLabel?: string;
     remoteModelId?: string;
+    /** Antigravity で選べる Thinking レベル（サーバ正本）。無ければ選択 UI を出さない */
+    thinkingLevels?: string[];
 }
 
 export type ModelProvider = 'antigravity' | 'claude' | 'gemini' | 'openai_compat';
@@ -143,6 +149,7 @@ interface ChatSubmitPayload {
     antigravityTempFileMode: boolean;
     geminiTempFileMode: boolean;
     claudeEffort: ClaudeEffort;
+    antigravityThinking: AntigravityThinking;
     antigravityMaxStreamCalls: number;
     enableResponseBackup: boolean;
 }
@@ -184,6 +191,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     const [antigravityTempFileMode, setAntigravityTempFileMode] = useState(false);
     const [geminiTempFileMode, setGeminiTempFileMode] = useState(false);
     const [claudeEffort, setClaudeEffort] = useState<ClaudeEffort>('');
+    const [antigravityThinking, setAntigravityThinking] = useState<AntigravityThinking>(DEFAULT_ANTIGRAVITY_THINKING);
     const [antigravityStreamGuardLimit, setAntigravityStreamGuardLimit] = useState(
         DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT
     );
@@ -237,6 +245,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             const dm = (settings.defaultModels || {}) as Record<string, string>;
             setDefaultModels(dm);
             setClaudeEffort(normalizeClaudeEffort(settings.claudeChatEffort));
+            setAntigravityThinking(normalizeAntigravityThinking(settings.antigravityChatThinking));
             setAntigravityStreamGuardLimit(
                 normalizeAntigravityStreamGuardLimit(settings.antigravityStreamGuardLimit)
             );
@@ -260,6 +269,21 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         setClaudeEffort(normalized);
         void updateGlobalSettings(backendUrl, { claudeChatEffort: normalized });
     }, [backendUrl]);
+
+    const selectAntigravityThinking = useCallback((thinking: AntigravityThinking) => {
+        const normalized = normalizeAntigravityThinking(thinking);
+        setAntigravityThinking(normalized);
+        void updateGlobalSettings(backendUrl, { antigravityChatThinking: normalized });
+    }, [backendUrl]);
+
+    // 選択中モデルで選べない Thinking レベル（3.1 Pro の Medium 等）は Low へ落とす。
+    // 保存値は触らない（他モデルへ戻したときに元のレベルへ戻れるようにする）。
+    useEffect(() => {
+        const levels = antigravityThinkingLevelsOf(models.find(m => m.id === selectedModel));
+        if (levels.length > 0 && !levels.includes(antigravityThinking)) {
+            setAntigravityThinking(normalizeAntigravityThinking(antigravityThinking, levels));
+        }
+    }, [models, selectedModel, antigravityThinking]);
 
     const selectAntigravityStreamGuardLimit = useCallback((limit: number) => {
         const normalized = normalizeAntigravityStreamGuardLimit(limit);
@@ -544,6 +568,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 antigravityTempFileMode,
                 geminiTempFileMode,
                 claudeEffort,
+                antigravityThinking,
                 antigravityMaxStreamCalls: antigravityStreamGuardLimit,
                 enableResponseBackup: settings.enableResponseBackup,
             };
@@ -621,14 +646,29 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             return;
         }
 
+        await submitRegenerate(currentSessionId);
+    };
+
+    // 別モデル指定の再生成。セッションが無い（ローカルエラーの再送）状態では対象外。
+    const handleRegenerateWithModel = async (modelId: string) => {
+        if (isLoading || !currentSessionId) return;
+        const trimmed = modelId.trim();
+        if (!trimmed) return;
+        await submitRegenerate(currentSessionId, trimmed);
+    };
+
+    // 再生成ジョブの投入。overrideModel が空なら前回モデル（サーバ側で補完）を使う。
+    const submitRegenerate = async (sessionId: string, overrideModel?: string) => {
         try {
             const res = await axios.post(`${backendUrl}/api/regenerate`, {
-                sessionId: currentSessionId,
+                sessionId,
+                model: overrideModel || undefined,
                 temperature: settings.temperature,
                 ssrpSettings: ssrpSettings || undefined,
                 antigravityTempFileMode,
                 geminiTempFileMode,
                 claudeEffort,
+                antigravityThinking,
                 antigravityMaxStreamCalls: antigravityStreamGuardLimit,
                 enableResponseBackup: settings.enableResponseBackup,
             });
@@ -637,12 +677,12 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             console.log('[Frontend] Regenerate job submitted:', jobId);
 
             // ポーリング開始（最後のagentメッセージを置換）
-            pollJobStatus(jobId, 'replace-last-agent', currentSessionId);
+            pollJobStatus(jobId, 'replace-last-agent', sessionId);
         } catch (error: any) {
             // 409: 同セッション処理中 → 既存ジョブにアタッチしてポーリング
             if (error.response?.status === 409 && error.response.data?.existingJobId) {
                 console.log('[Frontend] Already processing, attaching to existing job:', error.response.data.existingJobId);
-                pollJobStatus(error.response.data.existingJobId, 'replace-last-agent', currentSessionId);
+                pollJobStatus(error.response.data.existingJobId, 'replace-last-agent', sessionId);
                 return;
             }
             console.error('[Frontend] Regenerate failed:', error);
@@ -701,6 +741,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         setGeminiTempFileMode,
         claudeEffort,
         selectClaudeEffort,
+        antigravityThinking,
+        selectAntigravityThinking,
         antigravityStreamGuardLimit,
         selectAntigravityStreamGuardLimit,
         attachedFiles,
@@ -711,6 +753,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         handleSend,
         handleStop,
         handleRegenerate,
+        handleRegenerateWithModel,
         handleSaveEdit,
         pollJobStatus, // ポーリング関数をエクスポート
         loadHistory // 履歴読み込み関数もエクスポート（ジョブ完了後に使用）

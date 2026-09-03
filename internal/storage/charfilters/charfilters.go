@@ -19,9 +19,17 @@ import (
 	"strings"
 
 	"alslime/internal/config"
+	"alslime/internal/storage/characterimages"
 	"alslime/internal/storage/jsonstore"
 	"alslime/internal/storage/paths"
 )
+
+// ErrInvalidDirName はキャラディレクトリ名として不正な値（空・区切り文字・親参照）。
+var ErrInvalidDirName = errors.New("invalid character directory name")
+
+// defaultIconFileName はキャラカード判定に使う default 表情のアイコンファイル名。
+// アイコンは切り抜き時に PNG 固定で保存されるため拡張子は決め打ちでよい。
+const defaultIconFileName = "default.png"
 
 // tagsFileName は各キャラ設定ディレクトリ内のタグ定義ファイル名。
 const tagsFileName = "tags.json"
@@ -36,6 +44,8 @@ type Character struct {
 	Path    string   `json:"path"`
 	Work    *string  `json:"work"`
 	Tags    []string `json:"tags"`
+	// IconURL は default 表情のアイコン画像 URL（キャラカード用）。無ければ nil。
+	IconURL *string `json:"iconUrl"`
 }
 
 // Filters は works/tags のマスタ。
@@ -96,6 +106,80 @@ func (s *Store) readTagsJSON(settingsLogical string) tagInfo {
 	return info
 }
 
+// defaultIconURL は default 表情のアイコンが存在すればその配信 URL を返す。
+// ハッシュは internal/image_hashes.json の default 項目を使い、無ければクエリ無し。
+func (s *Store) defaultIconURL(dirName string) *string {
+	charDir := s.charListDir + "/" + dirName
+	iconLogical := charDir + "/" + config.CharacterImageDirName + "/" + config.CharacterIconImageDirName + "/" + defaultIconFileName
+	if _, ok, err := s.resolveExistingIfExists(iconLogical); err != nil || !ok {
+		return nil
+	}
+	hash := ""
+	hashesLogical := charDir + "/" + config.CharacterInternalDataDirName + "/" + config.CharacterImageHashesFileName
+	if abs, ok, err := s.resolveExistingIfExists(hashesLogical); err == nil && ok {
+		if raw, rerr := jsonstore.ReadRaw(abs); rerr == nil {
+			if hashes, ok := raw["hashes"].(map[string]any); ok {
+				if h, ok := hashes["default"].(string); ok {
+					hash = strings.TrimSpace(h)
+				}
+			}
+		}
+	}
+	url := characterimages.IconURL(dirName, defaultIconFileName, hash)
+	return &url
+}
+
+// validateDirName はキャラディレクトリ名として使える値か確認する。
+func validateDirName(dirName string) error {
+	dirName = strings.TrimSpace(dirName)
+	if dirName == "" || dirName == "." || dirName == ".." ||
+		strings.ContainsAny(dirName, `/\`) || strings.Contains(dirName, "..") {
+		return ErrInvalidDirName
+	}
+	return nil
+}
+
+// WriteTags はキャラ設定ディレクトリの tags.json を書き込む。
+// 読み手（readTagsJSON）との往復が一致するよう、work が空なら work キーを書かない。
+// キャラ設定ディレクトリが無ければ fs.ErrNotExist を返す（未保存キャラへの書き込みを弾く）。
+func (s *Store) WriteTags(dirName string, work *string, tags []string) error {
+	if err := validateDirName(dirName); err != nil {
+		return err
+	}
+	settingsLogical := s.charListDir + "/" + dirName + "/" + settingsDirName
+	if _, ok, err := s.resolveExistingIfExists(settingsLogical); err != nil {
+		return err
+	} else if !ok {
+		return fs.ErrNotExist
+	}
+	out := map[string]any{"tags": normalizeTags(tags)}
+	if work != nil {
+		if w := strings.TrimSpace(*work); w != "" {
+			out["work"] = w
+		}
+	}
+	abs, err := s.resolver.ResolveForCreateMkdirAll(settingsLogical+"/"+tagsFileName, config.DirPerm)
+	if err != nil {
+		return err
+	}
+	return jsonstore.WriteJSONIndent(abs, out, "  ")
+}
+
+// normalizeTags は前後空白除去・空除去・重複除去（順序維持）を行う。
+func normalizeTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
+}
+
 // ListCharacters はキャラ一覧（各 .md = 1 キャラ）を返す。名前順ソート。
 func (s *Store) ListCharacters() ([]Character, error) {
 	dirAbs, ok, err := s.resolveExistingIfExists(s.charListDir)
@@ -135,6 +219,7 @@ func (s *Store) ListCharacters() ([]Character, error) {
 			continue
 		}
 		info := s.readTagsJSON(settingsLogical)
+		iconURL := s.defaultIconURL(dirName)
 		for _, md := range mdFiles {
 			chars = append(chars, Character{
 				Name:    strings.TrimSuffix(md, ".md"),
@@ -142,6 +227,7 @@ func (s *Store) ListCharacters() ([]Character, error) {
 				Path:    s.charListDir + "/" + dirName + "/" + settingsDirName + "/" + md,
 				Work:    info.work,
 				Tags:    info.tags,
+				IconURL: iconURL,
 			})
 		}
 	}

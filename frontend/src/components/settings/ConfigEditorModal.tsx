@@ -1,10 +1,27 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Save, Trash2, Plus, FilePlus, BookTemplate, FileDown, Search, RotateCcw } from 'lucide-react';
 import { SearchPickerModal } from '../common/SearchPickerModal';
+import { CodeEditor } from '../common/CodeEditor';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ToggleSwitch } from '../common/ToggleSwitch';
+import { CollapsibleSectionHeader } from '../common/CollapsibleSectionHeader';
+import { useIsWideScreen } from '../../hooks/useIsWideScreen';
+import {
+    listConfigGenTemplates,
+    getConfigGenTemplate,
+    saveConfigGenTemplate,
+    deleteConfigGenTemplate,
+    getConfigGenTemplateDefaults,
+    setConfigGenTemplateDefault,
+    configGenTemplateDefaultName,
+    type ConfigGenTemplateKind,
+    type ConfigGenTemplateDefaults,
+} from '../../api/config-editor';
+import { invalidateSSRPOptionsCache } from '../SSRP/RolePlaySettings';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { SimpleCharacterForm, EMPTY_SIMPLE_CHARACTER, simpleCharacterToMarkdown } from './SimpleCharacterForm';
+import { CharacterAuxPanel } from './character/CharacterAuxPanel';
+import { CharacterTagsEditor } from './character/CharacterTagsEditor';
 import type { SimpleCharacterConfig } from './SimpleCharacterForm';
 import {
     getCategories,
@@ -75,6 +92,13 @@ interface Props {
      * かつ ComfyUI連携モジュール連携済み）は呼び出し側で行い結果だけを受け取る。
      */
     comfyDirectiveVisible?: boolean;
+    /**
+     * キャラクター種別の中央エリアに画像生成設定タブを出すか（支援者 Tier 充足 AND 画像生成サイドカー active）。
+     * 判定は Hub 側で済ませた結果だけを受け取る。
+     */
+    imageGenEnabled?: boolean;
+    /** 同上。音声紐づけタブ（TTS）の表示可否。 */
+    ttsEnabled?: boolean;
 }
 
 type ConfirmKind =
@@ -102,6 +126,20 @@ const apiConnectionInstructionID = (connectionId: string, locale: ApiProviderIns
     `${API_CONNECTION_INSTRUCTION_PREFIX}${connectionId}:${locale}`
 );
 
+// キャラクター種別（広画面）の列幅。
+// 広いうちは中央（付随設定）が基準幅 CHARACTER_AUX_MAX_WIDTH のまま、左（本体エディタ）だけが
+// ウィンドウ幅に追従する（左だけ flex-grow）。左が基準幅 CHARACTER_EDITOR_BASE_WIDTH を割り込む
+// 幅からは、縮み分を左 3：中 7 の比で分け合う。flex-shrink は「係数 × 基準幅」に比例して配分され、
+// かつ係数の合計が 1 未満だとはみ出し分の一部しか縮めないため、係数は「左 3 × 中央基準幅」
+// 「中 7 × 左基準幅」として渡す（配分は 3：7 のまま、合計は 1 を大きく超える）。中央は CHARACTER_AUX_MIN_WIDTH で止まり、
+// それより狭い画面は縦積み（狭画面レイアウト）に切り替わる。
+// 左の基準幅は中央の上限より大きくし、縮み始めの時点から常に左が中央より広い状態にする。
+const CHARACTER_EDITOR_BASE_WIDTH = 800;
+const CHARACTER_EDITOR_SHRINK = 3;
+const CHARACTER_AUX_SHRINK = 7;
+const CHARACTER_AUX_MAX_WIDTH = 720;
+const CHARACTER_AUX_MIN_WIDTH = 360;
+
 const apiPresetInstructionID = (preset: string, locale: ApiProviderInstructionLocale) => (
     `openai-compat-${preset}-${locale}`
 );
@@ -117,6 +155,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
     openApiProviderInstruction = null,
     onOpenApiProviderInstructionConsumed,
     comfyDirectiveVisible = false,
+    imageGenEnabled = false,
+    ttsEnabled = false,
 }) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
@@ -165,6 +205,12 @@ export const ConfigEditorModal: React.FC<Props> = ({
     const [configGenInstructionFiles, setConfigGenInstructionFiles] = useState<ConfigGenInstruction[]>([]);
     const [selectedConfigGenTarget, setSelectedConfigGenTarget] = useState('');
     const [selectedConfigGenInstructionId, setSelectedConfigGenInstructionId] = useState('');
+    // 設定自動生成テンプレート（入力項目／設定ファイル。対象 → 言語 → 種類 → 名前の複数管理）
+    const [configGenTemplateKind, setConfigGenTemplateKind] = useState<'' | ConfigGenTemplateKind>('');
+    const [configGenTemplateNames, setConfigGenTemplateNames] = useState<string[]>([]);
+    const [selectedConfigGenTemplateName, setSelectedConfigGenTemplateName] = useState('');
+    const [configGenTemplateNewName, setConfigGenTemplateNewName] = useState('');
+    const [configGenTemplateDefaults, setConfigGenTemplateDefaults] = useState<ConfigGenTemplateDefaults>({});
 
     // D&D 個別インポート
     const [isDragOver, setIsDragOver] = useState(false);
@@ -182,7 +228,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
     const isConfigGenInstructionCategory = selectedCategoryId === CONFIG_GEN_INSTRUCTION_CATEGORY_ID;
     // 設定自動生成指示は現在の UI 言語のファイルだけを見せる（実行時も同じ言語のファイルが使われる）。
     const configGenLocale = normalizeConfigGenInstructionLocale(uiCatalog?.lang || 'ja');
-    const visibleConfigGenInstructionFiles = configGenInstructionFiles.filter(f => f.locale === configGenLocale);
+    const visibleConfigGenInstructionFiles = configGenInstructionFiles.filter(f => f.locale === configGenLocale && f.kind === 'instruction');
     const selectedConfigGenInstruction = configGenInstructionFiles.find(f => f.id === selectedConfigGenInstructionId) ?? null;
     // 方式ラベルはフロントの i18n を優先し、無ければ API の label（日本語）を使う。
     const configGenMethodLabel = (file: ConfigGenInstruction) => {
@@ -528,8 +574,55 @@ export const ConfigEditorModal: React.FC<Props> = ({
 
     // 設定自動生成指示ファイル選択（編集のみ。未作成時はサーバーが同梱デフォルトを返す）
     // 対象プルダウンは選択 ID から逆引きして同期する（他タブからの直接遷移でも一致させる）。
+    const CONFIG_GEN_TEMPLATE_ID_PREFIX = 'template:';
+
+    // テンプレート一覧と既定を読み込み、既定（無ければ先頭）を選択して本文を表示する。
+    const loadConfigGenTemplates = async (target: string, kind: ConfigGenTemplateKind, preferName?: string) => {
+        try {
+            const [names, defaults] = await Promise.all([
+                listConfigGenTemplates(backendUrl, target, configGenLocale, kind),
+                getConfigGenTemplateDefaults(backendUrl),
+            ]);
+            setConfigGenTemplateNames(names);
+            setConfigGenTemplateDefaults(defaults);
+            const def = configGenTemplateDefaultName(defaults, target, configGenLocale, kind);
+            const pick = preferName && names.includes(preferName) ? preferName : (names.includes(def) ? def : (names[0] ?? ''));
+            await handleSelectConfigGenTemplateName(target, kind, pick);
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed)); }
+    };
+
+    const handleSelectConfigGenTemplateName = async (target: string, kind: ConfigGenTemplateKind, name: string) => {
+        setSelectedConfigGenTemplateName(name);
+        setConfigGenTemplateNewName('');
+        if (!name) { setContent(''); setIsDirty(false); return; }
+        try {
+            setContent(await getConfigGenTemplate(backendUrl, target, configGenLocale, kind, name));
+            setIsDirty(false);
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed)); }
+    };
+
     const handleSelectConfigGenInstruction = async (id: string) => {
+        // 旧 ID 形式（<target>-search_template-<locale> 等）はテンプレート種類へ読み替える（設定自動生成タブからの遷移用）。
+        const legacy = id.match(/^(.+)-(search|setting)_template-[a-z]+$/);
+        if (legacy) {
+            setSelectedConfigGenTarget(legacy[1]);
+            id = CONFIG_GEN_TEMPLATE_ID_PREFIX + legacy[2];
+            setSelectedConfigGenInstructionId(id);
+            const kind = legacy[2] as ConfigGenTemplateKind;
+            setConfigGenTemplateKind(kind);
+            await loadConfigGenTemplates(legacy[1], kind);
+            return;
+        }
         setSelectedConfigGenInstructionId(id);
+        if (id.startsWith(CONFIG_GEN_TEMPLATE_ID_PREFIX)) {
+            const kind = id.slice(CONFIG_GEN_TEMPLATE_ID_PREFIX.length) as ConfigGenTemplateKind;
+            setConfigGenTemplateKind(kind);
+            await loadConfigGenTemplates(selectedConfigGenTarget, kind);
+            return;
+        }
+        setConfigGenTemplateKind('');
+        setConfigGenTemplateNames([]);
+        setSelectedConfigGenTemplateName('');
         if (!id) { setContent(''); setIsDirty(false); return; }
         const target = id.split('-')[0];
         if (target) setSelectedConfigGenTarget(target);
@@ -537,6 +630,48 @@ export const ConfigEditorModal: React.FC<Props> = ({
             setContent(await getConfigGenInstruction(backendUrl, id));
             setIsDirty(false);
         } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.fileLoadFailed)); }
+    };
+
+    // 新規テンプレート: 選択を外し本文を空にする（名前を入力して保存すると作成される）。
+    const handleNewConfigGenTemplate = () => {
+        setSelectedConfigGenTemplateName('');
+        setConfigGenTemplateNewName('');
+        setContent('');
+        setIsDirty(false);
+    };
+
+    const handleSaveConfigGenTemplate = async () => {
+        if (!configGenTemplateKind) return;
+        const name = (selectedConfigGenTemplateName || configGenTemplateNewName).trim();
+        if (!name) { showToast(t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateNameRequired)); return; }
+        setIsSaving(true);
+        try {
+            await saveConfigGenTemplate(backendUrl, selectedConfigGenTarget, configGenLocale, configGenTemplateKind, name, content);
+            setIsDirty(false);
+            await loadConfigGenTemplates(selectedConfigGenTarget, configGenTemplateKind, name);
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.saved));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.saveFailed)); }
+        finally { setIsSaving(false); }
+    };
+
+    const handleSetDefaultConfigGenTemplate = async () => {
+        if (!configGenTemplateKind || !selectedConfigGenTemplateName) return;
+        try {
+            await setConfigGenTemplateDefault(backendUrl, selectedConfigGenTarget, configGenLocale, configGenTemplateKind, selectedConfigGenTemplateName);
+            setConfigGenTemplateDefaults(await getConfigGenTemplateDefaults(backendUrl));
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.saved));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.saveFailed)); }
+    };
+
+    const handleDeleteConfigGenTemplate = async () => {
+        if (!configGenTemplateKind || !selectedConfigGenTemplateName) return;
+        const msg = t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateDeleteConfirm).split('{{name}}').join(selectedConfigGenTemplateName);
+        if (!window.confirm(msg)) return;
+        try {
+            await deleteConfigGenTemplate(backendUrl, selectedConfigGenTarget, configGenLocale, configGenTemplateKind, selectedConfigGenTemplateName);
+            await loadConfigGenTemplates(selectedConfigGenTarget, configGenTemplateKind);
+            showToast(t(CONFIG_EDITOR_I18N_KEYS.deleted));
+        } catch { showToast(t(CONFIG_EDITOR_I18N_KEYS.deleteFailed)); }
     };
 
     // 設定自動生成指示ファイル保存（上書きのみ）
@@ -602,6 +737,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 await saveConfigFileUnique(backendUrl, selectedCategoryId, baseName, text);
                 added += 1;
             }
+            if (added > 0) invalidateSSRPOptionsCache();
         } catch {
             showToast(t(CONFIG_EDITOR_I18N_KEYS.dropZoneFailed));
         }
@@ -653,6 +789,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 ? simpleCharacterToMarkdown(simpleConfig, fileName, uiCatalog)
                 : content;
             await saveConfigFile(backendUrl, selectedCategoryId, dirName, fileName, saveContent);
+            // 会話設定メニューの選択肢キャッシュを破棄する（新規ファイルが即座に一覧へ出るように）。
+            invalidateSSRPOptionsCache();
             const newEntry: ConfigFileEntry = { name: fileName, dirName };
             setSelectedExistingFile(newEntry);
             setTitle(fileName);
@@ -685,6 +823,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
         setIsDeleting(true);
         try {
             await deleteConfigFile(backendUrl, selectedCategoryId, selectedExistingFile.dirName, selectedExistingFile.name);
+            invalidateSSRPOptionsCache();
             const files = await listConfigFiles(backendUrl, selectedCategoryId);
             setExistingFiles(files);
             doNewFile();
@@ -704,6 +843,20 @@ export const ConfigEditorModal: React.FC<Props> = ({
         else if (c.kind === 'delete') doDelete();
     };
 
+    // 画面幅（狭画面では本文と設定パネルを縦積みにする）
+    const isWideScreen = useIsWideScreen();
+    const [editorOpen, setEditorOpen] = useState(true);
+    const [panelOpen, setPanelOpen] = useState(true);
+    // キャラクター付随設定（中央エリア）。狭画面では既定で畳む
+    const [auxOpen, setAuxOpen] = useState(false);
+    const showEditor = isWideScreen || editorOpen;
+    const showPanel = isWideScreen || panelOpen;
+    const showAux = isWideScreen || auxOpen;
+    // キャラクター種別のときだけ 3 カラム（左：本体、中：付随設定、右：選択欄＋タグ設定）
+    const isCharacter = isCharacterCategory();
+    // 中央エリアと右下タグ設定の保存先。本体 .md を保存していない新規キャラクターでは無い
+    const characterDirName = isCharacter ? (selectedExistingFile?.dirName ?? null) : null;
+
     if (!isOpen) return null;
 
     const confirmMeta = confirm ? {
@@ -715,11 +868,12 @@ export const ConfigEditorModal: React.FC<Props> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] border border-green-700 flex flex-col overflow-hidden">
+            {/* 幅は Hub 内の画像生成統合設定・TTS 統合設定と揃える（タブ切替で外形が動かないよう種別に依らず固定） */}
+            <div className="bg-gray-900 rounded-xl shadow-2xl border border-green-700 flex flex-col overflow-hidden" style={{ width: '90vw', height: '90vh' }}>
 
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-green-800 bg-green-950 shrink-0">
-                    <div className="flex items-center gap-4">
+                <div className={`flex justify-between gap-3 px-5 py-3 border-b border-green-800 bg-green-950 shrink-0 ${isWideScreen ? 'items-center' : 'items-start'}`}>
+                    <div className={isWideScreen ? 'flex items-center gap-4' : 'flex flex-col gap-2 flex-1 min-w-0'}>
                         <h2 className="text-base font-semibold text-green-200">{t(CONFIG_EDITOR_I18N_KEYS.configTitle)}</h2>
                         {headerTabs}
                     </div>
@@ -730,7 +884,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             title={t(CONFIG_EDITOR_I18N_KEYS.manageTemplate)}
                         >
                             <BookTemplate size={14} />
-                            {t(CONFIG_EDITOR_I18N_KEYS.manageTemplate)}
+                            {isWideScreen && t(CONFIG_EDITOR_I18N_KEYS.manageTemplate)}
                         </button>
                         <button onClick={onClose} className="text-green-400 hover:text-green-200 transition-colors">
                             <X size={18} />
@@ -739,9 +893,15 @@ export const ConfigEditorModal: React.FC<Props> = ({
                 </div>
 
                 {/* ボディ */}
-                <div className="flex flex-1 overflow-hidden">
+                <div className={isWideScreen ? 'flex flex-1 overflow-hidden' : 'flex flex-col flex-1 overflow-y-auto'}>
                     {/* 左パネル */}
-                    <div className="flex flex-col flex-1 overflow-hidden border-r border-gray-700">
+                    {/* キャラクター種別では左 3：中 7 で分け合い、中央が上限幅に達した後は左だけが伸縮する */}
+                    <div
+                        className={isWideScreen ? `flex flex-col min-w-0 overflow-hidden border-r border-gray-700 ${isCharacter ? '' : 'flex-1'}` : `flex flex-col shrink-0 border-b border-gray-700 ${editorOpen ? 'h-[60vh]' : ''}`}
+                        style={isWideScreen && isCharacter ? { flex: `1 ${CHARACTER_EDITOR_SHRINK * CHARACTER_AUX_MAX_WIDTH} ${CHARACTER_EDITOR_BASE_WIDTH}px` } : undefined}
+                    >
+                        {!isWideScreen && <CollapsibleSectionHeader label={t(CONFIG_EDITOR_I18N_KEYS.sectionEditor)} open={editorOpen} onToggle={() => setEditorOpen(v => !v)} />}
+                        {showEditor && (<>
                         {/* タイトル入力（AIプロバイダ指示・画像生成分析指示は固定名表示・編集不可） */}
                         <div className="px-4 py-3 border-b border-gray-700 shrink-0">
                             <input
@@ -769,18 +929,40 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     uiCatalog={uiCatalog}
                                 />
                             ) : (
-                                <textarea
+                                <CodeEditor
                                     value={content}
-                                    onChange={e => { setContent(e.target.value); setIsDirty(true); }}
-                                    className="w-full h-full bg-transparent border-none text-sm text-gray-200 focus:outline-none resize-none font-mono"
+                                    onChange={v => { setContent(v); setIsDirty(true); }}
                                     placeholder={t(CONFIG_EDITOR_I18N_KEYS.contentPlaceholder)}
+                                    uiCatalog={uiCatalog}
                                 />
                             )}
                         </div>
+                        </>)}
                     </div>
 
+                    {/* 中央パネル（キャラクター種別のみ）：表情画像／画像生成設定／音声紐づけ／設定紐づけ */}
+                    {isCharacter && (
+                        <div
+                            className={isWideScreen ? 'flex flex-col min-w-0 overflow-hidden border-r border-gray-700' : `flex flex-col shrink-0 border-b border-gray-700 ${auxOpen ? 'h-[60vh]' : ''}`}
+                            style={isWideScreen ? { flex: `0 ${CHARACTER_AUX_SHRINK * CHARACTER_EDITOR_BASE_WIDTH} ${CHARACTER_AUX_MAX_WIDTH}px`, maxWidth: CHARACTER_AUX_MAX_WIDTH, minWidth: CHARACTER_AUX_MIN_WIDTH } : undefined}
+                        >
+                            {!isWideScreen && <CollapsibleSectionHeader label={t(CONFIG_EDITOR_I18N_KEYS.characterSectionAux)} open={auxOpen} onToggle={() => setAuxOpen(v => !v)} />}
+                            {showAux && (
+                                <CharacterAuxPanel
+                                    backendUrl={backendUrl}
+                                    dirName={characterDirName}
+                                    imageGenEnabled={imageGenEnabled}
+                                    ttsEnabled={ttsEnabled}
+                                    uiCatalog={uiCatalog}
+                                />
+                            )}
+                        </div>
+                    )}
+
                     {/* 右パネル */}
-                    <div className="w-64 shrink-0 flex flex-col gap-4 px-4 py-4 overflow-y-auto">
+                    <div className={isWideScreen ? 'w-64 shrink-0 flex flex-col overflow-y-auto' : 'flex flex-col shrink-0'}>
+                        {!isWideScreen && <CollapsibleSectionHeader label={t(CONFIG_EDITOR_I18N_KEYS.sectionSettings)} open={panelOpen} onToggle={() => setPanelOpen(v => !v)} />}
+                        {showPanel && (<div className="flex flex-col gap-4 px-4 py-4">
                         {/* 種別 */}
                         <div>
                             <label className="block text-xs text-gray-400 mb-1">{t(CONFIG_EDITOR_I18N_KEYS.category)}</label>
@@ -790,7 +972,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                 className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
                             >
                                 {categories.map(c => (
-                                    <option key={c.id} value={c.id}>{c.label}</option>
+                                    <option key={c.id} value={c.id}>{resolveMessage(uiCatalog, `configEditor.category.${c.id}`, c.label)}</option>
                                 ))}
                                 <option value={PROVIDER_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.providerCategory)}</option>
                                 <option value={CONFIG_GEN_INSTRUCTION_CATEGORY_ID}>{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionCategory)}</option>
@@ -812,7 +994,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     >
                                         <option value="">{t(CONFIG_EDITOR_I18N_KEYS.providerSelect)}</option>
                                         {providerFiles.map(p => (
-                                            <option key={p.id} value={p.id}>{p.label}</option>
+                                            <option key={p.id} value={p.id}>{resolveMessage(uiCatalog, `configEditor.providerInstruction.${p.id}`, p.label)}</option>
                                         ))}
                                     </select>
                                     <p className="text-xs text-gray-500 mt-2">
@@ -834,7 +1016,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     >
                                         <option value="">{t(CONFIG_EDITOR_I18N_KEYS.comfyDirectiveSelect)}</option>
                                         {comfyDirectiveFiles.map(d => (
-                                            <option key={d.id} value={d.id}>{d.label}</option>
+                                            <option key={d.id} value={d.id}>{resolveMessage(uiCatalog, `configEditor.comfyDirective.file.${d.id}`, d.label)}</option>
                                         ))}
                                     </select>
                                     <p className="text-xs text-gray-500 mt-2">
@@ -852,14 +1034,16 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                     <select
                                         value={selectedConfigGenTarget}
                                         onChange={e => {
-                                            setSelectedConfigGenTarget(e.target.value);
-                                            void handleSelectConfigGenInstruction('');
+                                            const target = e.target.value;
+                                            setSelectedConfigGenTarget(target);
+                                            if (configGenTemplateKind) { void loadConfigGenTemplates(target, configGenTemplateKind); }
+                                            else { void handleSelectConfigGenInstruction(''); }
                                         }}
                                         className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
                                     >
                                         {Array.from(new Set(visibleConfigGenInstructionFiles.map(f => f.target))).map(target => (
                                             <option key={target} value={target}>
-                                                {categories.find(c => c.id === target)?.label ?? target}
+                                                {resolveMessage(uiCatalog, `configEditor.category.${target}`, categories.find(c => c.id === target)?.label ?? target)}
                                             </option>
                                         ))}
                                     </select>
@@ -872,6 +1056,8 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                         className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
                                     >
                                         <option value="">{t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionSelect)}</option>
+                                        <option value={`${CONFIG_GEN_TEMPLATE_ID_PREFIX}search`}>{t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateSearch)}</option>
+                                        <option value={`${CONFIG_GEN_TEMPLATE_ID_PREFIX}setting`}>{t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateSetting)}</option>
                                         {visibleConfigGenInstructionFiles.filter(f => f.target === selectedConfigGenTarget).map(f => (
                                             // 作成指示（編集非推奨）はオレンジ字で警告する
                                             <option key={f.id} value={f.id} className={f.kind === 'instruction' ? 'text-orange-400' : undefined}>
@@ -879,9 +1065,66 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="text-xs text-gray-500 mt-2">
-                                        {t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionDescription)}
-                                    </p>
+                                    {configGenTemplateKind ? (
+                                        <div className="mt-3 flex flex-col gap-2">
+                                            <label className="block text-xs text-gray-400">{t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateName)}</label>
+                                            <select
+                                                value={selectedConfigGenTemplateName}
+                                                onChange={e => handleSelectConfigGenTemplateName(selectedConfigGenTarget, configGenTemplateKind, e.target.value)}
+                                                className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                            >
+                                                <option value="">{t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateSelect)}</option>
+                                                {configGenTemplateNames.map(name => (
+                                                    <option key={name} value={name}>
+                                                        {name}{configGenTemplateDefaultName(configGenTemplateDefaults, selectedConfigGenTarget, configGenLocale, configGenTemplateKind) === name ? t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateDefaultMark) : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {!selectedConfigGenTemplateName && (
+                                                <input
+                                                    type="text"
+                                                    value={configGenTemplateNewName}
+                                                    onChange={e => setConfigGenTemplateNewName(e.target.value)}
+                                                    placeholder={t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateNewName)}
+                                                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                                                />
+                                            )}
+                                            <div className="flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleNewConfigGenTemplate}
+                                                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-200 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+                                                >
+                                                    <FilePlus size={12} />
+                                                    {t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateNew)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSetDefaultConfigGenTemplate}
+                                                    disabled={!selectedConfigGenTemplateName}
+                                                    className="px-2 py-1 text-xs text-gray-200 bg-gray-700 rounded hover:bg-gray-600 transition-colors disabled:opacity-40"
+                                                >
+                                                    {t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateSetDefault)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDeleteConfigGenTemplate}
+                                                    disabled={!selectedConfigGenTemplateName}
+                                                    className="flex items-center gap-1 px-2 py-1 text-xs text-red-300 border border-red-700 rounded hover:bg-red-900/30 transition-colors disabled:opacity-40"
+                                                >
+                                                    <Trash2 size={12} />
+                                                    {t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateDelete)}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-gray-500">
+                                                {t(CONFIG_EDITOR_I18N_KEYS.configGenTemplateDescription)}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            {t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionDescription)}
+                                        </p>
+                                    )}
                                     {selectedConfigGenInstruction?.kind === 'instruction' && (
                                         <p className="text-xs text-orange-400 mt-2">
                                             {t(CONFIG_EDITOR_I18N_KEYS.configGenInstructionEditNotRecommended)}
@@ -998,14 +1241,14 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                 onClick={() => {
                                     if (isProviderCategory) { handleSaveProvider(); return; }
                                     if (isComfyDirectiveCategory) { handleSaveComfyDirective(); return; }
-                                    if (isConfigGenInstructionCategory) { handleSaveConfigGenInstruction(); return; }
+                                    if (isConfigGenInstructionCategory) { if (configGenTemplateKind) handleSaveConfigGenTemplate(); else handleSaveConfigGenInstruction(); return; }
                                     handleSave(
                                         saveMode === 'new'
                                             ? { kind: 'new', name: title }
                                             : { kind: 'overwrite', entry: selectedExistingFile! }
                                     );
                                 }}
-                                disabled={isSaving || (isProviderCategory && !selectedProviderId) || (isComfyDirectiveCategory && !selectedComfyDirectiveId) || (isConfigGenInstructionCategory && !selectedConfigGenInstructionId)}
+                                disabled={isSaving || (isProviderCategory && !selectedProviderId) || (isComfyDirectiveCategory && !selectedComfyDirectiveId) || (isConfigGenInstructionCategory && !configGenTemplateKind && !selectedConfigGenInstructionId)}
                                 className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-white bg-blue-700 rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save size={14} />
@@ -1027,7 +1270,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             )}
 
                             {/* デフォルトに戻す（設定自動生成指示。同梱デフォルトで上書き） */}
-                            {isConfigGenInstructionCategory && (
+                            {isConfigGenInstructionCategory && !configGenTemplateKind && (
                                 <button
                                     onClick={handleResetConfigGenInstruction}
                                     disabled={isSaving || !selectedConfigGenInstructionId}
@@ -1057,7 +1300,16 @@ export const ConfigEditorModal: React.FC<Props> = ({
                             >
                                 {t(CONFIG_EDITOR_I18N_KEYS.close)}
                             </button>
+                            {/* タグ設定（キャラクター種別のみ。作品・タグは tags.json へ保存しマスタを再構築） */}
+                            {isCharacter && (
+                                <CharacterTagsEditor
+                                    backendUrl={backendUrl}
+                                    dirName={characterDirName}
+                                    uiCatalog={uiCatalog}
+                                />
+                            )}
                         </div>
+                        </div>)}
                     </div>
                 </div>
 

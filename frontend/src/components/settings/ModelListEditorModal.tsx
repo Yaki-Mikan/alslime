@@ -340,20 +340,20 @@ export const ModelListEditorModal: React.FC<Props> = ({ isOpen, onClose, uiCatal
                             placeholder={t(SETTINGS_I18N_KEYS.modelEditorNewIdPlaceholder)}
                             className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
                         />
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 lg:flex-row">
                             <input
                                 type="text"
                                 value={newName}
                                 onChange={e => setNewName(e.target.value)}
                                 placeholder={t(SETTINGS_I18N_KEYS.modelEditorNewNamePlaceholder)}
-                                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                                className="flex-1 min-w-0 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
                             />
                             <input
                                 type="text"
                                 value={newDescription}
                                 onChange={e => setNewDescription(e.target.value)}
                                 placeholder={t(SETTINGS_I18N_KEYS.modelEditorNewDescriptionPlaceholder)}
-                                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                                className="flex-1 min-w-0 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
                             />
                         </div>
                         {newId.trim() !== '' && (

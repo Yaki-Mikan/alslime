@@ -3,6 +3,9 @@ param(
     # Entitlement token verification keys embedded into the app (Phase D).
     # Format: "kid:hexPublicKey,kid2:hexPublicKey" (genkey output of alslime-server).
     [string]$EntitlementKeys = "",
+    # Optional source revision supplied by the caller. The build script never runs git.
+    [ValidatePattern('^$|^[0-9A-Fa-f]{7,64}$')]
+    [string]$Commit = "",
     [ValidateSet("windows", "linux")]
     [string]$TargetOS = "windows",
     [ValidateSet("amd64", "arm64")]
@@ -60,18 +63,8 @@ $FrontendRoot = Join-Path $AlslimeRoot "frontend"
 $OutputDir = Join-Path $AlslimeRoot "build\release"
 $GoCacheDir = Join-Path $AlslimeRoot ".gocache"
 $GoTmpDir = Join-Path $AlslimeRoot ".gotmp"
-
-function Get-CommitHash {
-    try {
-        $commit = git -C $WorkspaceRoot rev-parse --short HEAD 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            return $commit.Trim()
-        }
-    } catch {
-        return ""
-    }
-    return ""
-}
+$GarbleCacheDir = Join-Path $AlslimeRoot ".garble-cache"
+. (Join-Path $ScriptDir 'release-metadata.ps1')
 
 function Get-OutputPath {
     $name = "alslime-$Version-$TargetOS-$TargetArch"
@@ -142,26 +135,158 @@ try {
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 New-Item -ItemType Directory -Force -Path $GoCacheDir | Out-Null
 New-Item -ItemType Directory -Force -Path $GoTmpDir | Out-Null
+New-Item -ItemType Directory -Force -Path $GarbleCacheDir | Out-Null
 
+$previousGarbleCache = [Environment]::GetEnvironmentVariable(
+    'GARBLE_CACHE',
+    [EnvironmentVariableTarget]::Process
+)
 $env:GOCACHE = $GoCacheDir
 $env:GOTMPDIR = $GoTmpDir
+$env:GARBLE_CACHE = $GarbleCacheDir
 $env:GOOS = $TargetOS
 $env:GOARCH = $TargetArch
 $env:CGO_ENABLED = "0"
 
 $previousGoGarble = $env:GOGARBLE
 
+# Windows VERSIONINFO / manifest. Unsigned executables with no version resource
+# are a common heuristic trigger for AV vendors, so every distributed Windows
+# executable embeds its product metadata from <cmd>/winres/winres.json.
+# The generated .syso files are removed after each build and Linux skips this.
+function Invoke-WindowsResource([string]$CmdDir, [string]$Label) {
+    if ($TargetOS -ne "windows") {
+        return
+    }
+    $winresJson = Join-Path $CmdDir "winres\winres.json"
+    if (-not (Test-Path -LiteralPath $winresJson)) {
+        throw "$Label`: winres/winres.json not found ($winresJson). Windows executables must carry version info."
+    }
+    if (-not (Get-Command go-winres -ErrorAction SilentlyContinue)) {
+        throw "go-winres not found. Install with: go install github.com/tc-hib/go-winres@latest"
+    }
+    # go-winres accepts only numeric X.Y.Z(.W); strip any pre-release suffix.
+    $numericVersion = "0.0.0"
+    if ($Version -match '^([0-9]+\.[0-9]+\.[0-9]+)') {
+        $numericVersion = $Matches[1]
+    }
+    Push-Location $CmdDir
+    try {
+        & go-winres make --in $winresJson --out rsrc --product-version $numericVersion --file-version $numericVersion
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Label`: go-winres make failed (exit $LASTEXITCODE)"
+        }
+    } finally {
+        Pop-Location
+    }
+    Write-Host "[release] $Label`: version resource embedded (version=$numericVersion)"
+}
+
+function Remove-WindowsResource([string]$CmdDir) {
+    Get-ChildItem -LiteralPath $CmdDir -Filter "rsrc_*.syso" -ErrorAction SilentlyContinue | Remove-Item -Force
+}
+
+function Test-WindowsReleaseMetadata(
+    [string]$BinaryPath,
+    [string]$CmdDir,
+    [psobject]$MetadataBundle
+) {
+    $winresJson = Join-Path $CmdDir 'winres\winres.json'
+    $winresConfig = Get-Content -LiteralPath $winresJson -Raw -Encoding UTF8 |
+        ConvertFrom-Json
+    $expectedInfo = $winresConfig.RT_VERSION.'#1'.'0000'.info.'0409'
+    $numericVersion = ([regex]::Match($Version, '^(\d+\.\d+\.\d+)')).Groups[1].Value
+    $versionInfo = (Get-Item -LiteralPath $BinaryPath).VersionInfo
+    $expectedFields = [ordered]@{
+        FileVersion = $numericVersion
+        ProductVersion = $numericVersion
+        CompanyName = [string]$MetadataBundle.Metadata.companyName
+        ProductName = [string]$MetadataBundle.Metadata.productName
+        FileDescription = [string]$MetadataBundle.Metadata.fileDescription
+        InternalName = [string]$MetadataBundle.Metadata.componentId
+        OriginalFilename = [string]$MetadataBundle.Metadata.originalFilename
+    }
+    foreach ($entry in $expectedFields.GetEnumerator()) {
+        $actualValue = $versionInfo.PSObject.Properties[$entry.Key].Value
+        if ([string]$actualValue -ne [string]$entry.Value) {
+            throw "Windows metadata mismatch: $($entry.Key)=$actualValue (expected: $($entry.Value))"
+        }
+    }
+    if ([string]$expectedInfo.InternalName -ne [string]$MetadataBundle.Metadata.componentId -or
+        [string]$expectedInfo.OriginalFilename -ne [string]$MetadataBundle.Metadata.originalFilename) {
+        throw "winres config and release metadata config disagree for $($MetadataBundle.Metadata.componentId)."
+    }
+}
+
+function Test-ReleaseBinaryMetadata(
+    [string]$BinaryPath,
+    [string]$CmdDir,
+    [psobject]$MetadataBundle
+) {
+    try {
+        if ($TargetOS -eq 'windows') {
+            Test-WindowsReleaseMetadata `
+                -BinaryPath $BinaryPath `
+                -CmdDir $CmdDir `
+                -MetadataBundle $MetadataBundle
+        } else {
+            Test-LinuxReleaseMetadata `
+                -BinaryPath $BinaryPath `
+                -ExpectedMetadata $MetadataBundle.Metadata `
+                -AlslimeRoot $AlslimeRoot | Out-Null
+        }
+    } catch {
+        if (Test-Path -LiteralPath $BinaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $BinaryPath -Force
+        }
+        throw
+    }
+}
+
+function New-ModuleBuildSettings([string]$ComponentId) {
+    $metadataBundle = New-ReleaseMetadataEnvelope `
+        -ComponentId $ComponentId `
+        -Version $Version `
+        -TargetOS $TargetOS `
+        -TargetArch $TargetArch
+    $flags = @(
+        '-s',
+        '-w',
+        '-X', "alslime/internal/buildinfo.version=$Version",
+        '-X', 'alslime/internal/buildinfo.buildMode=release',
+        '-X', "alslime/internal/buildinfo.metadataEnvelope=$($metadataBundle.Envelope)"
+    )
+    if ($TargetOS -eq 'linux') {
+        $flags += @('-B', "0x$($metadataBundle.Metadata.gnuBuildId)")
+    }
+    if ($EntitlementKeys -ne '') {
+        $flags += @('-X', "alslime/core/featuresimpl.embeddedPublicKeys=$EntitlementKeys")
+    }
+    return [pscustomobject]@{
+        MetadataBundle = $metadataBundle
+        LdflagsText = $flags -join ' '
+    }
+}
+
 try {
 $CoreGarblePattern = Get-CoreGarblePattern
-$commit = Get-CommitHash
+$appMetadata = New-ReleaseMetadataEnvelope `
+    -ComponentId 'alslime' `
+    -Version $Version `
+    -TargetOS $TargetOS `
+    -TargetArch $TargetArch
 $ldflags = @(
     "-s",
     "-w",
     "-X", "alslime/internal/buildinfo.version=$Version",
-    "-X", "alslime/internal/buildinfo.buildMode=release"
+    "-X", "alslime/internal/buildinfo.buildMode=release",
+    "-X", "alslime/internal/buildinfo.metadataEnvelope=$($appMetadata.Envelope)"
 )
-if ($commit -ne "") {
-    $ldflags += @("-X", "alslime/internal/buildinfo.commit=$commit")
+if ($TargetOS -eq 'linux') {
+    $ldflags += @('-B', "0x$($appMetadata.Metadata.gnuBuildId)")
+}
+if ($Commit -ne "") {
+    $ldflags += @("-X", "alslime/internal/buildinfo.commit=$Commit")
 }
 if ($EntitlementKeys -ne "") {
     # Tier is no longer build-embedded; features unlock via signed entitlement tokens.
@@ -191,8 +316,10 @@ if ($Public) {
 }
 
 Write-Host "[release] backend build: $TargetOS/$TargetArch (garble=$useGarble, scope=$CoreGarblePattern, tiny=$useTiny, public=$([bool]$Public))"
+$appCmdDir = Join-Path $AlslimeRoot "cmd\app"
 Push-Location $AlslimeRoot
 try {
+    Invoke-WindowsResource -CmdDir $appCmdDir -Label "app"
     # ビルド前の依存グラフ検証: 配布ビルドに画像生成・読み上げの in-process 実装
     # （alslime/core/comfyui・alslime/core/tts）が混入していないこと、逆に
     # -Public（Lightsail）ビルドには内蔵されていることを両向きで確認する。
@@ -234,23 +361,19 @@ try {
         throw "backend build failed (exit $LASTEXITCODE)"
     }
 } finally {
+    Remove-WindowsResource -CmdDir $appCmdDir
     Pop-Location
 }
+Test-ReleaseBinaryMetadata `
+    -BinaryPath $outputPath `
+    -CmdDir $appCmdDir `
+    -MetadataBundle $appMetadata
 
-# Module ldflags: modules must carry the release build mode (and the embedded
-# verification keys) or the startup entitlement check would be silently skipped.
-# Fail-close: never ship a module built without the release mode injection.
-$moduleLdflags = @(
-    "-s",
-    "-w",
-    "-X", "alslime/internal/buildinfo.buildMode=release"
-)
-if ($EntitlementKeys -ne "") {
-    $moduleLdflags += @("-X", "alslime/core/featuresimpl.embeddedPublicKeys=$EntitlementKeys")
-} elseif ($BuildModule -or $BuildActionChoiceModule -or $BuildTTSModule) {
+# Modules must carry release mode, release version, product metadata, GNU Build ID
+# on Linux, and the entitlement verification keys.
+if ($EntitlementKeys -eq "" -and ($BuildModule -or $BuildActionChoiceModule -or $BuildTTSModule)) {
     Write-Warning "[release] -EntitlementKeys not set: module binaries will have no embedded keys and reject ALL tokens at startup."
 }
-$moduleLdflagsText = $moduleLdflags -join " "
 
 if ($BuildModule) {
     # Sidecar module (lives in the core repository). Pure Go, same OS/ARCH as the app.
@@ -264,24 +387,32 @@ if ($BuildModule) {
     }
     $modulePath = Join-Path $OutputDir $moduleName
     Write-Host "[release] module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
+    $comfyCmdDir = Join-Path $CoreRoot "cmd\comfymodule"
+    $comfyBuildSettings = New-ModuleBuildSettings -ComponentId 'alslime-comfy'
     Push-Location $CoreRoot
     try {
+        Invoke-WindowsResource -CmdDir $comfyCmdDir -Label "comfy module"
         if ($useGarble) {
             $garbleArgs = @("-literals")
             if ($useTiny) {
                 $garbleArgs += "-tiny"
             }
             $garbleArgs += @("-seed=random", "build")
-            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $comfyBuildSettings.LdflagsText -o $modulePath ./cmd/comfymodule
         } else {
-            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $modulePath ./cmd/comfymodule
+            go build -trimpath -buildvcs=false -ldflags $comfyBuildSettings.LdflagsText -o $modulePath ./cmd/comfymodule
         }
         if ($LASTEXITCODE -ne 0) {
             throw "module build failed (exit $LASTEXITCODE)"
         }
     } finally {
+        Remove-WindowsResource -CmdDir $comfyCmdDir
         Pop-Location
     }
+    Test-ReleaseBinaryMetadata `
+        -BinaryPath $modulePath `
+        -CmdDir $comfyCmdDir `
+        -MetadataBundle $comfyBuildSettings.MetadataBundle
     Write-Host "[release] module output: $modulePath"
     Write-Host "[release] deploy hint: copy as <WORKSPACE_ROOT>/modules/alslime-comfy$(if ($TargetOS -eq 'windows') { '.exe' })"
 }
@@ -298,24 +429,32 @@ if ($BuildActionChoiceModule) {
     }
     $acModulePath = Join-Path $OutputDir $acModuleName
     Write-Host "[release] action-choice module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
+    $actionChoiceCmdDir = Join-Path $CoreRoot 'cmd\actionchoicemodule'
+    $actionChoiceBuildSettings = New-ModuleBuildSettings -ComponentId 'alslime-actionchoice'
     Push-Location $CoreRoot
     try {
+        Invoke-WindowsResource -CmdDir $actionChoiceCmdDir -Label "action-choice module"
         if ($useGarble) {
             $garbleArgs = @("-literals")
             if ($useTiny) {
                 $garbleArgs += "-tiny"
             }
             $garbleArgs += @("-seed=random", "build")
-            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $actionChoiceBuildSettings.LdflagsText -o $acModulePath ./cmd/actionchoicemodule
         } else {
-            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $acModulePath ./cmd/actionchoicemodule
+            go build -trimpath -buildvcs=false -ldflags $actionChoiceBuildSettings.LdflagsText -o $acModulePath ./cmd/actionchoicemodule
         }
         if ($LASTEXITCODE -ne 0) {
             throw "action-choice module build failed (exit $LASTEXITCODE)"
         }
     } finally {
+        Remove-WindowsResource -CmdDir $actionChoiceCmdDir
         Pop-Location
     }
+    Test-ReleaseBinaryMetadata `
+        -BinaryPath $acModulePath `
+        -CmdDir $actionChoiceCmdDir `
+        -MetadataBundle $actionChoiceBuildSettings.MetadataBundle
     Write-Host "[release] action-choice module output: $acModulePath"
     Write-Host "[release] deploy hint: copy as <WORKSPACE_ROOT>/modules/alslime-actionchoice$(if ($TargetOS -eq 'windows') { '.exe' })"
 }
@@ -332,24 +471,32 @@ if ($BuildTTSModule) {
     }
     $ttsModulePath = Join-Path $OutputDir $ttsModuleName
     Write-Host "[release] tts module build: $TargetOS/$TargetArch (garble=$useGarble, tiny=$useTiny)"
+    $ttsCmdDir = Join-Path $CoreRoot "cmd\ttsmodule"
+    $ttsBuildSettings = New-ModuleBuildSettings -ComponentId 'alslime-tts'
     Push-Location $CoreRoot
     try {
+        Invoke-WindowsResource -CmdDir $ttsCmdDir -Label "tts module"
         if ($useGarble) {
             $garbleArgs = @("-literals")
             if ($useTiny) {
                 $garbleArgs += "-tiny"
             }
             $garbleArgs += @("-seed=random", "build")
-            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $ttsModulePath ./cmd/ttsmodule
+            & garble @garbleArgs -trimpath -buildvcs=false -ldflags $ttsBuildSettings.LdflagsText -o $ttsModulePath ./cmd/ttsmodule
         } else {
-            go build -trimpath -buildvcs=false -ldflags $moduleLdflagsText -o $ttsModulePath ./cmd/ttsmodule
+            go build -trimpath -buildvcs=false -ldflags $ttsBuildSettings.LdflagsText -o $ttsModulePath ./cmd/ttsmodule
         }
         if ($LASTEXITCODE -ne 0) {
             throw "tts module build failed (exit $LASTEXITCODE)"
         }
     } finally {
+        Remove-WindowsResource -CmdDir $ttsCmdDir
         Pop-Location
     }
+    Test-ReleaseBinaryMetadata `
+        -BinaryPath $ttsModulePath `
+        -CmdDir $ttsCmdDir `
+        -MetadataBundle $ttsBuildSettings.MetadataBundle
     Write-Host "[release] tts module output: $ttsModulePath"
     Write-Host "[release] deploy hint: copy as <WORKSPACE_ROOT>/modules/alslime-tts$(if ($TargetOS -eq 'windows') { '.exe' })"
 }
@@ -378,6 +525,11 @@ if ($Package) {
     Copy-Item -LiteralPath $outputPath -Destination (Join-Path $pkgDir $fixedExe)
     foreach ($doc in @("EULA.md", "EULA.en.md", "LICENSE.md", "README.md", "README.en.md", "THIRD-PARTY-NOTICES.md")) {
         Copy-Item -LiteralPath (Join-Path $AlslimeRoot $doc) -Destination $pkgDir
+    }
+    # Windows は exe 自身がブラウザを開かないため、本体起動とブラウザ起動を
+    # まとめて行う起動バッチを同梱する。
+    if ($TargetOS -eq "windows") {
+        Copy-Item -LiteralPath (Join-Path $AlslimeRoot "start-alslime.bat") -Destination $pkgDir
     }
 
     # アーカイブ形式は OS で分ける。zip は Unix の実行権限を保持できないため、
@@ -451,8 +603,14 @@ Write-Host "[release] output: $outputPath"
     } else {
         $env:GOGARBLE = $previousGoGarble
     }
+    [Environment]::SetEnvironmentVariable(
+        'GARBLE_CACHE',
+        $previousGarbleCache,
+        [EnvironmentVariableTarget]::Process
+    )
     if (-not $KeepCache) {
         Remove-Item -LiteralPath $GoCacheDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $GoTmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $GarbleCacheDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

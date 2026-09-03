@@ -9,6 +9,7 @@
 
 import axios from '../lib/axios';
 import type { ClaudeEffort } from '../constants/claude';
+import type { AntigravityThinking } from '../constants/antigravity';
 
 // グローバル設定の型定義
 export interface GlobalSettings {
@@ -21,6 +22,7 @@ export interface GlobalSettings {
     defaultModels?: Record<string, string>; // プロバイダ別デフォルトモデル（gemini/claude/antigravity → モデルID）
     defaultProvider?: string;          // チャット欄の初期プロバイダ（空 = antigravity）
     claudeChatEffort?: ClaudeEffort;   // 通常チャットでClaudeへ渡すeffort（空 = CLI既定）
+    antigravityChatThinking?: AntigravityThinking; // 通常チャットでAntigravityへ渡すThinkingレベル
     antigravityStreamGuardLimit?: number; // Antigravity streamGenerateContent 呼び出し上限
     [key: string]: any;                // その他の設定
 }

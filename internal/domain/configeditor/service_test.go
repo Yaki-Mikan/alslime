@@ -378,12 +378,20 @@ func TestConfigGenInstructions_一覧と読み書き(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 10 {
-		t.Fatalf("10 件（テンプレート 2 種＋作成指示 3 種 × ja/en）のはず: %d", len(list))
+	// キャラクター: テンプレート 2 種＋作成指示 4 種（二段階 2・一括・対話）× ja/en = 12。
+	// それ以外の 9 カテゴリ: テンプレート 2 種＋作成指示 2 種（一括・対話）× ja/en = 8 ずつ。
+	if len(list) != 12+9*8 {
+		t.Fatalf("84 件のはず: %d", len(list))
 	}
+	sawCharacter := false
 	for _, item := range list {
-		if item.Target != "character" {
-			t.Fatalf("現状の対象はキャラクターのみのはず: %+v", item)
+		if _, ok := FindCategory(item.Target); !ok {
+			t.Fatalf("対象は既知カテゴリのはず: %+v", item)
+		}
+		if item.Target == "character" {
+			sawCharacter = true
+		} else if item.Method == ConfigGenMethodTwoStep1 || item.Method == ConfigGenMethodTwoStep2 {
+			t.Fatalf("二段階はキャラクターのみのはず: %+v", item)
 		}
 		if item.Kind != ConfigGenKindInstruction && item.Kind != ConfigGenKindTemplate {
 			t.Fatalf("Kind が未設定: %+v", item)
@@ -391,6 +399,10 @@ func TestConfigGenInstructions_一覧と読み書き(t *testing.T) {
 		if item.Exists {
 			t.Fatalf("未作成は Exists=false のはず: %+v", item)
 		}
+	}
+
+	if !sawCharacter {
+		t.Fatalf("キャラクターの指示が含まれていない")
 	}
 
 	// ID の組み立て規則（フロントも同じ規則で組む）。
@@ -405,13 +417,13 @@ func TestConfigGenInstructions_一覧と読み書き(t *testing.T) {
 		t.Fatalf("未作成は exists=false・空のはず: content=%q exists=%v err=%v", content, exists, err)
 	}
 
-	// 書き込み → prompts/configgen/<対象>/<方式>.<locale>.md へ保存される。
+	// 書き込み → prompts/configgen/<locale>/<対象>/<方式>.md へ保存される。
 	if err := svc.WriteConfigGenInstruction(id, "# 指示"); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "roleplay", "global", "prompts", "configgen", "character", "two_step_1.ja.md"))
+	data, err := os.ReadFile(filepath.Join(root, "roleplay", "global", "prompts", "configgen", "ja", "character", "two_step_1.md"))
 	if err != nil || string(data) != "# 指示" {
-		t.Fatalf("two_step_1.ja.md へ保存されるはず: data=%q err=%v", data, err)
+		t.Fatalf("ja/character/two_step_1.md へ保存されるはず: data=%q err=%v", data, err)
 	}
 	if content, exists, err := svc.ReadConfigGenInstruction(id); err != nil || !exists || content != "# 指示" {
 		t.Fatalf("Read: content=%q exists=%v err=%v", content, exists, err)

@@ -393,7 +393,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                             value={tagDirectTexts[cat.id] || ''}
                                             onChange={e => setTagDirectTexts(prev => ({ ...prev, [cat.id]: e.target.value }))}
                                             placeholder={GENERATE_TEST.PLACEHOLDERS.DIRECT_TAG_PROMPT.replace('{{label}}', cat.label)}
-                                            className="flex-1 bg-gray-800 border border-purple-600/50 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y transition-colors"
+                                            className="flex-1 min-w-0 bg-gray-800 border border-purple-600/50 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y transition-colors"
                                             rows={2}
                                         />
                                     ) : (
@@ -401,7 +401,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                             value={tagSelections[cat.id] || ''}
                                             onChange={e => updateTagSelection(cat.id, e.target.value)}
                                             disabled={!hasTags}
-                                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 disabled:opacity-40"
+                                            className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 disabled:opacity-40"
                                         >
                                             <option value="">{GENERATE_TEST.PLACEHOLDERS.NONE}</option>
                                             {hasTags && mapping.tags.map(tag => (

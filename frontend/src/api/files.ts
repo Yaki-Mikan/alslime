@@ -49,6 +49,8 @@ export interface CharacterTagInfo {
     path: string;
     work: string | null;
     tags: string[];
+    /** default 表情のアイコン URL（キャラカード用。無ければ null） */
+    iconUrl: string | null;
 }
 
 export interface CharacterFilters {

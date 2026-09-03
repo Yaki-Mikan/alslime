@@ -12,6 +12,7 @@ type Payload struct {
 	AntigravityTempFileMode   bool     `json:"antigravityTempFileMode,omitempty"`
 	GeminiTempFileMode        bool     `json:"geminiTempFileMode,omitempty"`
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
+	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
 	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }

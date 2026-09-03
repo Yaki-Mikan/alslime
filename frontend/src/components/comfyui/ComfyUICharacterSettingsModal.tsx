@@ -208,12 +208,22 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         loadConfig(name);
     };
 
+    // 指定キャラの初期選択は開くたびに一度だけ適用する（開いた後のユーザーの
+    // 選択変更を指定キャラへ引き戻さないため。閉じたら次回開く時に再適用）。
+    const initialCharacterAppliedRef = useRef(false);
     useEffect(() => {
-        if (!isOpen || !initialSelectedCharacter || characters.length === 0) return;
+        if (!isOpen) {
+            initialCharacterAppliedRef.current = false;
+            return;
+        }
+        if (initialCharacterAppliedRef.current) return;
+        if (!initialSelectedCharacter || characters.length === 0) return;
         const resolvedName = resolveCharacterName(initialSelectedCharacter);
         if (resolvedName && selectedCharacter !== resolvedName) {
             handleCharacterChange(resolvedName);
         }
+        initialCharacterAppliedRef.current = true;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, initialSelectedCharacter, characters, resolveCharacterName, selectedCharacter]);
 
     // フィールド更新

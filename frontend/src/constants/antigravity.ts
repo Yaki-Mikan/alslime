@@ -12,3 +12,28 @@ export const normalizeAntigravityStreamGuardLimit = (value: unknown): number => 
     }
     return Math.floor(parsed);
 };
+
+/** Antigravity の Thinking レベル。Claude の effort と同じくモデルとは別に指定する。 */
+export const ANTIGRAVITY_THINKING_VALUES = ['low', 'medium', 'high'] as const;
+
+export type AntigravityThinking = typeof ANTIGRAVITY_THINKING_VALUES[number];
+
+/** レベル未指定の状態を作らないための既定値（サーバ側の正規化と同じ Low）。 */
+export const DEFAULT_ANTIGRAVITY_THINKING: AntigravityThinking = 'low';
+
+const isAntigravityThinking = (value: string): value is AntigravityThinking =>
+    (ANTIGRAVITY_THINKING_VALUES as readonly string[]).includes(value);
+
+/** モデルで選べるレベルに収める。空・未知・そのモデルで選べない値は Low へ落とす。 */
+export const normalizeAntigravityThinking = (
+    value: unknown,
+    allowed: readonly string[] = ANTIGRAVITY_THINKING_VALUES,
+): AntigravityThinking => {
+    const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return isAntigravityThinking(v) && allowed.includes(v) ? v : DEFAULT_ANTIGRAVITY_THINKING;
+};
+
+/** モデル一覧（サーバ正本）の thinkingLevels から選択肢を得る。空なら選択 UI を出さない。 */
+export const antigravityThinkingLevelsOf = (
+    model: { thinkingLevels?: string[] } | undefined,
+): AntigravityThinking[] => (model?.thinkingLevels ?? []).filter(isAntigravityThinking);

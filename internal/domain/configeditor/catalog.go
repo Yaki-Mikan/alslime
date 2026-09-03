@@ -156,7 +156,7 @@ type ConfigGenInstruction struct {
 	ID     string // "<Target>-<Method>-<Locale>"（例 "character-two_step_1-ja"）
 	Label  string // 表示名（フロントの i18n が無い場合の予備。日本語 literal）
 	Kind   string // ConfigGenKindInstruction | ConfigGenKindTemplate
-	Target string // 対象種別 ID（カテゴリ ID と同じ。現状 "character" のみ）
+	Target string // 対象種別 ID（カテゴリ ID と同じ）
 	Method string // 方式 ID（ConfigGenMethod* 定数）
 	Locale string // "ja" | "en"
 	File   string // WORKSPACE_ROOT 相対の固定ファイル名
@@ -175,6 +175,7 @@ const (
 	ConfigGenMethodTwoStep1        = "two_step_1"       // じっくり作成 1段階目（調査）
 	ConfigGenMethodTwoStep2        = "two_step_2"       // じっくり作成 2段階目（設定作成）
 	ConfigGenMethodOneShot         = "one_shot"         // 一括作成
+	ConfigGenMethodDialog          = "dialog"           // 対話作成（1ターン分の指示）
 	ConfigGenMethodSearchTemplate  = "search_template"  // 調査項目テンプレート（{{SEARCH_TEMPLATE_CONTENT}} へ差し込み）
 	ConfigGenMethodSettingTemplate = "setting_template" // 設定ファイルテンプレート（{{SETTING_TEMPLATE_CONTENT}} へ差し込み）
 )
@@ -193,19 +194,24 @@ var configGenInstructions = buildConfigGenInstructions()
 
 func buildConfigGenInstructions() []ConfigGenInstruction {
 	// 並びは UI のプルダウン順。利用者が編集する主対象（テンプレート）を先に置く。
-	methods := []struct{ id, kind, label string }{
-		{ConfigGenMethodSearchTemplate, ConfigGenKindTemplate, "調査項目テンプレート"},
-		{ConfigGenMethodSettingTemplate, ConfigGenKindTemplate, "設定ファイルテンプレート"},
-		{ConfigGenMethodTwoStep1, ConfigGenKindInstruction, "作成指示：じっくり作成 1段階目・調査"},
-		{ConfigGenMethodTwoStep2, ConfigGenKindInstruction, "作成指示：じっくり作成 2段階目・設定作成"},
-		{ConfigGenMethodOneShot, ConfigGenKindInstruction, "作成指示：一括作成"},
+	type methodDef struct {
+		id, kind, label string
+		characterOnly   bool
 	}
-	out := make([]ConfigGenInstruction, 0, len(methods)*len(ConfigGenInstructionLocales))
+	methods := []methodDef{
+		{ConfigGenMethodSearchTemplate, ConfigGenKindTemplate, "入力項目テンプレート", false},
+		{ConfigGenMethodSettingTemplate, ConfigGenKindTemplate, "設定ファイルテンプレート", false},
+		{ConfigGenMethodTwoStep1, ConfigGenKindInstruction, "作成指示：じっくり作成 1段階目・調査", true},
+		{ConfigGenMethodTwoStep2, ConfigGenKindInstruction, "作成指示：じっくり作成 2段階目・設定作成", true},
+		{ConfigGenMethodOneShot, ConfigGenKindInstruction, "作成指示：一括作成", false},
+		{ConfigGenMethodDialog, ConfigGenKindInstruction, "作成指示：対話作成", false},
+	}
+	out := make([]ConfigGenInstruction, 0, len(categories)*len(methods)*len(ConfigGenInstructionLocales))
 	for _, c := range categories {
-		if !c.IsCharacter {
-			continue // 現状はキャラクターのみ対象（他種別は今後拡張）
-		}
 		for _, m := range methods {
+			if m.characterOnly && !c.IsCharacter {
+				continue // 二段階（調査→作成）はキャラクターのみ
+			}
 			for _, locale := range ConfigGenInstructionLocales {
 				out = append(out, ConfigGenInstruction{
 					ID:     ConfigGenInstructionID(c.ID, m.id, locale),

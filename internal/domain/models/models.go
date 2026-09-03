@@ -5,7 +5,10 @@
 // 各ハンドラが strings.HasPrefix(model, "claude-") のような判定を散らさないこと。
 package models
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
 // Kind はモデルの種別。CLI 連携の分岐に使う。
 type Kind string
@@ -46,7 +49,29 @@ type Model struct {
 	ConnectionID    string `json:"connectionId,omitempty"`
 	ConnectionLabel string `json:"connectionLabel,omitempty"`
 	RemoteModelID   string `json:"remoteModelId,omitempty"`
+	// ThinkingLevels は Antigravity モデルで選べる Thinking レベル（"low" 等）。
+	// Antigravity 以外と "antigravity" 単体（CLI 既定）では空。
+	ThinkingLevels []string `json:"thinkingLevels,omitempty"`
 }
+
+// Antigravity の Thinking レベル。Claude の effort と同じく実行時に別指定で受け取り、
+// CLI へ渡す表示名（"Gemini 3.8 Flash (High)" 等）はモデル ID と合成して作る。
+const (
+	AntigravityThinkingLow    = "low"
+	AntigravityThinkingMedium = "medium"
+	AntigravityThinkingHigh   = "high"
+)
+
+var (
+	antigravityFlashThinkingLevels = []string{AntigravityThinkingLow, AntigravityThinkingMedium, AntigravityThinkingHigh}
+	antigravityProThinkingLevels   = []string{AntigravityThinkingLow, AntigravityThinkingHigh}
+	// antigravityThinkingSuffix は CLI 表示名に付ける Thinking 表記。
+	antigravityThinkingSuffix = map[string]string{
+		AntigravityThinkingLow:    "(Low)",
+		AntigravityThinkingMedium: "(Medium)",
+		AntigravityThinkingHigh:   "(High)",
+	}
+)
 
 // available は内蔵デフォルトのモデル一覧。現行 Node 版 AVAILABLE_MODELS と同一順序・同一内容。
 //
@@ -55,6 +80,8 @@ type Model struct {
 //
 // 注意: モデル ID は現行フロントとの互換のため変更しない。
 // 追加・更新時は現行版との差分を意識すること。
+// Antigravity の ID には Thinking レベルを含めない（レベルは ThinkingLevels から
+// 実行時に選び、CLI 表示名は AntigravityCLIModel で合成する）。
 var available = []Model{
 	{ID: "", Name: "Default model config", Description: "Default"},
 	{ID: "gemini-2.5-flash", Name: "Fast all-round help", Description: "2.5 Flash"},
@@ -66,6 +93,7 @@ var available = []Model{
 	{ID: "flash-thinking-high", Name: "3.5 Flash (Thinking: High)", Description: "3.5 Flash Think High"},
 	{ID: "flash-thinking-medium", Name: "3.5 Flash (Thinking: Medium)", Description: "3.5 Flash Think Medium"},
 	{ID: "flash-thinking-low", Name: "3.5 Flash (Thinking: Low)", Description: "3.5 Flash Think Low"},
+	{ID: "claude-fable-5-1", Name: "Claude Fable 5.1", Description: "Claude Fable 5.1"},
 	{ID: "claude-fable-5", Name: "Claude Fable 5", Description: "Claude Fable 5"},
 	{ID: "claude-opus-5", Name: "Claude Opus 5", Description: "Claude Opus 5"},
 	{ID: "claude-opus-4-8", Name: "Claude Opus 4.8", Description: "Claude Opus 4.8"},
@@ -77,17 +105,10 @@ var available = []Model{
 	{ID: "claude-sonnet-4-5-20250929", Name: "Claude Sonnet 4.5", Description: "Claude Sonnet 4.5"},
 	{ID: "claude-haiku-4-5-20251001", Name: "Claude Haiku 4.5", Description: "Claude Haiku 4.5"},
 	{ID: "antigravity", Name: "Antigravity CLI default", Description: "Antigravity CLI"},
-	{ID: "antigravity:Gemini 3.5 Flash (Medium)", Name: "Antigravity Gemini 3.5 Flash (Medium)", Description: "Antigravity 3.5 Flash Medium"},
-	{ID: "antigravity:Gemini 3.5 Flash (High)", Name: "Antigravity Gemini 3.5 Flash (High)", Description: "Antigravity 3.5 Flash High"},
-	{ID: "antigravity:Gemini 3.5 Flash (Low)", Name: "Antigravity Gemini 3.5 Flash (Low)", Description: "Antigravity 3.5 Flash Low"},
-	{ID: "antigravity:Gemini 3.6 Flash (Medium)", Name: "Antigravity Gemini 3.6 Flash (Medium)", Description: "Antigravity 3.6 Flash Medium"},
-	{ID: "antigravity:Gemini 3.6 Flash (High)", Name: "Antigravity Gemini 3.6 Flash (High)", Description: "Antigravity 3.6 Flash High"},
-	{ID: "antigravity:Gemini 3.6 Flash (Low)", Name: "Antigravity Gemini 3.6 Flash (Low)", Description: "Antigravity 3.6 Flash Low"},
-	{ID: "antigravity:Gemini 3.7 Flash (Medium)", Name: "Antigravity Gemini 3.7 Flash (Medium)", Description: "Antigravity 3.7 Flash Medium"},
-	{ID: "antigravity:Gemini 3.7 Flash (High)", Name: "Antigravity Gemini 3.7 Flash (High)", Description: "Antigravity 3.7 Flash High"},
-	{ID: "antigravity:Gemini 3.7 Flash (Low)", Name: "Antigravity Gemini 3.7 Flash (Low)", Description: "Antigravity 3.7 Flash Low"},
-	{ID: "antigravity:Gemini 3.1 Pro (High)", Name: "Antigravity Gemini 3.1 Pro (High)", Description: "Antigravity 3.1 Pro High"},
-	{ID: "antigravity:Gemini 3.1 Pro (Low)", Name: "Antigravity Gemini 3.1 Pro (Low)", Description: "Antigravity 3.1 Pro Low"},
+	{ID: "antigravity:Gemini 3.8 Flash", Name: "Antigravity Gemini 3.8 Flash", Description: "Antigravity 3.8 Flash", ThinkingLevels: antigravityFlashThinkingLevels},
+	{ID: "antigravity:Gemini 3.7 Flash", Name: "Antigravity Gemini 3.7 Flash", Description: "Antigravity 3.7 Flash", ThinkingLevels: antigravityFlashThinkingLevels},
+	{ID: "antigravity:Gemini 3.6 Flash", Name: "Antigravity Gemini 3.6 Flash", Description: "Antigravity 3.6 Flash", ThinkingLevels: antigravityFlashThinkingLevels},
+	{ID: "antigravity:Gemini 3.1 Pro", Name: "Antigravity Gemini 3.1 Pro", Description: "Antigravity 3.1 Pro", ThinkingLevels: antigravityProThinkingLevels},
 }
 
 const antigravityPrefix = "antigravity"
@@ -99,8 +120,69 @@ func BuiltIn() []Model {
 	copy(out, available)
 	for i := range out {
 		out[i].Provider = KindOf(out[i].ID)
+		out[i].ThinkingLevels = cloneLevels(out[i].ThinkingLevels)
 	}
 	return out
+}
+
+func cloneLevels(levels []string) []string {
+	if len(levels) == 0 {
+		return nil
+	}
+	out := make([]string, len(levels))
+	copy(out, levels)
+	return out
+}
+
+// AntigravityThinkingLevelsFor はモデル ID で選べる Thinking レベルを返す。
+// 内蔵一覧にあればその定義、ユーザー追加の Antigravity モデルは Flash と同じ 3 段、
+// "antigravity" 単体（CLI 既定）と Antigravity 以外は nil。
+func AntigravityThinkingLevelsFor(id string) []string {
+	id = strings.TrimSpace(id)
+	if id == "" || id == antigravityPrefix || KindOf(id) != KindAntigravity {
+		return nil
+	}
+	for _, m := range available {
+		if m.ID == id {
+			return cloneLevels(m.ThinkingLevels)
+		}
+	}
+	return cloneLevels(antigravityFlashThinkingLevels)
+}
+
+// NormalizeAntigravityThinking はモデルで選べるレベルに収める。
+// 空・未知・そのモデルで選べない値は Low へ落とす（レベル未指定の状態を作らない）。
+func NormalizeAntigravityThinking(modelID, value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	for _, level := range AntigravityThinkingLevelsFor(modelID) {
+		if level == value {
+			return level
+		}
+	}
+	return AntigravityThinkingLow
+}
+
+// AntigravityCLIModel は Antigravity CLI の --model へ渡す表示名を返す。
+//
+//   - 空・"antigravity" 単体は空（CLI 既定に委ねる）
+//   - "antigravity:" プレフィックスは剥がす
+//   - 末尾に既に "(High)" 等のレベル表記があればそのまま（旧形式 ID の互換）
+//   - それ以外は正規化したレベルを " (High)" の形で後置する
+func AntigravityCLIModel(modelID, thinking string) string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" || modelID == antigravityPrefix {
+		return ""
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(modelID, antigravityPrefix+":"))
+	if name == "" {
+		return ""
+	}
+	for _, suffix := range antigravityThinkingSuffix {
+		if strings.HasSuffix(name, suffix) {
+			return name
+		}
+	}
+	return name + " " + antigravityThinkingSuffix[NormalizeAntigravityThinking(modelID, thinking)]
 }
 
 // UserModel はユーザー追加モデル定義（user-models.json の added 行）。
@@ -148,7 +230,7 @@ func (u UserModel) Model() Model {
 			description = u.ID
 		}
 	}
-	return Model{
+	out := Model{
 		ID:            u.ID,
 		Name:          name,
 		Description:   description,
@@ -156,6 +238,10 @@ func (u UserModel) Model() Model {
 		ConnectionID:  u.ConnectionID,
 		RemoteModelID: u.RemoteModelID,
 	}
+	if out.Provider == KindAntigravity {
+		out.ThinkingLevels = AntigravityThinkingLevelsFor(u.ID)
+	}
+	return out
 }
 
 // Merge は「内蔵デフォルト − hidden ＋ added」のマージ結果（モデル一覧の正本）を返す。
@@ -178,6 +264,7 @@ func Merge(added []UserModel, hidden []string) []Model {
 			continue
 		}
 		m.Provider = KindOf(m.ID)
+		m.ThinkingLevels = cloneLevels(m.ThinkingLevels)
 		out = append(out, m)
 	}
 	for _, u := range added {

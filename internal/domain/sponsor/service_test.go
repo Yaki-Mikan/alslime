@@ -2,11 +2,12 @@ package sponsor
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,42 +95,97 @@ func newTestServiceWithClock(t *testing.T, serverURL string) (*Service, *memStor
 	return New(store, storeGate{store: store}, clock), store, clock
 }
 
-// callbackURL は StartLogin の戻り値から redirect_port を取り出し、
-// ローカルコールバック URL を組み立てる。
-func callbackURL(t *testing.T, authURL string, query string) string {
-	t.Helper()
-	u, err := url.Parse(authURL)
-	if err != nil {
-		t.Fatalf("authURL parse failed: %v", err)
-	}
-	port := u.Query().Get("redirect_port")
-	if port == "" {
-		t.Fatalf("redirect_port missing in authURL: %s", authURL)
-	}
-	return "http://127.0.0.1:" + port + "/oauth-done?" + query
+type loginResultFixture struct {
+	status string
+	token  string
+	error  string
 }
 
-func TestStartLoginとコールバック_有効トークンで保存される(t *testing.T) {
-	svc, store, clock := newTestServiceWithClock(t, "https://example.invalid")
-	authURL, err := svc.StartLogin()
+func newLoginServer(t *testing.T, results ...loginResultFixture) (*httptest.Server, *int) {
+	t.Helper()
+	var mu sync.Mutex
+	created := 0
+	polled := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/auth/github/session":
+			mu.Lock()
+			created++
+			id := created
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"authUrl":"https://github.com/login/oauth/authorize?client_id=test&state=%d","sessionId":"session-%d","pollSecret":"secret-%d","expiresAt":"2099-01-01T00:00:00Z","expiresInSeconds":5,"pollAfterSeconds":1}`, id, id, id)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/auth/github/session/session-") && strings.HasSuffix(r.URL.Path, "/result"):
+			mu.Lock()
+			index := polled
+			polled++
+			mu.Unlock()
+			if index >= len(results) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusAccepted)
+				_, _ = w.Write([]byte(`{"status":"pending","pollAfterSeconds":1}`))
+				return
+			}
+			result := results[index]
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"status":%q,"token":%q,"error":%q}`, result.status, result.token, result.error)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return ts, &created
+}
+
+func waitLoginComplete(t *testing.T, svc *Service) Status {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for svc.Status().LoginPending {
+		if time.Now().After(deadline) {
+			t.Fatalf("認証結果のポーリングが完了しませんでした")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return svc.Status()
+}
+
+func TestPollLogin_停止期限到来をサーバーエラーと区別する(t *testing.T) {
+	svc, _ := newTestService(t, "http://127.0.0.1")
+	ctx, cancel := context.WithCancel(context.Background())
+	session := &loginSession{
+		deadline:     time.Now().Add(-time.Second),
+		pollInterval: time.Second,
+		cancel:       cancel,
+	}
+	svc.mu.Lock()
+	svc.login = session
+	svc.mu.Unlock()
+
+	svc.pollLogin(ctx, session)
+	status := svc.Status()
+	if status.LoginPending || status.LastLoginError != LoginErrorExpired {
+		t.Fatalf("期限到来 status=%+v", status)
+	}
+}
+
+func TestStartLoginとポーリング_有効トークンで保存される(t *testing.T) {
+	ts, _ := newLoginServer(t, loginResultFixture{status: "entitled", token: "good-token"})
+	defer ts.Close()
+	svc, store, clock := newTestServiceWithClock(t, ts.URL)
+	start, err := svc.StartLogin()
 	if err != nil {
 		t.Fatalf("StartLogin 失敗: %v", err)
 	}
-	if !strings.HasPrefix(authURL, "https://example.invalid/auth/github/start?redirect_port=") {
-		t.Fatalf("authURL の形が想定外: %s", authURL)
+	if !strings.HasPrefix(start.AuthURL, "https://github.com/login/oauth/authorize?") {
+		t.Fatalf("authURL の形が想定外: %s", start.AuthURL)
+	}
+	if start.ExpiresAt == "" {
+		t.Fatalf("有効期限が返る必要があります: %+v", start)
 	}
 	if !svc.Status().LoginPending {
 		t.Fatalf("ログイン開始後は LoginPending のはず")
 	}
-
-	resp, err := http.Get(callbackURL(t, authURL, "token=good-token"))
-	if err != nil {
-		t.Fatalf("コールバック送信失敗: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("コールバック応答 status=%d", resp.StatusCode)
-	}
+	waitLoginComplete(t, svc)
 	if got := store.Current(); got != "good-token" {
 		t.Fatalf("トークンが保存されていない: got=%q", got)
 	}
@@ -140,30 +196,19 @@ func TestStartLoginとコールバック_有効トークンで保存される(t 
 	if clock.lastReset() == 0 {
 		t.Fatalf("サーバー由来トークンの受領成功で巻き戻し記録が Reset されるべき")
 	}
-	// リスナーは遅延クローズのため、少し待って解放を確認する。
-	deadline := time.Now().Add(2 * time.Second)
-	for svc.Status().LoginPending {
-		if time.Now().After(deadline) {
-			t.Fatalf("コールバック後もリスナーが閉じない")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
-func TestコールバックF_検証NGトークンは旧トークンへ巻き戻す(t *testing.T) {
-	svc, store := newTestService(t, "https://example.invalid")
+func Testポーリング_検証NGトークンは旧トークンへ巻き戻す(t *testing.T) {
+	ts, _ := newLoginServer(t, loginResultFixture{status: "entitled", token: "bogus"})
+	defer ts.Close()
+	svc, store := newTestService(t, ts.URL)
 	if err := store.Save("good-old"); err != nil {
 		t.Fatal(err)
 	}
-	authURL, err := svc.StartLogin()
-	if err != nil {
+	if _, err := svc.StartLogin(); err != nil {
 		t.Fatalf("StartLogin 失敗: %v", err)
 	}
-	resp, err := http.Get(callbackURL(t, authURL, "token=bogus"))
-	if err != nil {
-		t.Fatalf("コールバック送信失敗: %v", err)
-	}
-	_ = resp.Body.Close()
+	waitLoginComplete(t, svc)
 	if got := store.Current(); got != "good-old" {
 		t.Fatalf("旧トークンへ巻き戻るはず: got=%q", got)
 	}
@@ -172,18 +217,14 @@ func TestコールバックF_検証NGトークンは旧トークンへ巻き戻�
 	}
 }
 
-func Testコールバック_not_a_sponsorはFreeログイン成功扱い(t *testing.T) {
-	svc, store := newTestService(t, "https://example.invalid")
-	authURL, err := svc.StartLogin()
-	if err != nil {
+func Testポーリング_freeはFreeログイン成功扱い(t *testing.T) {
+	ts, _ := newLoginServer(t, loginResultFixture{status: "free"})
+	defer ts.Close()
+	svc, store := newTestService(t, ts.URL)
+	if _, err := svc.StartLogin(); err != nil {
 		t.Fatalf("StartLogin 失敗: %v", err)
 	}
-	resp, err := http.Get(callbackURL(t, authURL, "error=not_a_sponsor"))
-	if err != nil {
-		t.Fatalf("コールバック送信失敗: %v", err)
-	}
-	_ = resp.Body.Close()
-	st := svc.Status()
+	st := waitLoginComplete(t, svc)
 	if st.LastLoginError != "" {
 		t.Fatalf("not_a_sponsor は失敗コードを持たないはず: got=%q", st.LastLoginError)
 	}
@@ -195,23 +236,117 @@ func Testコールバック_not_a_sponsorはFreeログイン成功扱い(t *test
 	}
 }
 
-func Testコールバック_想定外errorはサーバーエラー(t *testing.T) {
-	svc, _ := newTestService(t, "https://example.invalid")
-	authURL, err := svc.StartLogin()
-	if err != nil {
+func Testポーリング_failedはサーバーエラー(t *testing.T) {
+	ts, _ := newLoginServer(t, loginResultFixture{status: "failed", error: "oauth_exchange_failed"})
+	defer ts.Close()
+	svc, _ := newTestService(t, ts.URL)
+	if _, err := svc.StartLogin(); err != nil {
 		t.Fatalf("StartLogin 失敗: %v", err)
 	}
-	resp, err := http.Get(callbackURL(t, authURL, "error=weird_value"))
-	if err != nil {
-		t.Fatalf("コールバック送信失敗: %v", err)
-	}
-	_ = resp.Body.Close()
-	st := svc.Status()
+	st := waitLoginComplete(t, svc)
 	if st.LastLoginError != LoginErrorServer {
 		t.Fatalf("想定外 error は server_error のはず: got=%q", st.LastLoginError)
 	}
 	if st.LoginedAsFree {
 		t.Fatalf("失敗時に LoginedAsFree が立ってはいけない")
+	}
+}
+
+func TestPollLoginOnce_429のRetryAfterへ追随する(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/result") {
+			w.Header().Set("Retry-After", "7")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+	svc, _ := newTestService(t, ts.URL)
+	session := &loginSession{id: "session", pollSecret: "secret", pollInterval: time.Second}
+	delay, done := svc.pollLoginOnce(context.Background(), session)
+	if done || delay != 7*time.Second {
+		t.Fatalf("delay=%s done=%v", delay, done)
+	}
+}
+
+func TestPollLoginOnce_一過性503の次にEntitledを取得する(t *testing.T) {
+	var calls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/result") {
+			http.NotFound(w, r)
+			return
+		}
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"entitled","token":"good-token"}`))
+	}))
+	defer ts.Close()
+	svc, store := newTestService(t, ts.URL)
+	_, cancel := context.WithCancel(context.Background())
+	session := &loginSession{
+		id: "session", pollSecret: "secret", pollInterval: time.Second,
+		deadline: time.Now().Add(time.Minute), cancel: cancel,
+	}
+	svc.mu.Lock()
+	svc.login = session
+	svc.mu.Unlock()
+
+	delay, done := svc.pollLoginOnce(context.Background(), session)
+	if done || delay <= 0 || !svc.Status().LoginPending {
+		t.Fatalf("503後 delay=%s done=%v status=%+v", delay, done, svc.Status())
+	}
+	_, done = svc.pollLoginOnce(context.Background(), session)
+	if !done || store.Current() != "good-token" || svc.Status().LoginPending {
+		t.Fatalf("再試行後 done=%v token=%q status=%+v", done, store.Current(), svc.Status())
+	}
+}
+
+func TestPollRetryDelay_巨大な秒数をDurationへOverflowさせない(t *testing.T) {
+	session := &loginSession{pollInterval: 2 * time.Second}
+	if got := pollRetryDelay(session, "9223372036854775807"); got != session.pollInterval {
+		t.Fatalf("delay=%s want=%s", got, session.pollInterval)
+	}
+}
+
+func TestPollLoginOnce_4xxは再試行せず失敗を確定する(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer ts.Close()
+			svc, _ := newTestService(t, ts.URL)
+			_, cancel := context.WithCancel(context.Background())
+			session := &loginSession{id: "session", pollSecret: "secret", pollInterval: time.Second, cancel: cancel}
+			svc.mu.Lock()
+			svc.login = session
+			svc.mu.Unlock()
+			_, done := svc.pollLoginOnce(context.Background(), session)
+			statusAfter := svc.Status()
+			if !done || statusAfter.LoginPending || statusAfter.LastLoginError != LoginErrorServer {
+				t.Fatalf("done=%v status=%+v", done, statusAfter)
+			}
+		})
+	}
+}
+
+func TestStartLogin_応答の相対期限と間隔が矛盾すれば拒否する(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"authUrl":"https://github.com/login/oauth/authorize?client_id=test","sessionId":"session","pollSecret":"secret","expiresAt":"2099-01-01T00:00:00Z","expiresInSeconds":5,"pollAfterSeconds":5}`))
+	}))
+	defer ts.Close()
+	svc, _ := newTestService(t, ts.URL)
+	if _, err := svc.StartLogin(); err == nil {
+		t.Fatal("期限以上のポーリング間隔を受理しました")
+	}
+	if svc.Status().LoginPending {
+		t.Fatal("不正応答でポーリングを開始しました")
 	}
 }
 
@@ -268,24 +403,32 @@ func TestRefresh_トークン無しはErrNoToken(t *testing.T) {
 	}
 }
 
-func TestStartLogin_再実行で前のリスナーを閉じて新規開始(t *testing.T) {
-	svc, _ := newTestService(t, "https://example.invalid")
+func TestStartLogin_再実行で前のポーリングを止めて新規開始(t *testing.T) {
+	ts, created := newLoginServer(t)
+	defer ts.Close()
+	svc, _ := newTestService(t, ts.URL)
 	first, err := svc.StartLogin()
 	if err != nil {
 		t.Fatalf("1回目 StartLogin 失敗: %v", err)
 	}
+	svc.mu.Lock()
+	oldSession := svc.login
+	svc.mu.Unlock()
 	second, err := svc.StartLogin()
 	if err != nil {
 		t.Fatalf("2回目 StartLogin 失敗: %v", err)
 	}
 	if first == second {
-		t.Fatalf("再実行では新しいポートが払い出されるはず")
+		t.Fatalf("再実行では新しい認証セッションが払い出されるはず")
 	}
-	// 1回目のポートは閉じられている（接続拒否）。
-	if _, err := http.Get(callbackURL(t, first, "token=good")); err == nil {
-		t.Fatalf("旧リスナーは閉じているはず")
+	if *created != 2 {
+		t.Fatalf("認証セッション作成回数=%d want=2", *created)
 	}
 	if !svc.Status().LoginPending {
 		t.Fatalf("2回目のログインは進行中のはず")
+	}
+	svc.finishLoginWithToken(oldSession, "good-stale")
+	if got := svc.store.Current(); got != "" {
+		t.Fatalf("取り消した旧セッションの結果を保存しました: %q", got)
 	}
 }

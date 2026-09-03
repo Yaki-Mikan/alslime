@@ -23,6 +23,7 @@ import (
 	"alslime/internal/config"
 	domain "alslime/internal/domain/settingspack"
 	"alslime/internal/storage/paths"
+	"alslime/internal/system/firstrun"
 )
 
 // Manager は設定パックの入出力を扱う。
@@ -213,6 +214,20 @@ func (m *Manager) Import(zipPath string, opts ImportOptions) (ImportResult, erro
 			entry.WrittenAs = dest
 		}
 		result.Written = append(result.Written, entry)
+	}
+	// 旧構成（対象/言語）の相対パスを含むパックを取り込んだ場合に備え、
+	// 設定自動生成配下へ書き込んだときは新構成（言語/対象）へ寄せ直す。
+	for _, w := range result.Written {
+		written := w.Path
+		if w.WrittenAs != "" {
+			written = w.WrittenAs
+		}
+		if strings.HasPrefix(written, config.ConfigGenPromptsDir+"/") {
+			if err := firstrun.MigrateConfigGenLayout(m.resolver.Root()); err != nil {
+				return result, err
+			}
+			break
+		}
 	}
 	return result, nil
 }

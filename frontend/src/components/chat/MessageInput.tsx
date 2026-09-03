@@ -8,18 +8,29 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, ChevronUp, Square, Settings } from 'lucide-react';
+import { Send, ChevronUp, Square, Settings, SlidersHorizontal } from 'lucide-react';
+import { useIsWideScreen } from '../../hooks/useIsWideScreen';
 import type { Model, ModelProvider } from '../../hooks/useChat';
 import { modelProviderOf } from '../../hooks/useChat';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { CHAT_INPUT_I18N_KEYS, CHAT_INPUT_TEXT_FALLBACK_JA, CLAUDE_EFFORT_I18N_KEY_BY_VALUE } from '../../constants/i18n';
+import {
+    ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE,
+    CHAT_INPUT_I18N_KEYS,
+    CHAT_INPUT_TEXT_FALLBACK_JA,
+    CLAUDE_EFFORT_I18N_KEY_BY_VALUE,
+} from '../../constants/i18n';
 import { CLAUDE_EFFORT_VALUES, type ClaudeEffort } from '../../constants/claude';
 import { CHAT_SEND_KEYS, DEFAULT_CHAT_SEND_KEY, type ChatSendKey } from '../../types/Settings';
 import {
     MIN_ANTIGRAVITY_STREAM_GUARD_LIMIT,
+    antigravityThinkingLevelsOf,
     normalizeAntigravityStreamGuardLimit,
+    type AntigravityThinking,
 } from '../../constants/antigravity';
 import { apiModelsForConnection, apiRemoteModelLabel, buildAPIConnectionChoices } from './modelSelection';
+
+// 狭画面でのフッターコントロール表示/非表示の記憶先
+const CONTROLS_OPEN_STORAGE_KEY = 'chat-input-controls-open';
 
 const COARSE_POINTER_MEDIA_QUERY = '(pointer: coarse)';
 
@@ -42,6 +53,8 @@ interface MessageInputProps {
     onOpenModelSettings: () => void;
     claudeEffort: ClaudeEffort;
     onSelectClaudeEffort: (effort: ClaudeEffort) => void;
+    antigravityThinking: AntigravityThinking;
+    onSelectAntigravityThinking: (thinking: AntigravityThinking) => void;
     antigravityStreamGuardLimit: number;
     onSelectAntigravityStreamGuardLimit: (limit: number) => void;
     geminiTempFileMode: boolean;
@@ -71,6 +84,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     onOpenModelSettings,
     claudeEffort,
     onSelectClaudeEffort,
+    antigravityThinking,
+    onSelectAntigravityThinking,
     antigravityStreamGuardLimit,
     onSelectAntigravityStreamGuardLimit,
     geminiTempFileMode,
@@ -82,6 +97,20 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     chatSendKey = DEFAULT_CHAT_SEND_KEY,
 }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // 狭画面ではモデル選択などのフッターコントロールを畳めるようにする（PC幅は常時表示）。
+    // 表示/非表示は端末ごとに記憶する（記憶できなくても機能に影響なし）。
+    const isWideScreen = useIsWideScreen();
+    const [controlsOpen, setControlsOpen] = useState(() => {
+        try { return localStorage.getItem(CONTROLS_OPEN_STORAGE_KEY) !== '0'; } catch { return true; }
+    });
+    const toggleControls = () => {
+        setControlsOpen(prev => {
+            const next = !prev;
+            try { localStorage.setItem(CONTROLS_OPEN_STORAGE_KEY, next ? '1' : '0'); } catch { /* 記憶できなくても機能に影響なし */ }
+            return next;
+        });
+    };
+    const showControls = isWideScreen || controlsOpen;
     const [streamGuardLimitInput, setStreamGuardLimitInput] = useState(
         String(antigravityStreamGuardLimit)
     );
@@ -95,6 +124,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     const modelChoices = selectedModelProvider === 'openai_compat'
         ? apiModelsForConnection(visibleModels, selectedApiConnectionId)
         : visibleModels;
+    // Antigravity の Thinking 選択肢は選択中モデルの thinkingLevels（サーバ正本）から出す。
+    const antigravityThinkingLevels = selectedModelProvider === 'antigravity'
+        ? antigravityThinkingLevelsOf(visibleModels.find(m => m.id === selectedModel))
+        : [];
     const t = (key: string) => resolveMessage(uiCatalog, key, CHAT_INPUT_TEXT_FALLBACK_JA[key] || key);
 
     // テキストエリアの高さ自動調整
@@ -147,6 +180,21 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             <div className="max-w-4xl mx-auto flex flex-col gap-3">
 
                 <div className="relative flex items-end gap-2 bg-gray-800 p-2 rounded-xl border border-gray-700 focus-within:border-blue-500 transition-colors shadow-inner">
+                    {/* 狭画面のみ: フッターコントロールの表示/非表示切り替え（入力欄の左） */}
+                    {!isWideScreen && (
+                        <div className="flex flex-col pb-1">
+                            <button
+                                type="button"
+                                onClick={toggleControls}
+                                className={`p-2 rounded-lg transition-colors flex-shrink-0 ${controlsOpen ? 'text-blue-300 bg-gray-700' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
+                                title={t(CHAT_INPUT_I18N_KEYS.toggleControls)}
+                                aria-label={t(CHAT_INPUT_I18N_KEYS.toggleControls)}
+                                aria-expanded={controlsOpen}
+                            >
+                                <SlidersHorizontal size={20} />
+                            </button>
+                        </div>
+                    )}
                     <textarea
                         ref={textareaRef}
                         value={input}
@@ -180,7 +228,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                     </div>
                 </div>
 
-                {/* フッターコントロール (モデル選択など) */}
+                {/* フッターコントロール (モデル選択など)。狭画面では切り替えアイコンで丸ごと畳める */}
+                {showControls && (
                 <div className="flex justify-center items-center gap-4 px-1">
                     <div className="flex flex-wrap justify-center items-center gap-2">
                         <div className="relative">
@@ -262,6 +311,25 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                             </div>
                         )}
 
+                        {selectedModelProvider === 'antigravity' && antigravityThinkingLevels.length > 0 && (
+                            <div className="relative">
+                                <select
+                                    value={antigravityThinking}
+                                    onChange={(e) => onSelectAntigravityThinking(e.target.value as AntigravityThinking)}
+                                    title={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                    aria-label={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[104px]"
+                                >
+                                    {antigravityThinkingLevels.map((level) => (
+                                        <option key={level} value={level}>
+                                            {t(ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE[level])}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            </div>
+                        )}
+
                         {/* モデル設定モーダルを開くアイコンボタン */}
                         <button
                             onClick={onOpenModelSettings}
@@ -320,6 +388,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         )}
                     </div>
                 </div>
+                )}
             </div>
         </div>
     );

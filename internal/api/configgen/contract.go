@@ -8,17 +8,21 @@ import (
 
 // config-gen API の route 断片。
 const (
-	routeSubmit   = "/config-gen/submit"
-	routeStatus   = "/config-gen/status/{jobId}"
-	routeCancel   = "/config-gen/cancel/{jobId}"
+	routeSubmit       = "/config-gen/submit"
+	routeStatus       = "/config-gen/status/{jobId}"
+	routeCancel       = "/config-gen/cancel/{jobId}"
 	routeResearch     = "/config-gen/research/{categoryId}/{dirName}/{characterName}"
 	routeResearchList = "/config-gen/research-list/{categoryId}"
 	routeActive       = "/config-gen/active"
+	routeDialogStart  = "/config-gen/dialog/start"
+	routeDialogSend   = "/config-gen/dialog/send"
+	routeDialog       = "/config-gen/dialog/{sessionId}"
 
 	pathParamJobID         = "jobId"
 	pathParamCategoryID    = "categoryId"
 	pathParamDirName       = "dirName"
 	pathParamCharacterName = "characterName"
+	pathParamSessionID     = "sessionId"
 	queryParamSince        = "since"
 )
 

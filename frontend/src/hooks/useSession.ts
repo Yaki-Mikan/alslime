@@ -7,10 +7,22 @@
  * - 既存セッションの再開
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from '../lib/axios';
 import { CHAT_VIEW_I18N_KEYS, CHAT_VIEW_TEXT_FALLBACK_JA } from '../constants/i18n';
 import { resolveMessage, type I18NCatalog } from '../api/i18n';
+
+// 画面の再読込後に直前まで開いていたセッションへ戻るための保存先。
+// タブ単位で保持し、タブを閉じれば消える（AlSlime の再起動をまたいで保持する必要はない）。
+const RESTORE_SESSION_STORAGE_KEY = 'alslime.restoreSessionId';
+
+const readStoredSessionId = (): string | null => {
+    try {
+        return sessionStorage.getItem(RESTORE_SESSION_STORAGE_KEY);
+    } catch {
+        return null;
+    }
+};
 
 // 型定義
 // 注意: SSRP設定（config）は一覧APIには含まれない。復元時の設定はresume APIが返す。
@@ -43,18 +55,41 @@ export const useSession = ({ backendUrl, onSessionChange, onHistoryLoaded, catal
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    // セッション一覧を取得
-    const fetchSessions = async () => {
+    // 再読込前に開いていたセッションID。初回レンダーで読み出し、復元処理が一度だけ取り出す。
+    // 下の保存 effect が初期値 null で保存先を消すため、メモリ側へ先に退避しておく必要がある。
+    const restoreSessionIdRef = useRef<string | null>(readStoredSessionId());
+    const takeRestoreSessionId = (): string | null => {
+        const id = restoreSessionIdRef.current;
+        restoreSessionIdRef.current = null;
+        return id;
+    };
+
+    // 開いているセッションIDの変化を保存先へ反映する。
+    // 再開・新規・削除・初回送信でのID確定のどの経路でも、この state を通るため取りこぼしが無い。
+    useEffect(() => {
+        try {
+            if (currentSessionId) {
+                sessionStorage.setItem(RESTORE_SESSION_STORAGE_KEY, currentSessionId);
+            } else {
+                sessionStorage.removeItem(RESTORE_SESSION_STORAGE_KEY);
+            }
+        } catch { /* 記憶できなくても機能に影響なし */ }
+    }, [currentSessionId]);
+
+    // セッション一覧を取得（state 更新に加え、取得結果を戻り値でも返す。失敗時は空配列）
+    const fetchSessions = async (): Promise<Session[]> => {
         try {
             console.log('[useSession] Fetching sessions...');
             const res = await axios.get(`${backendUrl}/api/sessions`);
             console.log('[useSession] Received sessions:', res.data.sessions?.length || 0);
             if (res.data.sessions) {
                 setSessions(res.data.sessions);
+                return res.data.sessions as Session[];
             }
         } catch (error) {
             console.error('Failed to fetch sessions', error);
         }
+        return [];
     };
 
     // 新規セッション開始
@@ -195,6 +230,7 @@ export const useSession = ({ backendUrl, onSessionChange, onHistoryLoaded, catal
         handleResumeSession,
         openSessionModal,
         fetchSessions,
+        takeRestoreSessionId,
         updateSessionTitle,
         deleteSession,
         deleteSessions

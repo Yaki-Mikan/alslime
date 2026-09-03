@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"alslime/internal/config"
+	"alslime/internal/storage/characterimages"
 	"alslime/internal/storage/jsonstore"
 	"alslime/internal/storage/paths"
 	_ "golang.org/x/image/webp"
@@ -231,13 +232,11 @@ func (s *ImageService) Images(characterName string) (CharacterImagesData, error)
 		var iconURL *string
 		if iconFound {
 			ext := path.Ext(iconRel)
-			url := "/images/characters/" + pathEscape(characterName) + "/" +
-				pathEscape(config.CharacterImageDirName) + "/" +
-				pathEscape(config.CharacterIconImageDirName) + "/" +
-				pathEscape(emotionName+ext)
+			hashValue := ""
 			if hash != nil {
-				url += "?v=" + *hash
+				hashValue = *hash
 			}
+			url := characterimages.IconURL(characterName, emotionName+ext, hashValue)
 			iconURL = &url
 		}
 		out.Images[emotionName] = ImageInfo{

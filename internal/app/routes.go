@@ -39,6 +39,7 @@ import (
 	calendarsvc "alslime/internal/domain/calendar"
 	characterssvc "alslime/internal/domain/characters"
 	configeditorsvc "alslime/internal/domain/configeditor"
+	"alslime/internal/domain/configgendialog"
 	datetimepresetssvc "alslime/internal/domain/datetimepresets"
 	filessvc "alslime/internal/domain/files"
 	globalsettingssvc "alslime/internal/domain/globalsettings"
@@ -476,9 +477,12 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	chatapi.Register(mux, chatapi.Deps{
 		Queue: jobQueue,
 	})
+	configGenDialogStore := configgendialog.NewStore(resolver)
 	configgenapi.Register(mux, configgenapi.Deps{
 		Queue:    jobQueue,
 		Resolver: resolver,
+		Dialog:   configGenDialogStore,
+		NewID:    newJobID,
 	})
 	// モデル一覧の正本まわり（一覧・ユーザー編集・疎通確認。09番）。
 	// 疎通確認の呼び出し口は chatflow.Engine（EngineRouter）そのもの。
@@ -513,6 +517,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		charfiltersstore.New(resolver, config.CharacterListDir, config.CharacterFiltersFile),
 	))
 	charactersapi.RegisterImages(mux, characterssvc.NewImageService(resolver))
+	// キャラクターの設定紐づけ（個別性格・服装・背景の自動投入と追加設定）。
+	charactersapi.RegisterLinkedSettings(mux, characterssvc.NewLinkedSettingsService(resolver))
+	// 表情画像生成用の表情プロンプト（キャラクター共通）。
+	emotionPromptsSvc := characterssvc.NewEmotionPromptsService(resolver)
+	charactersapi.RegisterEmotionPrompts(mux, emotionPromptsSvc)
+	// 表情プロンプトのサンプルパック取り込み（認証サーバーから取得。画像生成 Tier がゲート）。
+	charactersapi.RegisterEmotionPromptsSample(mux, emotionPromptsSvc, sponsorSvc, core.Features())
 
 	// Config Editor（設定編集 UI 用のカテゴリ別ファイル/テンプレート CRUD）。
 	// カテゴリ定義の正本は domain、保存先解決・境界確認は storage（paths.Resolver）。
@@ -587,7 +598,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// 終端ジョブの定期掃除（AI応答全文を含む Job の無限蓄積防止。02調査 高#1）と、
 	// 使い捨て一時ファイル + ネイティブ履歴のハウスキーピング（起動時掃除 + 定期掃除。
 	// ネイティブ掃除の実装は core 側のため、組み立てが可能な本関数で合成する）。
-	housekeeper := housekeeping.New(resolver, core.NativeSweeper()).WithTTSParts(ttsAudioStore)
+	housekeeper := housekeeping.New(resolver, core.NativeSweeper()).
+		WithTTSParts(ttsAudioStore).
+		WithConfigGenDialogSessions(configGenDialogStore)
 	return func(ctx context.Context) {
 		// サイドカー初回起動（StartInstalled）の生存管理 ctx。listen 開始前に
 		// 確定するため、API 経由の初回導入時には必ず設定済み。

@@ -27,6 +27,8 @@ interface Props {
     templates?: TemplateInfo[];
     // 見出し行を出すか（左メニューのようにパネル器側が見出しを持つ場合は false）
     showHeading?: boolean;
+    // 幅の狭い場所向けに、ラジオ文字列の下・ラベルの下へプルダウンを縦積みする
+    stacked?: boolean;
 }
 
 export const TagJudgeWorkflowPanel: React.FC<Props> = ({
@@ -34,6 +36,7 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
     uiCatalog = null,
     templates,
     showHeading = true,
+    stacked = false,
 }) => {
     const { COMMON, DIRECTIVE_MODE_OPTIONS } = createComfyUIText(uiCatalog);
 
@@ -144,8 +147,8 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                     ? [...templateNames, mappedName]
                     : templateNames;
                 return (
-                    <div key={row.value} className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+                    <div key={row.value} className={stacked ? 'flex flex-col gap-1' : 'flex items-center gap-2'}>
+                        <label className={`flex items-center gap-2 min-w-0 cursor-pointer ${stacked ? '' : 'flex-1'}`}>
                             <input
                                 type="radio"
                                 name="tagJudgeWorkflowDirectiveMode"
@@ -158,7 +161,7 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                         <select
                             value={mappedName}
                             onChange={(e) => handleChangeRowWorkflow(row.value, e.target.value)}
-                            className="w-40 shrink-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors"
+                            className={`${stacked ? 'w-full min-w-0' : 'w-40 shrink-0'} bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors`}
                         >
                             <option value="">{COMMON.MESSAGES.COMMON_WORKFLOW_OPTION}</option>
                             {rowOptions.map(name => (
@@ -170,12 +173,12 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
             })}
 
             {/* 共通ワークフロー（「共通」を選んだ形式が使う既定） */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
                 <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
                 <select
                     value={defaultTemplateId}
                     onChange={(e) => handleChangeDefaultTemplate(e.target.value)}
-                    className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                    className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none`}
                 >
                     {effectiveTemplates.map((t) => (
                         <option key={t.name} value={t.name}>{t.name}</option>

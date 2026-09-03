@@ -15,6 +15,7 @@ import (
 
 	"alslime/internal/config"
 	"alslime/internal/domain/configeditor"
+	"alslime/internal/domain/configgenjobs"
 )
 
 // Class は分類テーブルの大分類（設計 §4 の A〜F）。
@@ -69,6 +70,8 @@ var forbiddenRoots = []string{
 	// import_inbox はパックから書き込ませない（パック内に inbox 宛 zip を仕込む
 	// 連鎖ロードの禁止。設計 §5 の inbox セキュリティ条件）。
 	config.SettingsPackInboxDir,
+	// 設定自動生成の専用ワークスペース（作業コピー・対話セッション履歴）は生成物。
+	configgenjobs.WorkspaceDir,
 }
 
 // envFiles は E 分類（環境依存。入出力とも常に除外）の単一ファイル。
@@ -85,6 +88,9 @@ var envFiles = []string{
 // kinds は A〜D 分類の正本（順序維持。カタログ API・エクスポート選択ツリーの表示順）。
 //
 // A（ロールプレイMD）は configeditor のカテゴリ定義から導出し、二重管理を避ける。
+// キャラ配下の設定 JSON（settings/tags.json・linked_settings.json・image_gen_config.json・
+// tts_config.json）はいずれも環境依存ではなくキャラ固有の設定のため、character 種別に含めて
+// 入出力する（除外するのは接続設定 roleplay/settings/tts/config.json 側）。
 // 文体設定も configeditor カテゴリ（ID "writingStyle"）に含まれるため導出で賄う。
 // 「基本指示」の実体は AIプロバイダ指示ファイル
 // （config.ProviderInstruction*File。設計 §8）。当初はパック対象外だったが、
@@ -133,11 +139,14 @@ func kinds() []Kind {
 		Kind{ID: "characterFilters", Label: "キャラフィルタ", Class: ClassConfig, Files: []string{config.CharacterFiltersFile}},
 		Kind{ID: "relationOptions", Label: "関係性オプション", Class: ClassConfig, Files: []string{config.RelationOptionsFile}},
 		Kind{ID: "replacementConfig", Label: "置換設定", Class: ClassConfig, Files: []string{config.ReplacementConfigFile}},
-		Kind{ID: "emotionDefinitions", Label: "心情定義", Class: ClassConfig, Files: []string{config.EmotionDefinitionsFile, config.EmotionCatalogFile}},
+		Kind{ID: "emotionDefinitions", Label: "心情定義", Class: ClassConfig, Files: []string{config.EmotionDefinitionsFile, config.EmotionCatalogFile, config.EmotionPromptsFile}},
 		Kind{ID: "calendar", Label: "祝日カレンダー", Class: ClassConfig, Files: []string{config.CalendarFile}},
 		Kind{ID: "userModels", Label: "モデル一覧（ユーザー編集）", Class: ClassConfig, Files: []string{config.UserModelsFile}},
 		Kind{ID: "globalDefaults", Label: "グローバル設定", Class: ClassConfig, Files: []string{config.GlobalSettingsFile}},
 		Kind{ID: "configTemplates", Label: "設定ファイルテンプレート", Class: ClassConfig, Roots: []string{config.ConfigEditorTemplateRoot}},
+		// 設定自動生成の指示ファイル（作成指示・入力項目テンプレート・設定ファイルテンプレート）。
+		// テンプレートパックの配布対象。利用者の書き換えを守るため強制上書きはしない。
+		Kind{ID: "configGenInstructions", Label: "設定自動生成指示", Class: ClassConfig, Roots: []string{config.ConfigGenPromptsDir}},
 		Kind{ID: "uiDictionaries", Label: "UI辞書", Class: ClassConfig, Roots: []string{config.I18NDir, config.LanguageDir}},
 		Kind{
 			ID:    "providerInstructions",

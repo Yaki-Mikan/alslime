@@ -30,3 +30,12 @@ func (s *Service) Filters() (storage.Filters, error) {
 func (s *Service) RebuildFilters() (storage.Filters, storage.RebuildStats, error) {
 	return s.store.Rebuild()
 }
+
+// SaveTags はキャラの tags.json を書き込み、続けてマスタを再構築する。
+// 利用者に「キャラタグマスタ更新」を別途押させないための一括操作。
+func (s *Service) SaveTags(dirName string, work *string, tags []string) (storage.Filters, storage.RebuildStats, error) {
+	if err := s.store.WriteTags(dirName, work, tags); err != nil {
+		return storage.Filters{}, storage.RebuildStats{}, err
+	}
+	return s.store.Rebuild()
+}

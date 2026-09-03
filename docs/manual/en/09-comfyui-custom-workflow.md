@@ -57,7 +57,7 @@ After registration, try generating one image with "Image generation test".
 | `__CHARACTER__` | Character name, work name, character prompt, and LoRA trigger words |
 | `__FEATURES__` | Physical features such as hairstyle, hair color, and eye color |
 | `__OUTFIT__` | Current outfit |
-| `__EMOTION__` | Expression and emotion |
+| `__EMOTION__` | Expression and emotion. "Generate expression image" in the Config File Editor puts the selected expression prompt here (appended to `__EXTRA_POSITIVE__` when the workflow has no such placeholder) |
 | `__POSE__` | Pose |
 | `__COMPOSITION__` | Composition and camera direction |
 | `__ACTION__` | Character action |

@@ -51,6 +51,15 @@ type TTSPartSweep interface {
 	SweepParts(cutoff time.Time) (removedFiles int, removedDirs int)
 }
 
+// DialogSessionSweep は設定自動生成の対話セッション履歴の掃除境界。
+//
+// 置き場は roleplay/temp の外（configgen_workspace/sessions）で保持期間も別
+// （30 日）のため、tempSubDirs の一括走査には乗せず専用の境界で扱う。
+// configgendialog.Store が構造的に満たす。
+type DialogSessionSweep interface {
+	Sweep(cutoff time.Time) (removedFiles int, removedDirs int)
+}
+
 // Sweeper は使い捨て一時ファイルとネイティブ履歴を掃除する。
 //
 // 時刻としきい値を注入できるためテスト可能。実体化に失敗しても起動・処理全体を
@@ -63,8 +72,11 @@ type Sweeper struct {
 	resolver *paths.Resolver
 	native   NativeSweep
 	ttsParts TTSPartSweep
+	dialog   DialogSessionSweep
 	maxAge   time.Duration
-	now      func() time.Time
+	// dialogMaxAge は対話セッション履歴の保持時間（maxAge とは別）。
+	dialogMaxAge time.Duration
+	now          func() time.Time
 }
 
 // New は既定のしきい値で Sweeper を生成する。
@@ -72,11 +84,18 @@ type Sweeper struct {
 // native が nil の場合、グループA（ネイティブ履歴）の掃除はスキップされる。
 func New(resolver *paths.Resolver, native NativeSweep) *Sweeper {
 	return &Sweeper{
-		resolver: resolver,
-		native:   native,
-		maxAge:   time.Duration(config.HousekeepingTempMaxAgeSeconds) * time.Second,
-		now:      time.Now,
+		resolver:     resolver,
+		native:       native,
+		maxAge:       time.Duration(config.HousekeepingTempMaxAgeSeconds) * time.Second,
+		dialogMaxAge: time.Duration(config.ConfigGenDialogSessionMaxAgeSeconds) * time.Second,
+		now:          time.Now,
 	}
+}
+
+// WithConfigGenDialogSessions は対話セッション履歴の掃除実装を注入する（nil はスキップ）。
+func (s *Sweeper) WithConfigGenDialogSessions(dialog DialogSessionSweep) *Sweeper {
+	s.dialog = dialog
+	return s
 }
 
 // WithMaxAge は保持時間を上書きする（テスト・将来の設定連動用）。
@@ -96,7 +115,7 @@ func (s *Sweeper) WithNow(now func() time.Time) *Sweeper {
 }
 
 // WithTTSParts は読み上げチャンク一時領域の掃除実装を注入する
-//（nil の場合はスキップ）。
+// （nil の場合はスキップ）。
 func (s *Sweeper) WithTTSParts(ttsParts TTSPartSweep) *Sweeper {
 	s.ttsParts = ttsParts
 	return s
@@ -133,6 +152,11 @@ func (s *Sweeper) Sweep() Result {
 	// 読み上げ音声のチャンク一時領域（.part）の残骸回収。
 	if s.ttsParts != nil {
 		files, dirs := s.ttsParts.SweepParts(cutoff)
+		total.add(Result{RemovedFiles: files, RemovedDirs: dirs})
+	}
+	// 設定自動生成の対話セッション履歴（保持期間は別建て）。
+	if s.dialog != nil {
+		files, dirs := s.dialog.Sweep(s.now().Add(-s.dialogMaxAge))
 		total.add(Result{RemovedFiles: files, RemovedDirs: dirs})
 	}
 	if total.RemovedFiles > 0 || total.RemovedDirs > 0 {

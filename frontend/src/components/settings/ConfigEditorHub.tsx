@@ -8,7 +8,7 @@
  * モーダルを閉じても継続する（レビュー002対応 7.2 の裏実行）。
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AudioLines, FileText, Palette, Bot } from 'lucide-react';
 import { ConfigEditorModal, COMFY_DIRECTIVE_CATEGORY_ID, CONFIG_GEN_INSTRUCTION_CATEGORY_ID } from './ConfigEditorModal';
 import type { OpenFileRequest } from './ConfigEditorModal';
@@ -16,6 +16,7 @@ import { ConfigGenModal } from './ConfigGenModal';
 import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
 import { TTSIntegratedSettingsModal } from '../tts/TTSIntegratedSettingsModal';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { useIsWideScreen } from '../../hooks/useIsWideScreen';
 import type { ApiProviderInstructionTarget } from '../../api/api-providers';
 
 // ConfigEditorTab は Hub のタブ識別子（開き元が初期タブを指定する際にも使う）。
@@ -42,6 +43,10 @@ interface Props {
     // 画像生成統合設定タブで初期選択するキャラクター名（会話設定のキャラ詳細
     // 設定横アイコンから imageGen 指定で開く導線用。空なら初期選択なし）。
     integratedInitialCharacter?: string;
+    // 開いた時に設定ファイルタブで開くファイル（会話設定のキャラ詳細横アイコンからの導線）。
+    // 消費したら onInitialOpenFileConsumed で null に戻してもらう。
+    initialOpenFile?: OpenFileRequest | null;
+    onInitialOpenFileConsumed?: () => void;
 }
 
 type Tab = ConfigEditorTab;
@@ -55,6 +60,8 @@ export const ConfigEditorHub: React.FC<Props> = ({
     ttsEnabled = false,
     comfyDirectiveVisible = false,
     initialTab = 'config',
+    initialOpenFile = null,
+    onInitialOpenFileConsumed,
     openApiProviderInstruction = null,
     onOpenApiProviderInstructionConsumed,
     integratedInitialCharacter = '',
@@ -62,6 +69,14 @@ export const ConfigEditorHub: React.FC<Props> = ({
     const [tab, setTab] = useState<Tab>('config');
     // 設定自動生成 → 設定ファイルタブへの「このファイルを開いて」要求（消費後に null へ戻る）。
     const [openFileRequest, setOpenFileRequest] = useState<OpenFileRequest | null>(null);
+    // 外部（会話設定）から「このファイルを開いて」と指定された場合は設定ファイルタブで開く
+    useEffect(() => {
+        if (!isOpen || !initialOpenFile) return;
+        setOpenFileRequest(initialOpenFile);
+        setTab('config');
+        onInitialOpenFileConsumed?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, initialOpenFile]);
 
     // 開くたびに指定タブ（既定は設定ファイルエディタ）から始める
     //（レンダー中の前回値比較で調整し、effect 内 setState による多段レンダーを避ける）。
@@ -72,6 +87,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
     }
 
     const t = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
+    const isWideScreen = useIsWideScreen();
 
     const tabButton = (target: Tab, icon: React.ReactNode, label: string, activeCls: string) => (
         <button
@@ -86,8 +102,23 @@ export const ConfigEditorHub: React.FC<Props> = ({
         </button>
     );
 
+    // 狭画面ではタブを並べる幅が無いのでプルダウンで切り替える
+    const tabOptions: Array<[Tab, string]> = [
+        ['config', t('configEditor.tab.files', '設定ファイル')],
+        ['configGen', t('configGen.tab', '設定自動生成')],
+        ...(imageGenEnabled ? [['imageGen', t('configEditor.tab.imageGen', '画像生成統合設定')] as [Tab, string]] : []),
+        ...(ttsEnabled ? [['tts', t('configEditor.tab.tts', 'TTS設定')] as [Tab, string]] : []),
+    ];
     // 設定自動生成タブの追加により、タブは常時描画する（画像生成のみ支援者限定）。
-    const headerTabs = (
+    const headerTabs = !isWideScreen ? (
+        <select
+            value={tab}
+            onChange={e => setTab(e.target.value as Tab)}
+            className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+        >
+            {tabOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+    ) : (
         <div className="inline-flex rounded-lg border border-gray-600 bg-gray-800/80 p-1">
             {tabButton('config', <FileText size={13} />, t('configEditor.tab.files', '設定ファイル'), 'bg-green-800 text-green-100')}
             {tabButton('configGen', <Bot size={13} />, t('configGen.tab', '設定自動生成'), 'bg-purple-800 text-purple-100')}
@@ -109,6 +140,8 @@ export const ConfigEditorHub: React.FC<Props> = ({
                 openApiProviderInstruction={openApiProviderInstruction}
                 onOpenApiProviderInstructionConsumed={onOpenApiProviderInstructionConsumed}
                 comfyDirectiveVisible={comfyDirectiveVisible}
+                imageGenEnabled={imageGenEnabled}
+                ttsEnabled={ttsEnabled}
             />
             <ConfigGenModal
                 isOpen={isOpen && tab === 'configGen'}
