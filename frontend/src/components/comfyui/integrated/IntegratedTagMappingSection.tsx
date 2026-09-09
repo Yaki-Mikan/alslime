@@ -33,6 +33,8 @@ import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { formatDanbooruTag, formatTriggerLine } from '../danbooru-format';
 import { useComfyLoras } from '../useComfyLoras';
 import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
+import { LoraStrengthInput } from '../LoraStrengthInput';
+import { ToggleSwitch } from '../../common/ToggleSwitch';
 
 interface Props {
     backendUrl: string;
@@ -40,6 +42,18 @@ interface Props {
     triggerWordFormat?: TriggerWordFormat;
     uiCatalog?: I18NCatalog | null;
 }
+
+const createEmptyTagLora = (): TagLoraEntry => ({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
+
+// 末尾が名前付きLoRAなら空の選択欄を1つ足し、常に次のLoRAを選べる状態にする。
+// 保存時は空行が除外されるため、読込・選択・削除の各時点でこの整形を通す。
+const withTrailingEmptyLora = (lora: TagLoraEntry[] | undefined | null): TagLoraEntry[] => {
+    const list = lora ? [...lora] : [];
+    if (list.length === 0 || list[list.length - 1].name) {
+        list.push(createEmptyTagLora());
+    }
+    return list;
+};
 
 export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbooruTagFormat = 'underscore', triggerWordFormat = 'raw', uiCatalog = null }) => {
     const { TAG_MAPPING, LORA, TRIGGER_WORDS, DANBOORU, COMMON } = createComfyUIText(uiCatalog);
@@ -124,9 +138,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
             try {
                 const data = await getTagMapping(backendUrl, selectedCategoryId);
                 for (const tag of data.tags) {
-                    if (!tag.lora || tag.lora.length === 0) {
-                        tag.lora = [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }];
-                    }
+                    tag.lora = withTrailingEmptyLora(tag.lora);
                 }
                 setMappingData(data);
             } catch (e) {
@@ -208,6 +220,17 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         setIsDirty(true);
     }, [selectedTagIndex]);
 
+    // 有効/無効（一覧行のトグル。有効は項目を持たない形へ揃え、保存時に省略される）
+    const setTagEnabledAt = useCallback((idx: number, enabled: boolean) => {
+        setMappingData(prev => {
+            if (!prev) return prev;
+            const newTags = [...prev.tags];
+            newTags[idx] = { ...newTags[idx], enabled: enabled ? undefined : false };
+            return { ...prev, tags: newTags };
+        });
+        setIsDirty(true);
+    }, []);
+
     // Danbooru検索
     const handleDanbooruSearch = useCallback(async () => {
         const q = danbooruQuery.trim();
@@ -259,10 +282,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         const tag = mappingData.tags[selectedTagIndex];
         const newLora = [...tag.lora];
         newLora[loraIndex] = { ...newLora[loraIndex], name: loraName };
-        if (loraIndex === newLora.length - 1 && loraName) {
-            newLora.push({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
-        }
-        updateTagField('lora', newLora);
+        updateTagField('lora', withTrailingEmptyLora(newLora));
         setLoraDropdownIdx(null);
         setLoraSearchQuery('');
     }, [mappingData, selectedTagIndex, updateTagField]);
@@ -271,14 +291,13 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         if (!mappingData || selectedTagIndex === null) return;
         const tag = mappingData.tags[selectedTagIndex];
         const newLora = tag.lora.filter((_, i) => i !== loraIndex);
-        if (newLora.length === 0) newLora.push({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
-        updateTagField('lora', newLora);
+        updateTagField('lora', withTrailingEmptyLora(newLora));
         setLoraDetailMode({});
     }, [mappingData, selectedTagIndex, updateTagField]);
 
     const addNewTag = useCallback(() => {
         if (!mappingData) return;
-        const newTag: TagEntry = { key: '', description: '', prompt: '', negativePrompt: '', workflowTemplateId: '', lora: [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }] };
+        const newTag: TagEntry = { key: '', description: '', prompt: '', negativePrompt: '', workflowTemplateId: '', lora: [createEmptyTagLora()] };
         const newTags = [...mappingData.tags, newTag];
         setMappingData({ ...mappingData, tags: newTags });
         setSelectedTagIndex(newTags.length - 1);
@@ -382,6 +401,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                 </button>
                                 <span className="flex-1">{TAG_MAPPING.LABELS.DANBOORU_PROMPT_SHORT}</span>
                                 <span className="w-16 text-center">{TAG_MAPPING.LABELS.LORA}</span>
+                                <span className="w-14 text-center">{TAG_MAPPING.LABELS.ENABLED}</span>
                                 <span className="w-8" />
                             </div>
                             <div className="max-h-40 overflow-y-auto custom-scrollbar">
@@ -399,6 +419,10 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                             <span className="flex-1 truncate text-gray-400">{tag.prompt || COMMON.EMPTY_MARKER}</span>
                                             <span className="w-16 text-center text-xs">
                                                 {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                            </span>
+                                            <span className="w-14 flex justify-center" onClick={e => e.stopPropagation()}>
+                                                <ToggleSwitch size="sm" accent="cyan" checked={tag.enabled !== false}
+                                                    onChange={v => setTagEnabledAt(idx, v)} />
                                             </span>
                                             <button onClick={e => { e.stopPropagation(); deleteTag(idx); }}
                                                 className="w-8 flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors">
@@ -553,21 +577,20 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                                         <>
                                                             {isDetail ? (
                                                                 <>
-                                                                    <input type="number" value={lora.strengthModel}
-                                                                        onChange={e => updateTagLora(loraIdx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                                    <LoraStrengthInput value={lora.strengthModel}
+                                                                        onCommit={v => updateTagLora(loraIdx, 'strengthModel', v)}
                                                                         step={0.05}
                                                                         className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1.5 text-xs text-center text-gray-200 outline-none focus:border-cyan-500"
                                                                         title={LORA.LABELS.MODEL_STRENGTH} />
-                                                                    <input type="number" value={lora.strengthClip}
-                                                                        onChange={e => updateTagLora(loraIdx, 'strengthClip', parseFloat(e.target.value) || 0)}
+                                                                    <LoraStrengthInput value={lora.strengthClip}
+                                                                        onCommit={v => updateTagLora(loraIdx, 'strengthClip', v)}
                                                                         step={0.05}
                                                                         className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1.5 text-xs text-center text-gray-200 outline-none focus:border-cyan-500"
                                                                         title={LORA.LABELS.CLIP_STRENGTH} />
                                                                 </>
                                                             ) : (
-                                                                <input type="number" value={lora.strengthModel}
-                                                                    onChange={e => {
-                                                                        const v = parseFloat(e.target.value) || 0;
+                                                                <LoraStrengthInput value={lora.strengthModel}
+                                                                    onCommit={v => {
                                                                         updateTagLora(loraIdx, 'strengthModel', v);
                                                                         updateTagLora(loraIdx, 'strengthClip', v);
                                                                     }}

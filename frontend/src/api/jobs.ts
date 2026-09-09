@@ -6,12 +6,14 @@ import axios from '../lib/axios';
 
 export interface Job {
     jobId: string;
-    type: 'chat' | 'regenerate' | 'tag-judge' | 'image-generate' | 'tts';
-    kind: 'gemini' | 'claude' | 'antigravity' | 'openai_compat' | 'tts';
+    type: 'chat' | 'regenerate' | 'tag-judge' | 'image-generate' | 'image-analyze' | 'image-render' | 'config-generate' | 'tts';
+    kind: 'gemini' | 'claude' | 'antigravity' | 'openai_compat' | 'tts' | 'comfyui';
     label: string;
     sessionId?: string | null;
     status: 'pending' | 'processing' | 'completed' | 'error' | 'canceled';
     error?: string;
+    /** 分析ジョブ完了時に投入された生成ジョブの ID（画像生成の分離モードのみ） */
+    nextJobId?: string;
     createdAt: number;
     startedAt?: number;
     updatedAt: number;
@@ -25,11 +27,13 @@ export interface ProcessLimits {
     openai_compat: number;
     // tts は global 枠から独立した専用枠（AI CLI を使わないため）。
     tts: number;
+    // comfyui は画像生成（ComfyUI への投入と完了待ち）の専用枠。global 枠から独立。
+    comfyui: number;
 }
 
 export interface JobsResponse {
     jobs: Job[];
-    inUse: { global: number; gemini: number; claude: number; antigravity: number; openai_compat: number; tts: number };
+    inUse: { global: number; gemini: number; claude: number; antigravity: number; openai_compat: number; tts: number; comfyui: number };
     limits: ProcessLimits;
 }
 

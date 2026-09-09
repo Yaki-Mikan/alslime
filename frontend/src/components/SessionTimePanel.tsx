@@ -143,14 +143,17 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
     // 次のインクリメント時間（デフォルトは通常のincrement.values）
     const nextIncrement = increment?.nextIncrement ?? increment?.values;
 
-    // セッション時刻を更新（debounce付き）
+    // セッション時刻を更新（debounce付き）。
+    // 「現在のセッション時刻」がまだ無いセッション（会話が進む前）でも編集が無反応に
+    // ならないよう、表示に使っている時刻（固定日時または現在時刻）を基にして反映する。
     const updateSessionTime = (field: keyof DateTimeValue, value: number) => {
         const base = baseSettings();
-        if (!base?.currentSessionTime) return;
+        if (!base) return;
+        const current = base.currentSessionTime ?? sessionTime;
         debouncedOnChange({
             ...base,
             currentSessionTime: {
-                ...base.currentSessionTime,
+                ...current,
                 [field]: value
             }
         });

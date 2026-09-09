@@ -29,6 +29,7 @@ export const SECTION_NAMES = {
     WORKFLOW_IMPORT: 'ワークフローインポート',
     OTHER_IMAGE_SETTINGS: 'タグマッピング設定',
     LORA_DIR_SETTINGS: 'LoRAディレクトリ設定',
+    TAG_ENABLE: 'タグ有効/無効設定',
 } as const;
 
 export const DIRECTIVE_MODE_OPTIONS = {
@@ -112,6 +113,7 @@ export const TAG_MAPPING = {
         EDIT_TAG: '選択中のタグ編集',
         DANBOORU_PROMPT_SHORT: 'danbooru語',
         PRIORITY_WORKFLOW: '優先ワークフロー',
+        ENABLED: '有効',
     },
     PLACEHOLDERS: {
         LORA_DIRECTORY: '例: pose',
@@ -119,15 +121,20 @@ export const TAG_MAPPING = {
         AI_DESCRIPTION: '例: 人物が立っている場面',
         DANBOORU_PROMPT: '例: standing, full body',
         NEGATIVE_PROMPT: '例: sitting',
+        SEARCH_KEY: '照合キーで検索...',
     },
     HELP: {
         LORA_DIRECTORY_DESC: 'ComfyUIのLoRAフォルダ内のサブディレクトリ名。LoRA選択時のフィルタに使用。',
+        DISABLED_HINT: '無効にしたタグは、タグ判定AIへの提示・照合・プロンプト解決から除外されます。',
     },
     MESSAGES: {
         NO_TAGS: 'タグが登録されていません',
         NOT_SET: '(未設定)',
         NO_LORA_FOUND: 'LoRAが見つかりません',
         USE_CURRENT_WORKFLOW: '現在のワークフロー設定を使用',
+        NO_MATCH: '該当するタグがありません',
+        AUTO_SAVE: '切り替えは即座に保存されます',
+        UPDATE_FAILED: '更新に失敗しました',
     },
 } as const;
 
@@ -322,7 +329,14 @@ export const COMMON = {
         ANTIGRAVITY_THINKING_LOW: 'Low',
         ANTIGRAVITY_THINKING_MEDIUM: 'Medium',
         ANTIGRAVITY_THINKING_HIGH: 'High',
+        TAG_JUDGE_PROVIDER_OPENAI_COMPAT: 'API（OpenAI互換）',
         TAG_JUDGE_TIMEOUT_SECONDS: 'タグ判定タイムアウト（秒）',
+        IMAGE_JOB_MODE: '画像生成ジョブの単位',
+        IMAGE_JOB_MODE_COMBINED: '分析と生成をまとめて 1 ジョブ',
+        IMAGE_JOB_MODE_COMBINED_DESCRIPTION: '1 枚の画像が完成するまで、次の画像の分析を始めません。',
+        IMAGE_JOB_MODE_SPLIT: '分析と生成を分ける',
+        IMAGE_JOB_MODE_SPLIT_DESCRIPTION: '分析が終わった時点で次の画像の分析を始められます。生成は ComfyUI へ 1 枚ずつ順番に送ります。',
+        IMAGE_JOB_MODE_NOTE: 'どちらの場合も、画像生成ジョブが待機中・実行中の間は同じセッションでチャットを送れません。',
         FORMAT: '形式',
         UNSAVED: '未保存',
     },
@@ -350,6 +364,8 @@ export const COMMON = {
         COMMON_WORKFLOW_LABEL: '共通ワークフロー',
         COMMON_WORKFLOW_OPTION: '共通',
         TAG_JUDGE_DESC: 'チャット履歴から画像生成タグを判定するAIとモデルを選択します。',
+        TAG_JUDGE_OPENAI_COMPAT_EMPTY: '選べるモデルがありません。API プロバイダ設定で接続先を登録し、モデル一覧に OpenAI 互換モデルを追加してください。',
+        TAG_JUDGE_OPENAI_COMPAT_HINT: '推論の強さなどの追加パラメータは、接続先の追加パラメータ設定が使われます。',
         DANBOORU_FORMAT_DESC: 'Danbooru検索結果のコピーと、取得タグを欄へ追加するときの区切り形式に使用します。',
         TRIGGER_FORMAT_DESC: 'トリガーワードを行コピーするときの変換形式です。「そのまま」は元の表記を変更しません。',
         FORMAT_AUTO_SAVE_DESC: '変更は自動保存されます。Danbooruは検索結果コピー、トリガーワードは行コピー時の変換に使用します。',
@@ -363,6 +379,7 @@ export const COMMON = {
         CHARACTER_SETTINGS_DESC: 'キャラクターごとのプロンプト・LoRA・身体的特徴を設定します。',
         OTHER_IMAGE_SETTINGS_DESC: '体位・構図・服装等のタグマッピング（danbooru語・LoRA紐づけ）を設定します。',
         LORA_DIR_SETTINGS_DESC: '各カテゴリに対応するLoRAフォルダのパスを設定します。',
+        TAG_ENABLE_DESC: 'カテゴリを横断してタグの有効/無効を切り替えます。無効にしたタグは判定・生成に使われません。',
         GENERATE_TEST_DESC: 'テンプレート・キャラクター・タグを選択してプレースホルダ置換込みの画像生成をテストします。',
         COUNT_SUFFIX: '件',
         JAPANESE_SEARCH_TO_COPY: '日本語で検索 → {{action}}',

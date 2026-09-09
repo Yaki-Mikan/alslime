@@ -14,7 +14,7 @@ How to open: Settings (gear) → "Settings pack". There are two tabs: "Export" a
    - **Roleplay settings**: Characters, situations, worlds, stages, and so on
    - **Field settings & presets**: Parameter field settings and the various presets
    - **Miscellaneous settings**: Replacement settings, emotion definitions, the model list (user edits), and so on
-   - **Image generation settings**: Tag directives, profiles, and so on (only when supporter features are active)
+   - **Image generation settings**: Tag directives, profiles, and so on (only when supporter features are active). If the analysis AI is set to API (OpenAI-compatible), the recipient's environment does not have the same connection, so the recipient needs to choose the analysis AI and model again
 2. When including characters, you can also choose "Include character images" (this increases the size).
 3. Enter a "Pack name (optional)" and press "Export (download zip)"; the zip is downloaded by your browser.
 

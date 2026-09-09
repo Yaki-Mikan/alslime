@@ -5,6 +5,8 @@
  * 同じ器の流儀）。開いた時に /api/tts/config と Voice 一覧を読み込むため、
  * 閉→開で他画面での変更を拾う。値の正本は /api/tts/config で、統合設定モーダルと
  * 同じ値を read-modify-merge の即時保存で書き戻し、他項目を消さない。
+ * StatusDrawer は閉じても中身を捨てないため、パネルを開いたままドロワーを閉じて
+ * 開き直した場合も拾えるよう、ドロワーの開閉状態を active で受け取り、開くたびに読み直す。
  * 表示条件（支援者機能・TTS連携済み・日本語表示）は Chat 側で判定して渡す。
  * 読み上げ範囲・地の文ナレーター読み・文体指示の「小画面でも設定できること」は
  * このパネルが担う。
@@ -20,18 +22,20 @@ import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // ドロワーが開いているか。true になるたびに設定を読み直す（未指定なら常に有効）。
+    active?: boolean;
 }
 
-export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null }) => {
+export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true }) => {
     const t = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
     const [isOpen, setIsOpen] = useState(false);
     const [config, setConfig] = useState<TTSConfig | null>(null);
     const [voices, setVoices] = useState<TTSVoice[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // 開くたびに設定とVoice一覧を読み直す（閉じている間の他画面での変更を拾う）。
+    // パネルまたはドロワーが開くたびに設定とVoice一覧を読み直す（閉じている間の他画面での変更を拾う）。
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || !active) return;
         let cancelled = false;
         setLoading(true);
         (async () => {
@@ -55,7 +59,7 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null }
             }
         })();
         return () => { cancelled = true; };
-    }, [isOpen, backendUrl]);
+    }, [isOpen, active, backendUrl]);
 
     // read-modify-merge の即時保存（統合設定の persistConfigPatch と同じ規約。
     // apiKey は空送信＝既存維持で、他項目も読み込んだ最新値へパッチを当てて送る）。

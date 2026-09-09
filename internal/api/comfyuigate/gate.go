@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 
 	"alslime/internal/api/apierror"
 	"alslime/internal/api/apiresponse"
@@ -46,6 +47,10 @@ type Deps struct {
 	Queue *jobsvc.Queue
 	// TagJudgeKind はタグ判定 provider 種別の解決（core 供給。nil なら Gemini 扱い）。
 	TagJudgeKind func() models.Kind
+	// SplitImageJob は画像生成を分析ジョブと生成ジョブに分ける設定かの解決（nil なら統合）。
+	// サイドカーモードの本体は ComfyUI 実装を持たないため、共通ワークスペースの設定ファイルを
+	// 直接読む ReadSplitImageJob を渡す。
+	SplitImageJob func() bool
 	// Module はモジュールへの接続先解決。
 	Module ModuleTarget
 }
@@ -142,10 +147,17 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 		if deps.TagJudgeKind != nil {
 			kind = deps.TagJudgeKind()
 		}
+		// 分離モードでは分析ジョブだけを投入し、生成ジョブは分析の完了時に後続として積まれる。
+		jobType := jobsvc.TypeImageGen
+		label := i18n.KeyLabelImageGeneration
+		if deps.SplitImageJob != nil && deps.SplitImageJob() {
+			jobType = jobsvc.TypeImageAnalyze
+			label = i18n.KeyLabelImageAnalysis
+		}
 		added := deps.Queue.Add(jobsvc.Spec{
-			Type:      jobsvc.TypeImageGen,
+			Type:      jobType,
 			Kind:      kind,
-			Label:     i18n.KeyLabelImageGeneration,
+			Label:     label,
 			SessionID: req.SessionID,
 			DedupeKey: coreapi.ImageGenDedupeKey(req.SessionID, req.MessageID, req.TurnID, req.TurnIndex),
 			Payload: coreapi.ImageGeneratePayload{
@@ -178,3 +190,26 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 		})
 	}
 }
+
+// ReadSplitImageJob は ComfyUI 設定ファイルを直接読み、画像生成ジョブの単位が
+// 「分析と生成を分ける」かを返す。読めない・項目が無い場合は統合（false）。
+//
+// サイドカーモードの本体は comfyui ドメインを持たないため、設定の正規化は行わず
+// imageJobMode の値だけを見る（値の定義は core 側の ImageJobModeSplit と一致させる）。
+func ReadSplitImageJob(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		ImageJobMode string `json:"imageJobMode"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	return cfg.ImageJobMode == splitImageJobMode
+}
+
+// splitImageJobMode は ComfyUI 設定の imageJobMode で「分析と生成を分ける」を表す値
+// （core 側の comfyui.ImageJobModeSplit と同じ文字列）。
+const splitImageJobMode = "split"

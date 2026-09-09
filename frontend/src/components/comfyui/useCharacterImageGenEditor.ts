@@ -15,6 +15,7 @@ import {
 import type { CharacterImageGenConfig, TriggerWordFormat } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
 import { useTriggerWordFormat } from './useTriggerWordFormat';
+import { withTrailingEmptyLora } from './loraEntries';
 
 const DEFAULT_CONFIG: CharacterImageGenConfig = {
     characterName: '',
@@ -27,8 +28,6 @@ const DEFAULT_CONFIG: CharacterImageGenConfig = {
     extraPositive: '',
     extraNegative: '',
 };
-
-const emptyLora = () => ({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
 
 export function useCharacterImageGenEditor(backendUrl: string, dirName: string | null, active: boolean) {
     const [config, setConfig] = useState<CharacterImageGenConfig>({ ...DEFAULT_CONFIG });
@@ -54,11 +53,11 @@ export function useCharacterImageGenEditor(backendUrl: string, dirName: string |
             try {
                 const loaded = await getCharacterImageGenConfig(backendUrl, dirName);
                 if (cancelled) return;
-                if (!loaded.lora || loaded.lora.length === 0) loaded.lora = [emptyLora()];
+                loaded.lora = withTrailingEmptyLora(loaded.lora);
                 if (!loaded.outfits) loaded.outfits = [];
                 loaded.outfits = loaded.outfits.map(outfit => ({
                     ...outfit,
-                    lora: outfit.lora && outfit.lora.length > 0 ? outfit.lora : [emptyLora()],
+                    lora: withTrailingEmptyLora(outfit.lora),
                 }));
                 setConfig(loaded);
                 setIsDirty(false);

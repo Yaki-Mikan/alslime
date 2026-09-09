@@ -83,6 +83,10 @@ type statusResponse struct {
 	Message         string   `json:"message,omitempty"`
 	ImageAttachment any      `json:"imageAttachment,omitempty"`
 	ActionChoices   []string `json:"actionChoices,omitempty"`
+	// Stage は画像生成の段階（分析中 / 生成待ち / 生成中）。分離モードのジョブだけが持つ。
+	Stage string `json:"stage,omitempty"`
+	// NextJobID は分析ジョブ完了時に投入された生成ジョブ（フロントはこちらのポーリングへ乗り換える）。
+	NextJobID string `json:"nextJobId,omitempty"`
 }
 
 func handleSubmit(deps Deps) http.HandlerFunc {
@@ -184,18 +188,23 @@ func handleStatus(deps Deps) http.HandlerFunc {
 			return
 		}
 		res := statusResponse{
-			JobID:  job.JobID,
-			Status: string(job.Status),
-			Type:   string(job.Type),
-			Model:  modelFromJob(job),
+			JobID:     job.JobID,
+			Status:    string(job.Status),
+			Type:      string(job.Type),
+			Model:     modelFromJob(job),
+			Stage:     imageStageOf(job),
+			NextJobID: job.NextJobID,
 		}
 		switch job.Status {
 		case jobsvc.StatusCompleted:
 			res.SessionID = job.SessionID
 			res.ErrorType = job.ErrorType
-			if job.Type == jobsvc.TypeImageGen {
+			switch job.Type {
+			case jobsvc.TypeImageGen, jobsvc.TypeImageRender:
 				res.ImageAttachment = imageAttachmentFromResult(job.Result)
-			} else {
+			case jobsvc.TypeImageAnalyze:
+				// 分析ジョブの結果本文は無い（後続の生成ジョブが添付を返す）。
+			default:
 				res.Result = job.Result
 				res.SessionTime = job.SessionTime
 				res.ActionChoices = job.ActionChoices
@@ -213,6 +222,24 @@ func handleStatus(deps Deps) http.HandlerFunc {
 		}
 		writeJSON(w, res)
 	}
+}
+
+// imageStageOf は分離モードの画像生成ジョブの段階を返す。統合ジョブと他種別は空。
+func imageStageOf(job jobsvc.Job) string {
+	switch job.Type {
+	case jobsvc.TypeImageAnalyze:
+		if job.Status == jobsvc.StatusProcessing {
+			return stageAnalyzing
+		}
+	case jobsvc.TypeImageRender:
+		switch job.Status {
+		case jobsvc.StatusPending:
+			return stageRenderWaiting
+		case jobsvc.StatusProcessing:
+			return stageRendering
+		}
+	}
+	return ""
 }
 
 func imageAttachmentFromResult(raw string) any {

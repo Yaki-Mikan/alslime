@@ -93,11 +93,13 @@ Under "Image generation settings" → "Tag judge prompt settings", you can choos
 1. Choose the **tag judge prompt format**.
    - **Danbooru tags only**: Suited to general workflows that primarily accept tags.
    - **Mixed natural language**: Suited to models and workflows that can also accept natural-language descriptions.
-2. Under **Analysis AI**, choose Gemini CLI, Claude Code CLI, or Antigravity CLI.
-3. Choose the **Analysis model**. With Claude Code CLI, you can also choose an effort level when needed.
+2. Under **Analysis AI**, choose Gemini CLI, Claude Code CLI, Antigravity CLI, or API (OpenAI-compatible).
+3. Choose the **Analysis model**. With Claude Code CLI, you can also choose an effort level when needed. With API (OpenAI-compatible), the OpenAI-compatible models registered in the model list are shown as "connection label / model ID".
 4. Adjust the tag judge timeout only if necessary, then select "Save".
 
 The selected AI CLI must already be installed and signed in. See [01 Installation & Setup](01-setup.md) for preparation.
+
+When choosing API (OpenAI-compatible), register a connection in API provider settings and add an OpenAI-compatible model to the model list first. Until both are done, the analysis model list stays empty and image generation fails. Extra parameters such as reasoning effort follow the extra parameter settings of the connection. If you distribute a settings pack while the analysis AI is set to API, the recipient's environment does not have the same connection, so the recipient needs to choose the analysis AI and model again.
 
 The "Analysis AI" reads the conversation and organizes the scene. The model that draws the image is the model selected in the ComfyUI workflow.
 

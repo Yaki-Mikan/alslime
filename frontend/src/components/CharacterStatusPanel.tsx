@@ -181,12 +181,13 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
         loadData();
     }, [isOpen, parameterSchemaId, backendUrl]);
 
-    // 編集開始（キャラクター毎。同時編集は1キャラのみ）
+    // 編集開始（キャラクター毎。同時編集は1キャラのみ）。
+    // 詳細がまだ無いキャラでも編集ボタンが無反応にならないよう、空の詳細から始める。
     const handleStartEdit = (charPath: string) => {
-        if (characterDetails && characterDetails[charPath]) {
-            setEditingDetail(JSON.parse(JSON.stringify(characterDetails[charPath])));
-            setEditingCharPath(charPath);
-        }
+        const existing = characterDetails?.[charPath];
+        const source: CharacterDetail = existing ?? { correlations: [] };
+        setEditingDetail(JSON.parse(JSON.stringify(source)));
+        setEditingCharPath(charPath);
     };
 
     // 編集キャンセル
@@ -197,12 +198,13 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
 
     // 保存
     const handleSave = () => {
-        if (!editingCharPath || !editingDetail || !onUpdateCharacterDetails || !characterDetails) return;
+        if (!editingCharPath || !editingDetail || !onUpdateCharacterDetails) return;
 
         setIsLoading(true);
         try {
+            // 詳細がまだ一つも無いセッションでも保存できるよう、空の集合を基にする
             const newDetails = {
-                ...characterDetails,
+                ...(characterDetails ?? {}),
                 [editingCharPath]: editingDetail
             };
             onUpdateCharacterDetails(newDetails);

@@ -11,10 +11,14 @@ export type DirectiveMode = 'danbooru_only' | 'natural_language' | 'danbooru_thi
 export type DanbooruTagFormat = 'underscore' | 'space' | 'anima';
 /** トリガーワードのコピー時変換。raw=変換なし / underscore=スペース→_ / space=_→スペース */
 export type TriggerWordFormat = 'raw' | 'underscore' | 'space' | 'anima';
-export type TagJudgeProvider = 'gemini' | 'claude' | 'antigravity';
+export type TagJudgeProvider = 'gemini' | 'claude' | 'antigravity' | 'openai_compat';
 export type GeminiTagJudgeModel = string;
 export type ClaudeTagJudgeModel = string;
 export type AntigravityTagJudgeModel = string;
+/** OpenAI 互換 API のタグ判定モデル。統一 ID 'openai_compat:<connectionId>/<remoteModelId>'。未選択は '' */
+export type OpenAICompatTagJudgeModel = string;
+/** 画像生成ジョブの単位。combined: 分析と生成を 1 ジョブ（既定）、split: 分析ジョブと生成ジョブに分ける */
+export type ImageJobMode = 'combined' | 'split';
 
 export interface ComfyUIConfig {
     version: number;
@@ -29,7 +33,10 @@ export interface ComfyUIConfig {
     tagJudgeClaudeEffort: ClaudeEffort;
     tagJudgeAntigravityModel: AntigravityTagJudgeModel;
     tagJudgeAntigravityThinking: AntigravityThinking;
+    tagJudgeOpenAICompatModel: OpenAICompatTagJudgeModel;
     tagJudgeTimeoutSeconds: number;
+    /** 画像生成ジョブの単位。省略時は combined */
+    imageJobMode?: ImageJobMode;
     lightweightImageSave: LightweightImageSaveConfig;
     /** 選択中のプレースホルダプリセット名（空/未設定は未選択） */
     placeholderPresetName?: string;
@@ -276,12 +283,22 @@ export interface TagEntry {
     negativePrompt: string;
     workflowTemplateId?: string;
     lora: TagLoraEntry[];
+    /** 省略時は有効。false のタグは判定・照合・生成から除外される */
+    enabled?: boolean;
 }
 
 export interface TagMappingFile {
     categoryId: string;
     tags: TagEntry[];
 }
+
+/** 全カテゴリのタグマッピング（横断一覧用） */
+export interface TagMappingBundle {
+    categories: TagCategory[];
+    mappings: TagMappingFile[];
+}
+
+export const isTagEnabled = (tag: Pick<TagEntry, 'enabled'>): boolean => tag.enabled !== false;
 
 // カテゴリ定義取得
 export async function getTagCategories(backendUrl: string): Promise<TagCategoryDefinition> {
@@ -303,6 +320,20 @@ export async function getTagMapping(backendUrl: string, categoryId: string): Pro
 // タグマッピング保存
 export async function saveTagMapping(backendUrl: string, categoryId: string, data: TagMappingFile): Promise<void> {
     await axios.put(`${backendUrl}/api/comfyui/tag-mapping/${encodeURIComponent(categoryId)}`, data);
+}
+
+// 全カテゴリのタグマッピング一括取得
+export async function getAllTagMappings(backendUrl: string): Promise<TagMappingBundle> {
+    const res = await axios.get(`${backendUrl}/api/comfyui/tag-mapping`);
+    return {
+        categories: res.data?.categories || [],
+        mappings: res.data?.mappings || [],
+    };
+}
+
+// タグ1件の有効/無効更新（照合キーで特定）
+export async function setTagEnabled(backendUrl: string, categoryId: string, key: string, enabled: boolean): Promise<void> {
+    await axios.put(`${backendUrl}/api/comfyui/tag-mapping/${encodeURIComponent(categoryId)}/enabled`, { key, enabled });
 }
 
 // ===== 画像生成 =====

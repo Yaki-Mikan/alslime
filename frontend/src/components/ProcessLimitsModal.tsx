@@ -18,6 +18,9 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
 }
 
+// ComfyUI 枠の上限の上限（バックエンド process.Manager の丸めと同じ値）。
+const COMFYUI_LIMIT_MAX = 4;
+
 const KIND_LABELS: { key: keyof Omit<ProcessLimits, 'global'>; label: string; color: string }[] = [
     { key: 'gemini', label: 'Gemini', color: 'text-blue-400' },
     { key: 'claude', label: 'Claude', color: 'text-orange-400' },
@@ -36,7 +39,7 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             return text.split(`{{${key}}}`).join(String(value));
         }, template);
     };
-    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1, openai_compat: 1, tts: 1 });
+    const [limits, setLimits] = useState<ProcessLimits>({ global: 1, gemini: 1, claude: 1, antigravity: 1, openai_compat: 1, tts: 1, comfyui: 1 });
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +61,8 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             openai_compat: Math.min(prev.openai_compat, g),
             // tts は global 枠から独立した専用枠のためクランプしない。
             tts: prev.tts,
+            // comfyui も global 枠から独立した専用枠のためクランプしない。
+            comfyui: prev.comfyui,
         }));
     };
 
@@ -66,6 +71,11 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
             ...prev,
             [key]: Math.min(Math.max(1, val), prev.global),
         }));
+    };
+
+    // ComfyUI 枠は global に連動しない（1〜4。バックエンドの丸めと同じ）。
+    const handleComfyUIChange = (val: number) => {
+        setLimits(prev => ({ ...prev, comfyui: Math.min(Math.max(1, val), COMFYUI_LIMIT_MAX) }));
     };
 
     const handleSave = async () => {
@@ -137,6 +147,20 @@ export const ProcessLimitsModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog
                             </div>
                         ))}
                         <p className="text-xs text-gray-500">{t(JOBS_I18N_KEYS.clampDescription)}</p>
+                    </div>
+
+                    {/* ComfyUI 枠（global から独立） */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1.5">{t(JOBS_I18N_KEYS.comfyuiLimit)}</label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={COMFYUI_LIMIT_MAX}
+                            value={limits.comfyui}
+                            onChange={e => handleComfyUIChange(parseInt(e.target.value, 10) || 1)}
+                            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">{t(JOBS_I18N_KEYS.comfyuiLimitDescription)}</p>
                     </div>
                 </div>
 

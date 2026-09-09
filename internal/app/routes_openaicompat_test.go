@@ -54,7 +54,7 @@ func newTargetFixture(t *testing.T) (userModelsSvc *usermodelssvc.Service, apiPr
 func TestResolveAPIRequestTarget_正本のPresetを返す(t *testing.T) {
 	userModelsSvc, apiProvidersSvc, _, connectionID, modelID := newTargetFixture(t)
 
-	target, err := resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+	target, err := userModelsSvc.ResolveAPIRequestTarget(apiProvidersSvc, modelID)
 	if err != nil {
 		t.Fatalf("resolveAPIRequestTarget failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestResolveAPIRequestTarget_不正presetを送信前に拒否する(t *test
 	}
 
 	// 固定指示を黙って省略せず、構成不備として送信前に明示エラーで止める。
-	_, err = resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+	_, err = userModelsSvc.ResolveAPIRequestTarget(apiProvidersSvc, modelID)
 	var pf *coreapi.ProviderFailure
 	if !errors.As(err, &pf) || pf.Type != coreapi.APIErrorInternalError {
 		t.Fatalf("不正 preset は型付き内部エラーのはず: %v", err)
@@ -95,7 +95,7 @@ func TestResolveAPIRequestTarget_失敗系(t *testing.T) {
 
 	assertUnavailable := func(t *testing.T, id string) {
 		t.Helper()
-		_, err := resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, id)
+		_, err := userModelsSvc.ResolveAPIRequestTarget(apiProvidersSvc, id)
 		var pf *coreapi.ProviderFailure
 		if !errors.As(err, &pf) || pf.Type != coreapi.APIErrorConnectionUnavailable {
 			t.Fatalf("api_connection_unavailable のはず: %v", err)

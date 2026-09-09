@@ -7,9 +7,8 @@
  * - 保存済みテンプレート一覧（デフォルト選択・削除）
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import axios from '../../lib/axios';
-import { X, Wifi, WifiOff, Upload, Download, Trash2, CheckCircle, AlertCircle, Loader2, Users, FolderOpen, Tag, Palette, FileText, Save, Workflow } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Wifi, WifiOff, Upload, Download, Trash2, CheckCircle, AlertCircle, Loader2, Users, FolderOpen, Tag, Palette, FileText, Save, Workflow, ListChecks, Layers } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { CollapsibleSection } from '../settings/CollapsibleSection';
 import { BackgroundImageSettings } from '../settings/BackgroundImageSettings';
@@ -17,13 +16,14 @@ import type { Settings } from '../../types/Settings';
 import { ComfyUICharacterSettingsModal } from './ComfyUICharacterSettingsModal';
 import { ComfyUILoraDirModal } from './ComfyUILoraDirModal';
 import { ComfyUITagMappingModal } from './ComfyUITagMappingModal';
+import { ComfyUITagEnableModal } from './ComfyUITagEnableModal';
 import { ComfyUIGenerateTestModal } from './ComfyUIGenerateTestModal';
+import { TagJudgeProviderFields, type TagJudgeProviderValues } from './TagJudgeProviderFields';
 import { createComfyUIText, formatComfyText } from './i18n';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { CLAUDE_EFFORT_VALUES, normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
+import { normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
 import {
     DEFAULT_ANTIGRAVITY_THINKING,
-    antigravityThinkingLevelsOf,
     normalizeAntigravityThinking,
     type AntigravityThinking,
 } from '../../constants/antigravity';
@@ -41,12 +41,14 @@ import type {
     AntigravityTagJudgeModel,
     ClaudeTagJudgeModel,
     ComfyUIConfig,
+    ImageJobMode,
     ConnectionTestResult,
     DanbooruTagFormat,
     TriggerWordFormat,
     DirectiveMode,
     GeminiTagJudgeModel,
     LightweightImageFormat,
+    OpenAICompatTagJudgeModel,
     TagJudgeProvider,
     TemplateInfo,
 } from '../../api/comfyui';
@@ -77,19 +79,6 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     onOpenIntegrated,
 }) => {
     const { COMMON, DIRECTIVE_MODE_OPTIONS, GENERATE_TEST, INTEGRATED, SECTION_NAMES } = createComfyUIText(uiCatalog);
-    const claudeEffortLabels: Record<ClaudeEffort, string> = {
-        '': COMMON.BUTTONS.CLAUDE_EFFORT_DEFAULT,
-        low: COMMON.BUTTONS.CLAUDE_EFFORT_LOW,
-        medium: COMMON.BUTTONS.CLAUDE_EFFORT_MEDIUM,
-        high: COMMON.BUTTONS.CLAUDE_EFFORT_HIGH,
-        xhigh: COMMON.BUTTONS.CLAUDE_EFFORT_XHIGH,
-        max: COMMON.BUTTONS.CLAUDE_EFFORT_MAX,
-    };
-    const antigravityThinkingLabels: Record<AntigravityThinking, string> = {
-        low: COMMON.BUTTONS.ANTIGRAVITY_THINKING_LOW,
-        medium: COMMON.BUTTONS.ANTIGRAVITY_THINKING_MEDIUM,
-        high: COMMON.BUTTONS.ANTIGRAVITY_THINKING_HIGH,
-    };
     // 接続設定
     const [connectionUrl, setConnectionUrl] = useState('http://127.0.0.1:8188');
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
@@ -109,25 +98,22 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [tagJudgeClaudeEffort, setTagJudgeClaudeEffort] = useState<ClaudeEffort>('');
     const [tagJudgeAntigravityModel, setTagJudgeAntigravityModel] = useState<AntigravityTagJudgeModel>('antigravity');
     const [tagJudgeAntigravityThinking, setTagJudgeAntigravityThinking] = useState<AntigravityThinking>(DEFAULT_ANTIGRAVITY_THINKING);
+    // openai_compat は既定モデルを持たない（接続先とモデルを登録するまで選択肢が無い）。
+    const [tagJudgeOpenAICompatModel, setTagJudgeOpenAICompatModel] = useState<OpenAICompatTagJudgeModel>('');
     const [tagJudgeTimeoutSeconds, setTagJudgeTimeoutSeconds] = useState(180);
-
-    // モデルオプション（APIから動的取得）
-    const [geminiModelOptions, setGeminiModelOptions] = useState<{ value: GeminiTagJudgeModel; label: string }[]>([]);
-    const [claudeModelOptions, setClaudeModelOptions] = useState<{ value: ClaudeTagJudgeModel; label: string }[]>([]);
-    const [antigravityModelOptions, setAntigravityModelOptions] = useState<{ value: AntigravityTagJudgeModel; label: string; thinkingLevels?: string[] }[]>([]);
-    // Antigravity の Thinking 選択肢は選択中モデルの thinkingLevels（サーバ正本）から出し、
-    // 選べないレベルは Low へ落とす。
-    const antigravityThinkingLevels = useMemo(
-        () => (tagJudgeProvider === 'antigravity'
-            ? antigravityThinkingLevelsOf(antigravityModelOptions.find(o => o.value === tagJudgeAntigravityModel))
-            : []),
-        [tagJudgeProvider, antigravityModelOptions, tagJudgeAntigravityModel]
-    );
-    useEffect(() => {
-        if (antigravityThinkingLevels.length > 0 && !antigravityThinkingLevels.includes(tagJudgeAntigravityThinking)) {
-            setTagJudgeAntigravityThinking(normalizeAntigravityThinking(tagJudgeAntigravityThinking, antigravityThinkingLevels));
-        }
-    }, [antigravityThinkingLevels, tagJudgeAntigravityThinking]);
+    // 画像生成ジョブの単位（統合 / 分離）。既定は統合。
+    const [imageJobMode, setImageJobMode] = useState<ImageJobMode>('combined');
+    // 分析AI・モデルの選択部品（TagJudgeProviderFields）からの差分を各 state へ振り分ける。
+    // モデル一覧の取得・thinking の丸め・openai_compat の先頭自動選択は部品側が担う。
+    const applyTagJudgePatch = useCallback((patch: Partial<TagJudgeProviderValues>) => {
+        if (patch.provider !== undefined) setTagJudgeProvider(patch.provider);
+        if (patch.geminiModel !== undefined) setTagJudgeGeminiModel(patch.geminiModel);
+        if (patch.claudeModel !== undefined) setTagJudgeClaudeModel(patch.claudeModel);
+        if (patch.claudeEffort !== undefined) setTagJudgeClaudeEffort(patch.claudeEffort);
+        if (patch.antigravityModel !== undefined) setTagJudgeAntigravityModel(patch.antigravityModel);
+        if (patch.antigravityThinking !== undefined) setTagJudgeAntigravityThinking(patch.antigravityThinking);
+        if (patch.openAICompatModel !== undefined) setTagJudgeOpenAICompatModel(patch.openAICompatModel);
+    }, []);
 
     // テスト結果
     const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -157,6 +143,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [isLoraDirOpen, setIsLoraDirOpen] = useState(false);
     // タグマッピング設定モーダル
     const [isTagMappingOpen, setIsTagMappingOpen] = useState(false);
+    // タグ有効/無効設定モーダル（カテゴリ横断）
+    const [isTagEnableOpen, setIsTagEnableOpen] = useState(false);
     // 画像生成テストモーダル
     const [isGenerateTestOpen, setIsGenerateTestOpen] = useState(false);
     // 画像生成統合設定は ConfigEditorHub のタブ付き表示で開く（このモーダルは閉じて中継する）
@@ -175,40 +163,6 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [localAppSettings, setLocalAppSettings] = useState<Settings | undefined>(appSettings);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // /api/models からGemini・Claudeモデルリストを取得（モーダルを開くたびに再取得）
-    useEffect(() => {
-        if (!isOpen) return;
-        const fetchModels = async () => {
-            try {
-                const res = await axios.get(`${backendUrl}/api/models`);
-                const models: { id: string; name: string; description: string; thinkingLevels?: string[] }[] = res.data.models ?? [];
-                setGeminiModelOptions(
-                    models
-                        .filter(m => m.id.startsWith('gemini-') || m.id.startsWith('flash-thinking-'))
-                        .map(m => ({ value: m.id, label: m.description }))
-                );
-                setClaudeModelOptions(
-                    models
-                        .filter(m => m.id.startsWith('claude-'))
-                        .map(m => ({ value: m.id, label: m.description }))
-                );
-                setAntigravityModelOptions(
-                    models
-                        .filter(m => m.id === 'antigravity' || m.id.startsWith('antigravity:'))
-                        .map(m => ({ value: m.id, label: m.description, thinkingLevels: m.thinkingLevels }))
-                );
-            } catch (e) {
-                // モデルリストの正本はサーバの AVAILABLE_MODELS (/api/models)。
-                // 取得失敗時はベタ書きフォールバックを持たず、選択肢を空のままにする。
-                console.error('[ComfyUISettingsModal] /api/models fetch failed; model options stay empty:', e);
-                setGeminiModelOptions([]);
-                setClaudeModelOptions([]);
-                setAntigravityModelOptions([]);
-            }
-        };
-        fetchModels();
-    }, [backendUrl, isOpen]);
 
     // 画面幅の検出（統合設定ボタン表示判定用）
     useEffect(() => {
@@ -236,7 +190,9 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             setTagJudgeClaudeEffort(normalizeClaudeEffort(config.tagJudgeClaudeEffort));
             setTagJudgeAntigravityModel(config.tagJudgeAntigravityModel || 'antigravity');
             setTagJudgeAntigravityThinking(normalizeAntigravityThinking(config.tagJudgeAntigravityThinking));
+            setTagJudgeOpenAICompatModel(config.tagJudgeOpenAICompatModel || '');
             setTagJudgeTimeoutSeconds(config.tagJudgeTimeoutSeconds ?? 180);
+            setImageJobMode(config.imageJobMode ?? 'combined');
             setLightweightImageSaveEnabled(config.lightweightImageSave?.enabled || false);
             setLightweightImageFormat(config.lightweightImageSave?.format || 'avif');
             setLightweightImageQuality(config.lightweightImageSave?.quality || 92);
@@ -445,7 +401,9 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 tagJudgeClaudeEffort,
                 tagJudgeAntigravityModel,
                 tagJudgeAntigravityThinking,
+                tagJudgeOpenAICompatModel,
                 tagJudgeTimeoutSeconds,
+                imageJobMode,
                 lightweightImageSave: {
                     enabled: lightweightImageSaveEnabled,
                     format: lightweightImageFormat,
@@ -556,79 +514,22 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 </>
                             }
                         >
-                        <label className="space-y-1 block">
-                            <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_AI}</span>
-                            <select
-                                value={tagJudgeProvider}
-                                onChange={(e) => setTagJudgeProvider(e.target.value as TagJudgeProvider)}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                            >
-                                <option value="gemini">Gemini CLI</option>
-                                <option value="claude">Claude Code CLI</option>
-                                <option value="antigravity">Antigravity CLI</option>
-                            </select>
-                        </label>
-                        <div className={`grid grid-cols-1 gap-3 ${tagJudgeProvider === 'claude' || antigravityThinkingLevels.length > 0 ? 'sm:grid-cols-2' : ''}`}>
-                            <label className="space-y-1 block">
-                                <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
-                                <select
-                                    value={
-                                        tagJudgeProvider === 'claude' ? tagJudgeClaudeModel
-                                            : tagJudgeProvider === 'antigravity' ? tagJudgeAntigravityModel
-                                                : tagJudgeGeminiModel
-                                    }
-                                    onChange={(e) => {
-                                        if (tagJudgeProvider === 'claude') {
-                                            setTagJudgeClaudeModel(e.target.value as ClaudeTagJudgeModel);
-                                        } else if (tagJudgeProvider === 'antigravity') {
-                                            setTagJudgeAntigravityModel(e.target.value as AntigravityTagJudgeModel);
-                                        } else {
-                                            setTagJudgeGeminiModel(e.target.value as GeminiTagJudgeModel);
-                                        }
-                                    }}
-                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                                >
-                                    {(
-                                        tagJudgeProvider === 'claude' ? claudeModelOptions
-                                            : tagJudgeProvider === 'antigravity' ? antigravityModelOptions
-                                                : geminiModelOptions
-                                    ).map((option) => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            {tagJudgeProvider === 'claude' && (
-                                <label className="space-y-1 block">
-                                    <span className="text-xs text-gray-500">{COMMON.BUTTONS.CLAUDE_EFFORT}</span>
-                                    <select
-                                        value={tagJudgeClaudeEffort}
-                                        onChange={(e) => setTagJudgeClaudeEffort(e.target.value as ClaudeEffort)}
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                                    >
-                                        {CLAUDE_EFFORT_VALUES.map((effort) => (
-                                            <option key={effort || 'default'} value={effort}>{claudeEffortLabels[effort]}</option>
-                                        ))}
-                                    </select>
-                                </label>
-                            )}
-                            {tagJudgeProvider === 'antigravity' && antigravityThinkingLevels.length > 0 && (
-                                <label className="space-y-1 block">
-                                    <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANTIGRAVITY_THINKING}</span>
-                                    <select
-                                        value={tagJudgeAntigravityThinking}
-                                        onChange={(e) => setTagJudgeAntigravityThinking(e.target.value as AntigravityThinking)}
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
-                                    >
-                                        {antigravityThinkingLevels.map((level) => (
-                                            <option key={level} value={level}>{antigravityThinkingLabels[level]}</option>
-                                        ))}
-                                    </select>
-                                </label>
-                            )}
-                        </div>
-                        <p className="text-xs text-gray-500">
-                            {COMMON.MESSAGES.TAG_JUDGE_DESC}
-                        </p>
+                        <TagJudgeProviderFields
+                            backendUrl={backendUrl}
+                            uiCatalog={uiCatalog}
+                            active={isOpen}
+                            values={{
+                                provider: tagJudgeProvider,
+                                geminiModel: tagJudgeGeminiModel,
+                                claudeModel: tagJudgeClaudeModel,
+                                claudeEffort: tagJudgeClaudeEffort,
+                                antigravityModel: tagJudgeAntigravityModel,
+                                antigravityThinking: tagJudgeAntigravityThinking,
+                                openAICompatModel: tagJudgeOpenAICompatModel,
+                            }}
+                            onChange={applyTagJudgePatch}
+                            showDescription
+                        />
                         <label className="space-y-1 block">
                             <span className="text-xs text-gray-500">{COMMON.BUTTONS.TAG_JUDGE_TIMEOUT_SECONDS}</span>
                             <input
@@ -968,6 +869,56 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                         </div>
                     )}
 
+                    {/* 画像生成ジョブの単位: 統合（従来）か、分析と生成を別ジョブに分けるか。
+                        左メニューと同じく折りたたみの外に常時表示し、タグ有効/無効設定の直前に置く
+                        （背景画像の縮尺と同じ横並び 2 ボタン。選択中の説明を下に出す。保存は保存ボタン） */}
+                    <div className="space-y-2 pt-4 border-t border-gray-700">
+                        <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                            <Layers size={16} className="text-green-400" />
+                            {COMMON.BUTTONS.IMAGE_JOB_MODE}
+                        </h4>
+                        <div className="flex gap-2">
+                            {([
+                                { value: 'combined', label: COMMON.BUTTONS.IMAGE_JOB_MODE_COMBINED },
+                                { value: 'split', label: COMMON.BUTTONS.IMAGE_JOB_MODE_SPLIT },
+                            ] as { value: ImageJobMode; label: string }[]).map((row) => (
+                                <button
+                                    key={row.value}
+                                    type="button"
+                                    aria-pressed={imageJobMode === row.value}
+                                    onClick={() => setImageJobMode(row.value)}
+                                    className={`flex-1 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                                        imageJobMode === row.value
+                                            ? 'bg-blue-600/30 border-blue-500 text-blue-200'
+                                            : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                                    }`}
+                                >
+                                    {row.label}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-gray-600">
+                            {imageJobMode === 'split'
+                                ? COMMON.BUTTONS.IMAGE_JOB_MODE_SPLIT_DESCRIPTION
+                                : COMMON.BUTTONS.IMAGE_JOB_MODE_COMBINED_DESCRIPTION}
+                        </p>
+                        <p className="text-xs text-gray-600">{COMMON.BUTTONS.IMAGE_JOB_MODE_NOTE}</p>
+                    </div>
+
+                    {/* タグ有効/無効設定ボタン（画面幅に関係なく表示） */}
+                    <div className="pt-4 border-t border-gray-700">
+                        <button
+                            onClick={() => setIsTagEnableOpen(true)}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-cyan-600 rounded-lg text-sm text-gray-300 transition-colors"
+                        >
+                            <ListChecks size={16} className="text-cyan-400" />
+                            {SECTION_NAMES.TAG_ENABLE}
+                        </button>
+                        <p className="text-xs text-gray-500 mt-2 text-center">
+                            {COMMON.MESSAGES.TAG_ENABLE_DESC}
+                        </p>
+                    </div>
+
                     {/* 各画像生成設定ボタン（統合設定ボタンが表示される場合は非表示） */}
                     {!isWideScreen && (
                     <>
@@ -1058,6 +1009,17 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             >
                                 {COMMON.MESSAGES.SPACE}
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => setDanbooruTagFormat('anima')}
+                                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                                    danbooruTagFormat === 'anima'
+                                        ? 'bg-green-700 text-white'
+                                        : 'text-gray-300 hover:bg-gray-700'
+                                }`}
+                            >
+                                {COMMON.MESSAGES.ANIMA}
+                            </button>
                         </div>
                         <p className="text-xs text-gray-500">
                             {COMMON.MESSAGES.DANBOORU_FORMAT_DESC}
@@ -1103,6 +1065,17 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 }`}
                             >
                                 {COMMON.MESSAGES.SPACE}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setTriggerWordFormat('anima')}
+                                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                                    triggerWordFormat === 'anima'
+                                        ? 'bg-cyan-700 text-white'
+                                        : 'text-gray-300 hover:bg-gray-700'
+                                }`}
+                            >
+                                {COMMON.MESSAGES.ANIMA}
                             </button>
                         </div>
                         <p className="text-xs text-gray-500">
@@ -1156,6 +1129,14 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                 backendUrl={backendUrl}
                 danbooruTagFormat={danbooruTagFormat}
                 onOpenIntegrated={isWideScreen ? openIntegrated : undefined}
+                uiCatalog={uiCatalog}
+            />
+
+            {/* タグ有効/無効設定モーダル */}
+            <ComfyUITagEnableModal
+                isOpen={isTagEnableOpen}
+                onClose={() => setIsTagEnableOpen(false)}
+                backendUrl={backendUrl}
                 uiCatalog={uiCatalog}
             />
 

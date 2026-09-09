@@ -43,7 +43,6 @@ import (
 	datetimepresetssvc "alslime/internal/domain/datetimepresets"
 	filessvc "alslime/internal/domain/files"
 	globalsettingssvc "alslime/internal/domain/globalsettings"
-	"alslime/internal/domain/models"
 	parameterssvc "alslime/internal/domain/parameters"
 	presetssvc "alslime/internal/domain/presets"
 	pwasettingssvc "alslime/internal/domain/pwasettings"
@@ -279,7 +278,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		// openai_compat の解決 2 口。Target は chatflow が
 		// Request 構築直前に、Connection（キー含む）は Engine が実行直前に呼ぶ。
 		ResolveAPIRequestTarget: func(modelID string) (coreapi.APIRequestTarget, error) {
-			return resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+			return userModelsSvc.ResolveAPIRequestTarget(apiProvidersSvc, modelID)
 		},
 		ResolveAPIConnection: apiProvidersSvc.ResolveConnectionInfo,
 		// TTS サイドカーの配置検出（文体指示焼き込みの供給判定。都度確認して
@@ -428,13 +427,26 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// モジュールは entitlement サーバーの一括インデックスで更新有無を返す。
 	updateSvc := updatesvc.New(updatesettingsstore.New(resolver, locs.MustPath(locations.UpdateSettingsFile)))
 	updateapi.Register(mux, updateapi.Deps{Update: updateSvc, Sponsor: sponsorSvc})
-	var imageRunner jobsqueue.Runner
+	var imageRunner, imageAnalyzeRunner, imageRenderRunner jobsqueue.Runner
 	if sidecarMode || !core.Comfy().InProcess() {
 		// サイドカー委譲（未起動なら実行時に接続先未解決エラー）。配布ビルドは
 		// 初回導入の自動起動後、本体再起動なしでジョブが通る。
 		imageRunner = module.ImageRunner{Manager: moduleMgr}
+		imageAnalyzeRunner = module.ImageAnalyzeRunner{Manager: moduleMgr}
+		imageRenderRunner = module.ImageRenderRunner{Manager: moduleMgr}
 	} else {
 		imageRunner = core.Comfy().ImageRunner()
+		imageAnalyzeRunner = core.Comfy().ImageAnalyzeRunner()
+		imageRenderRunner = core.Comfy().ImageRenderRunner()
+	}
+	// 画像生成ジョブの単位（統合 / 分離）は ComfyUI 設定ファイルを直接読んで判定する
+	//（サイドカーモードの本体は comfyui ドメインを持たないため。in-process も同じ正本）。
+	splitImageJob := func() bool {
+		path, err := resolver.ResolveLexical(config.ComfyUIConfigFile)
+		if err != nil {
+			return false
+		}
+		return comfyuigate.ReadSplitImageJob(path)
 	}
 	// 設定ファイル自動作成（config-generate）: 進捗シンクは Queue 生成後に確定する
 	// クロージャで渡す（実行時には jobQueue が必ず組み立て済み）。
@@ -455,7 +467,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	jobRunner := jobsqueue.CompositeRunner{
 		jobsqueue.TypeChat:       chatRunner,
 		jobsqueue.TypeRegenerate: chatRunner,
-		jobsqueue.TypeImageGen:   imageRunner,
+		jobsqueue.TypeImageGen:     imageRunner,
+		jobsqueue.TypeImageAnalyze: imageAnalyzeRunner,
+		jobsqueue.TypeImageRender:  imageRenderRunner,
 		jobsqueue.TypeConfigGen:  configGenRunner,
 		jobsqueue.TypeTTS:        ttsRunner,
 	}
@@ -494,7 +508,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		// openai_compat の疎通確認は保存を伴わない最小チャット要求で
 		// 選択モデルの生成可否を確認する。Target 解決はチャット本体と同じ実体。
 		ResolveAPITarget: func(modelID string) (coreapi.APIRequestTarget, error) {
-			return resolveAPIRequestTarget(userModelsSvc, apiProvidersSvc, modelID)
+			return userModelsSvc.ResolveAPIRequestTarget(apiProvidersSvc, modelID)
 		},
 		APIConnectionLabel: func(connectionID string) (string, bool, error) {
 			connection, ok, err := apiProvidersSvc.Get(connectionID)
@@ -548,7 +562,8 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		comfyuigate.RegisterProxy(mux, comfyuigate.Deps{
 			Gate:         core.Features(),
 			Queue:        jobQueue,
-			TagJudgeKind: core.Comfy().TagJudgeKind,
+			TagJudgeKind:  core.Comfy().TagJudgeKind,
+			SplitImageJob: splitImageJob,
 			Module:       moduleMgr,
 		})
 	}
@@ -682,6 +697,7 @@ func loadAIProcessLimits(svc *globalsettingssvc.Service) (process.Limits, bool) 
 		Claude:       num("claude", def.Claude),
 		Antigravity:  num("antigravity", def.Antigravity),
 		OpenAICompat: num("openai_compat", def.OpenAICompat),
+		ComfyUI:      num("comfyui", def.ComfyUI),
 	}, true
 }
 
@@ -816,57 +832,6 @@ func userModelConnectionIDs(svc *usermodelssvc.Service) ([]string, error) {
 		}
 	}
 	return ids, nil
-}
-
-// resolveAPIRequestTarget は openai_compat モデル ID から送信先を解決する
-// （CoreDeps.ResolveAPIRequestTarget の実体）。
-//
-// UserModel の公開側正本（usermodels）と接続先メタデータを参照し、
-// 不存在・接続先無効は *coreapi.ProviderFailure で返す（普通の error だと
-// chatflow で一律 provider_execution_error に潰れるため）。
-func resolveAPIRequestTarget(userModelsSvc *usermodelssvc.Service, apiProvidersSvc *apiproviderssvc.Service, modelID string) (coreapi.APIRequestTarget, error) {
-	unavailable := func() error {
-		return &coreapi.ProviderFailure{
-			Type:       coreapi.APIErrorConnectionUnavailable,
-			MessageKey: i18nsvc.KeyChatErrorAPIConnectionUnavailable,
-		}
-	}
-	connectionID, remoteModelID, ok := models.ParseOpenAICompatID(strings.TrimSpace(modelID))
-	if !ok {
-		return coreapi.APIRequestTarget{}, unavailable()
-	}
-	data, err := userModelsSvc.Get()
-	if err != nil {
-		return coreapi.APIRequestTarget{}, unavailable()
-	}
-	found := false
-	for _, m := range data.Added {
-		if m.ID == strings.TrimSpace(modelID) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return coreapi.APIRequestTarget{}, unavailable()
-	}
-	conn, ok, err := apiProvidersSvc.Get(connectionID)
-	if err != nil || !ok || !conn.Enabled {
-		return coreapi.APIRequestTarget{}, unavailable()
-	}
-	// Preset は保存正本の値をカタログで再検証してから返す。破損・手編集等で
-	// 不正値が正本へ入っていた場合、固定プリセット指示を黙って省略せず、
-	// 構成不備として送信前に明示エラーで止める。
-	if _, ok := apiproviderssvc.PresetByID(conn.Preset); !ok {
-		return coreapi.APIRequestTarget{}, &coreapi.ProviderFailure{
-			Type:       coreapi.APIErrorInternalError,
-			MessageKey: i18nsvc.KeyChatErrorAPIInternalError,
-		}
-	}
-	return coreapi.APIRequestTarget{
-		ConnectionID:  connectionID,
-		RemoteModelID: remoteModelID,
-		Preset:        conn.Preset,
-	}, nil
 }
 
 // defaultOpenAICompatModel は defaultModels["openai_compat"] の現在値を返す。

@@ -35,6 +35,8 @@ type Job struct {
 	ErrorType     string
 	ActionChoices []string // 行動選択肢（支援者向け）。API 一覧には出さない。
 	Err           string   // 表示用の短いエラーメッセージ。
+	// NextJobID は完了時に投入した後続ジョブの ID（分析ジョブ→生成ジョブ）。無ければ空。
+	NextJobID string
 	// Progress は実行中の経過エントリ（config-generate 用。他ジョブ種別は空のまま）。
 	// 追記は AppendProgress、参照は ProgressSince を使う。API 一覧には出さない。
 	Progress  []ProgressEntry
@@ -381,8 +383,38 @@ func (q *Queue) run(started *startedJob) {
 		// Runner はコピー（started.job）を参照するため実行中参照とも競合しない。
 		job.Payload = nil
 		job.UpdatedAt = q.now().UnixMilli()
+		status := job.Status
 		q.mu.Unlock()
+
+		if status == StatusCompleted && result.Next != nil {
+			q.enqueueNext(started.jobID, *result.Next)
+		}
 	}()
+}
+
+// enqueueNext は完了したジョブの後続ジョブを投入し、元ジョブへ後続 ID を記録する。
+//
+// 同一キーの後続が既に active（重複）なら既存 ID を記録するだけで元ジョブは完了のまま。
+// メンテナンス中で投入できなければ元ジョブを error にし、後続が失われたことを利用者へ見せる。
+// Add は自身でスケジューラを起動するため、ここでは再スケジュールしない。
+func (q *Queue) enqueueNext(jobID string, next Spec) {
+	added := q.Add(next)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	job, ok := q.jobs[jobID]
+	if !ok {
+		return
+	}
+	switch {
+	case added.MaintenanceRejected:
+		job.Status = StatusError
+		job.Err = i18n.KeyErrorUpdateMaintenance
+	case added.Duplicate:
+		job.NextJobID = added.ExistingJobID
+	default:
+		job.NextJobID = added.JobID
+	}
+	job.UpdatedAt = q.now().UnixMilli()
 }
 
 func applyRunnerResult(job *Job, result Result) {

@@ -8,8 +8,10 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, ChevronUp, Square, Settings, SlidersHorizontal } from 'lucide-react';
+import { Send, Square, Settings, SlidersHorizontal } from 'lucide-react';
 import { useIsWideScreen } from '../../hooks/useIsWideScreen';
+import { KeyboardSafeSelect } from '../common/KeyboardSafeSelect';
+import { keepFocusOnPointerDown } from '../../lib/pointer';
 import type { Model, ModelProvider } from '../../hooks/useChat';
 import { modelProviderOf } from '../../hooks/useChat';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
@@ -130,12 +132,17 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         : [];
     const t = (key: string) => resolveMessage(uiCatalog, key, CHAT_INPUT_TEXT_FALLBACK_JA[key] || key);
 
-    // テキストエリアの高さ自動調整
+    // テキストエリアの高さ自動調整。
+    // 高さを打鍵ごとに書き換えるとブラウザのキャレット追従スクロールを毎回誘発するため、
+    // 実際に高さが変わるときだけ確定値を書き戻す。
     useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
-        }
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+
+        const previousHeight = textarea.style.height;
+        textarea.style.height = 'auto';
+        const nextHeight = Math.min(textarea.scrollHeight, 200) + 'px';
+        textarea.style.height = nextHeight === previousHeight ? previousHeight : nextHeight;
     }, [input]);
 
     useEffect(() => {
@@ -185,6 +192,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         <div className="flex flex-col pb-1">
                             <button
                                 type="button"
+                                onPointerDown={keepFocusOnPointerDown}
                                 onClick={toggleControls}
                                 className={`p-2 rounded-lg transition-colors flex-shrink-0 ${controlsOpen ? 'text-blue-300 bg-gray-700' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'}`}
                                 title={t(CHAT_INPUT_I18N_KEYS.toggleControls)}
@@ -232,53 +240,43 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 {showControls && (
                 <div className="flex justify-center items-center gap-4 px-1">
                     <div className="flex flex-wrap justify-center items-center gap-2">
-                        <div className="relative">
-                            <select
-                                value={selectedModelProvider}
-                                onChange={(e) => onSelectModelProvider(e.target.value as ModelProvider)}
-                                className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[116px]"
-                            >
-                                <option value="antigravity">Antigravity</option>
-                                <option value="claude">Claude</option>
-                                <option value="gemini">Gemini</option>
-                                <option value="openai_compat">{t('chatInput.providerOpenAICompat')}</option>
-                            </select>
-                            <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                        </div>
+                        <KeyboardSafeSelect
+                            value={selectedModelProvider}
+                            onChange={(value) => onSelectModelProvider(value as ModelProvider)}
+                            options={[
+                                { value: 'antigravity', label: 'Antigravity' },
+                                { value: 'claude', label: 'Claude' },
+                                { value: 'gemini', label: 'Gemini' },
+                                { value: 'openai_compat', label: t('chatInput.providerOpenAICompat') },
+                            ]}
+                            className="min-w-[116px]"
+                        />
 
                         {selectedModelProvider === 'openai_compat' && apiConnectionChoices.length > 0 && (
-                            <div className="relative">
-                                <select
-                                    value={selectedApiConnectionId}
-                                    onChange={(e) => {
-                                        const firstModel = apiModelsForConnection(visibleModels, e.target.value)[0];
-                                        if (firstModel) onSelectModel(firstModel.id);
-                                    }}
-                                    aria-label={t(CHAT_INPUT_I18N_KEYS.apiConnection)}
-                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[120px]"
-                                >
-                                    {apiConnectionChoices.map(connection => (
-                                        <option key={connection.id} value={connection.id}>{connection.label}</option>
-                                    ))}
-                                </select>
-                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                            </div>
+                            <KeyboardSafeSelect
+                                value={selectedApiConnectionId}
+                                onChange={(value) => {
+                                    const firstModel = apiModelsForConnection(visibleModels, value)[0];
+                                    if (firstModel) onSelectModel(firstModel.id);
+                                }}
+                                options={apiConnectionChoices.map(connection => ({
+                                    value: connection.id,
+                                    label: connection.label,
+                                }))}
+                                ariaLabel={t(CHAT_INPUT_I18N_KEYS.apiConnection)}
+                                className="min-w-[120px]"
+                            />
                         )}
 
-                        <div className="relative">
-                            <select
-                                value={selectedModel}
-                                onChange={(e) => onSelectModel(e.target.value)}
-                                className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 disabled:opacity-50 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[140px]"
-                            >
-                                {modelChoices.map(m => (
-                                    <option key={m.id} value={m.id}>
-                                        {selectedModelProvider === 'openai_compat' ? apiRemoteModelLabel(m) : m.description}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                        </div>
+                        <KeyboardSafeSelect
+                            value={selectedModel}
+                            onChange={onSelectModel}
+                            options={modelChoices.map(m => ({
+                                value: m.id,
+                                label: selectedModelProvider === 'openai_compat' ? apiRemoteModelLabel(m) : m.description,
+                            }))}
+                            className="min-w-[140px]"
+                        />
 
                         {selectedModelProvider === 'openai_compat' && visibleModels.length === 0 && (
                             <span className="text-xs text-amber-400">
@@ -293,45 +291,36 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         )}
 
                         {selectedModelProvider === 'claude' && (
-                            <div className="relative">
-                                <select
-                                    value={claudeEffort}
-                                    onChange={(e) => onSelectClaudeEffort(e.target.value as ClaudeEffort)}
-                                    title={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
-                                    aria-label={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
-                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[104px]"
-                                >
-                                    {CLAUDE_EFFORT_VALUES.map((effort) => (
-                                        <option key={effort || 'default'} value={effort}>
-                                            {t(CLAUDE_EFFORT_I18N_KEY_BY_VALUE[effort])}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                            </div>
+                            <KeyboardSafeSelect
+                                value={claudeEffort}
+                                onChange={(value) => onSelectClaudeEffort(value as ClaudeEffort)}
+                                options={CLAUDE_EFFORT_VALUES.map((effort) => ({
+                                    value: effort,
+                                    label: t(CLAUDE_EFFORT_I18N_KEY_BY_VALUE[effort]),
+                                }))}
+                                title={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                ariaLabel={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                className="min-w-[104px]"
+                            />
                         )}
 
                         {selectedModelProvider === 'antigravity' && antigravityThinkingLevels.length > 0 && (
-                            <div className="relative">
-                                <select
-                                    value={antigravityThinking}
-                                    onChange={(e) => onSelectAntigravityThinking(e.target.value as AntigravityThinking)}
-                                    title={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
-                                    aria-label={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
-                                    className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 transition-colors min-w-[104px]"
-                                >
-                                    {antigravityThinkingLevels.map((level) => (
-                                        <option key={level} value={level}>
-                                            {t(ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE[level])}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                            </div>
+                            <KeyboardSafeSelect
+                                value={antigravityThinking}
+                                onChange={(value) => onSelectAntigravityThinking(value as AntigravityThinking)}
+                                options={antigravityThinkingLevels.map((level) => ({
+                                    value: level,
+                                    label: t(ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE[level]),
+                                }))}
+                                title={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                ariaLabel={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                className="min-w-[104px]"
+                            />
                         )}
 
                         {/* モデル設定モーダルを開くアイコンボタン */}
                         <button
+                            onPointerDown={keepFocusOnPointerDown}
                             onClick={onOpenModelSettings}
                             className="p-1.5 bg-gray-800 border border-gray-700 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors flex-shrink-0"
                             title={t(CHAT_INPUT_I18N_KEYS.modelSettings)}
@@ -374,6 +363,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                             Claude はファイル経由方式へ一本化済みのためトグルなし。 */}
                         {selectedModelProvider === 'gemini' && (
                             <label
+                                onPointerDown={keepFocusOnPointerDown}
                                 className={`flex items-center gap-2 text-xs cursor-pointer ${geminiTempFileMode ? 'text-purple-300' : 'text-gray-400'}`}
                                 title={t(CHAT_INPUT_I18N_KEYS.geminiTempFileMode)}
                             >

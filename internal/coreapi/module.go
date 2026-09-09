@@ -21,6 +21,8 @@ const (
 	ModuleHealthzRoute = "/healthz"
 	// ModuleImageGenerateRoute は画像生成ジョブ実行の内部 RPC ルート。
 	ModuleImageGenerateRoute = "/module/image-generate"
+	// ModuleImageAnalyzeRoute は画像生成の分析段（タグ判定→タグ解決）だけを実行する内部 RPC ルート。
+	ModuleImageAnalyzeRoute = "/module/image-analyze"
 )
 
 // ModuleImageGenerateRequest は画像生成ジョブの RPC リクエスト。
@@ -30,6 +32,9 @@ const (
 type ModuleImageGenerateRequest struct {
 	JobID   string          `json:"jobId"`
 	Payload json.RawMessage `json:"payload"`
+	// Prepared は分析済みの要求（ImageRenderPayload の JSON 表現）。非 nil なら分析を行わず
+	// この内容で生成だけを実行する。nil なら Payload から分析と生成を続けて行う。
+	Prepared json.RawMessage `json:"prepared,omitempty"`
 }
 
 // ModuleImageGenerateResponse は画像生成ジョブの RPC レスポンス。
@@ -37,6 +42,22 @@ type ModuleImageGenerateResponse struct {
 	Success        bool   `json:"success"`
 	FinalSessionID string `json:"finalSessionId,omitempty"`
 	Output         string `json:"output,omitempty"`
+	// Error は失敗時の messageKey（i18n キー方式）。
+	Error string `json:"error,omitempty"`
+}
+
+// ModuleImageAnalyzeRequest は画像生成の分析段の RPC リクエスト。
+// Payload は ImageGeneratePayload の JSON 表現をそのまま持つ（本体は再解釈しない）。
+type ModuleImageAnalyzeRequest struct {
+	JobID   string          `json:"jobId"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// ModuleImageAnalyzeResponse は分析段の RPC レスポンス。
+// Payload は ImageRenderPayload の JSON 表現（本体はそのまま生成ジョブの Payload に載せる）。
+type ModuleImageAnalyzeResponse struct {
+	Success bool            `json:"success"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 	// Error は失敗時の messageKey（i18n キー方式）。
 	Error string `json:"error,omitempty"`
 }

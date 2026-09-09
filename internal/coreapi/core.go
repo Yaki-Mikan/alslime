@@ -92,6 +92,10 @@ type ComfyProvider interface {
 	RegisterRoutes(mux *http.ServeMux, queue *jobs.Queue, gate FeatureGate)
 	// ImageRunner は in-process モードの ImageGen ジョブ実行本体。
 	ImageRunner() jobs.Runner
+	// ImageAnalyzeRunner は分析ジョブ（タグ判定→タグ解決）の実行本体。完了時に生成ジョブを
+	// 後続として返す。ImageRenderRunner は生成ジョブ（ComfyUI 投入→保存→添付）の実行本体。
+	ImageAnalyzeRunner() jobs.Runner
+	ImageRenderRunner() jobs.Runner
 	// TagJudgeKind はタグ判定に使う provider 種別（ジョブの同時実行制御用。
 	// generate-from-chat がジョブ投入時に参照する）。
 	TagJudgeKind() models.Kind

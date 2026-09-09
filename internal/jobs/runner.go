@@ -24,7 +24,12 @@ const (
 	TypeRegenerate Type = "regenerate"
 	TypeTagJudge   Type = "tag-judge"
 	TypeImageGen   Type = "image-generate"
-	TypeConfigGen  Type = "config-generate"
+	// TypeImageAnalyze は画像生成の分析段（タグ判定→タグ解決）。AI 枠を消費し、完了時に
+	// 生成段を後続ジョブとして投入する。
+	TypeImageAnalyze Type = "image-analyze"
+	// TypeImageRender は画像生成の生成段（ComfyUI 投入→保存→添付）。ComfyUI 枠だけを消費する。
+	TypeImageRender Type = "image-render"
+	TypeConfigGen   Type = "config-generate"
 	// TypeTTS は音声読み上げ（1読み上げ実行 = 1ジョブ。要件9.3）。
 	TypeTTS Type = "tts"
 )
@@ -76,6 +81,9 @@ type Result struct {
 	ErrorType string
 	// ActionChoices は行動選択肢（支援者向け。選択肢フック無効時は nil）。
 	ActionChoices []string
+	// Next は完了時に投入する後続ジョブ。nil なら後続なし。
+	// error / canceled で終わった場合は投入しない（投入は Queue が行う）。
+	Next *Spec
 }
 
 // Runner はジョブ実行本体の差し替え口。
