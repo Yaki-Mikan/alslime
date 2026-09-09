@@ -102,3 +102,45 @@ func TestRelease_0未満にしない(t *testing.T) {
 		t.Fatalf("負にならないはず: %#v", u)
 	}
 }
+
+func TestTryAcquire_ComfyUIはglobal枠を消費しない(t *testing.T) {
+	m := NewManager() // global=1, comfyui=1
+	if !m.TryAcquire(models.KindGemini) {
+		t.Fatalf("gemini 1つ目は確保できるはず")
+	}
+	// global 満杯でも ComfyUI 枠は独立して確保できる。
+	if !m.TryAcquire(models.KindComfyUI) {
+		t.Fatalf("comfyui は global 枠外なので確保できるはず")
+	}
+	// comfyui=1 上限 → 2つ目は不可。
+	if m.TryAcquire(models.KindComfyUI) {
+		t.Fatalf("comfyui は上限1のため2つ目は不可")
+	}
+	u := m.InUse()
+	if u.Global != 1 || u.ComfyUI != 1 {
+		t.Fatalf("InUse 想定外: %#v", u)
+	}
+	// Release しても global は減らない。
+	m.Release(models.KindComfyUI)
+	u = m.InUse()
+	if u.Global != 1 || u.ComfyUI != 0 {
+		t.Fatalf("release 後の InUse 想定外: %#v", u)
+	}
+}
+
+func TestUpdateLimits_ComfyUIは1から4でクランプ(t *testing.T) {
+	m := NewManager()
+	got := m.UpdateLimits(Limits{Global: 1, ComfyUI: 0})
+	if got.ComfyUI != 1 {
+		t.Fatalf("0 は 1 へ丸めるはず: %#v", got)
+	}
+	got = m.UpdateLimits(Limits{Global: 1, ComfyUI: 10})
+	if got.ComfyUI != comfyUIMaxLimit {
+		t.Fatalf("上限超過は %d へ丸めるはず: %#v", comfyUIMaxLimit, got)
+	}
+	// global に連動しない（global=1 でも comfyui=3 を保てる）。
+	got = m.UpdateLimits(Limits{Global: 1, ComfyUI: 3})
+	if got.ComfyUI != 3 {
+		t.Fatalf("comfyui は global に連動しないはず: %#v", got)
+	}
+}

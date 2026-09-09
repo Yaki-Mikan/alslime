@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 
+	"alslime/internal/coreapi"
 	"alslime/internal/domain/apiproviders"
 	"alslime/internal/domain/models"
 	"alslime/internal/i18n"
@@ -289,4 +290,57 @@ func normalize(data usermodelsstore.Data) usermodelsstore.Data {
 		data.Hidden = []string{}
 	}
 	return data
+}
+
+// ResolveAPIRequestTarget は openai_compat の統一モデル ID から送信先を解決する。
+//
+// チャット本体（CoreDeps.ResolveAPIRequestTarget）・疎通確認・画像生成のタグ判定が
+// 同じ規則を共有する唯一の実体。登録済みユーザーモデルであること、接続先が実在し
+// 有効であることを確認し、Preset は接続先メタデータ正本の値をカタログで再検証して
+// 返す（クライアント入力からは決めない）。
+//
+// 失敗は *coreapi.ProviderFailure で返す（普通の error だと chatflow で一律
+// provider_execution_error に潰れるため）。不存在・無効は api_connection_unavailable、
+// 正本に不正な Preset が入っていた場合は固定指示を黙って省かず api_internal_error で止める。
+func (s *Service) ResolveAPIRequestTarget(conns *apiproviders.Service, modelID string) (coreapi.APIRequestTarget, error) {
+	unavailable := func() error {
+		return &coreapi.ProviderFailure{
+			Type:       coreapi.APIErrorConnectionUnavailable,
+			MessageKey: i18n.KeyChatErrorAPIConnectionUnavailable,
+		}
+	}
+	trimmed := strings.TrimSpace(modelID)
+	connectionID, remoteModelID, ok := models.ParseOpenAICompatID(trimmed)
+	if !ok || conns == nil {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	data, err := s.Get()
+	if err != nil {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	found := false
+	for _, m := range data.Added {
+		if m.ID == trimmed {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	conn, ok, err := conns.Get(connectionID)
+	if err != nil || !ok || !conn.Enabled {
+		return coreapi.APIRequestTarget{}, unavailable()
+	}
+	if _, ok := apiproviders.PresetByID(conn.Preset); !ok {
+		return coreapi.APIRequestTarget{}, &coreapi.ProviderFailure{
+			Type:       coreapi.APIErrorInternalError,
+			MessageKey: i18n.KeyChatErrorAPIInternalError,
+		}
+	}
+	return coreapi.APIRequestTarget{
+		ConnectionID:  connectionID,
+		RemoteModelID: remoteModelID,
+		Preset:        conn.Preset,
+	}, nil
 }

@@ -101,7 +101,7 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-900 text-white">
+      <div className="h-screen overflow-y-auto flex items-center justify-center bg-gray-900 text-white">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
           <p className="text-gray-400">{t(COMMON_I18N_KEYS.loading)}</p>
@@ -113,7 +113,7 @@ function AuthGate() {
   // 未ログイン状態
   if (!user) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
+      <div className="h-screen overflow-y-auto flex flex-col items-center justify-center bg-gray-900 text-white p-4">
         <div className="bg-gray-800 p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6">
           <div className="flex justify-center items-end gap-2">
             <img src="/icons/app-192.png" alt="" aria-hidden="true" className="w-16 h-16" />

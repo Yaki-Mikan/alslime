@@ -24,6 +24,7 @@ import { JobProgressModal } from './JobProgressModal';
 import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHub';
 import type { OpenFileRequest } from './settings/ConfigEditorModal';
 import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
+import { ImageGenDrawerControls } from './comfyui/ImageGenDrawerControls';
 import { TTSDrawerPanel } from './tts/TTSDrawerPanel';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
 import { FEATURE_COMFYUI, FEATURE_TTS, isFeatureEnabled } from '../constants/features';
@@ -66,6 +67,7 @@ import {
 import { useChat } from '../hooks/useChat';
 import { useSession } from '../hooks/useSession';
 import type { Session } from '../hooks/useSession';
+import { usePullToReload } from '../hooks/usePullToReload';
 
 const DEFAULT_SSRP_LANGUAGE = 'ja';
 
@@ -208,30 +210,53 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         }
     }, []);
 
+    // ページ全体のスクロールを止めているため、ブラウザ標準の引っ張り更新が効かない。
+    // ヘッダー領域の下引きで代替する（インストール済みアプリでは唯一の更新手段）。
+    const headerRef = React.useRef<HTMLElement | null>(null);
+    const pullToReload = usePullToReload(headerRef);
+
     // モバイルのプル・トゥ・リフレッシュ後に 100dvh が過大評価される端末があるため、
-    // 実際の表示 viewport 高をチャット外枠の高さとして同期する。
+    // 実際の表示 viewport の高さをチャット外枠の高さとして同期する。
+    // 位置(offsetTop)も見るのは、ソフトウェアキーボード表示時にレイアウト viewport 側を
+    // ずらす端末があり、その分だけ外枠が画面外へ逃げてしまうため。
+    // ピンチズーム中は offsetTop が指の操作で動くので、追従も原点戻しも止める。
     useEffect(() => {
-        const setViewportHeight = () => {
-            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-            document.documentElement.style.setProperty('--chat-viewport-height', `${Math.round(viewportHeight)}px`);
+        const syncViewport = () => {
+            const viewport = window.visualViewport;
+            const isZoomed = (viewport?.scale ?? 1) > 1.01;
+            const viewportHeight = isZoomed
+                ? window.innerHeight
+                : (viewport?.height ?? window.innerHeight);
+            const offsetTop = isZoomed ? 0 : (viewport?.offsetTop ?? 0);
+
+            const root = document.documentElement;
+            root.style.setProperty('--chat-viewport-height', `${Math.round(viewportHeight)}px`);
+            root.style.setProperty('--chat-viewport-offset-top', `${Math.round(offsetTop)}px`);
+
+            // ページ側にスクロール量が残ると外枠の貼り付き位置がずれるため原点へ戻す。
+            if (!isZoomed && (window.scrollX !== 0 || window.scrollY !== 0)) {
+                window.scrollTo(0, 0);
+            }
         };
 
-        setViewportHeight();
-        const rafId = requestAnimationFrame(setViewportHeight);
-        const timeoutId = window.setTimeout(setViewportHeight, 250);
+        syncViewport();
+        const rafId = requestAnimationFrame(syncViewport);
+        const timeoutId = window.setTimeout(syncViewport, 250);
 
-        window.visualViewport?.addEventListener('resize', setViewportHeight);
-        window.addEventListener('resize', setViewportHeight);
-        window.addEventListener('orientationchange', setViewportHeight);
-        window.addEventListener('pageshow', setViewportHeight);
+        window.visualViewport?.addEventListener('resize', syncViewport);
+        window.visualViewport?.addEventListener('scroll', syncViewport);
+        window.addEventListener('resize', syncViewport);
+        window.addEventListener('orientationchange', syncViewport);
+        window.addEventListener('pageshow', syncViewport);
 
         return () => {
             cancelAnimationFrame(rafId);
             window.clearTimeout(timeoutId);
-            window.visualViewport?.removeEventListener('resize', setViewportHeight);
-            window.removeEventListener('resize', setViewportHeight);
-            window.removeEventListener('orientationchange', setViewportHeight);
-            window.removeEventListener('pageshow', setViewportHeight);
+            window.visualViewport?.removeEventListener('resize', syncViewport);
+            window.visualViewport?.removeEventListener('scroll', syncViewport);
+            window.removeEventListener('resize', syncViewport);
+            window.removeEventListener('orientationchange', syncViewport);
+            window.removeEventListener('pageshow', syncViewport);
         };
     }, []);
 
@@ -1043,11 +1068,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     onUpdateCharacterDetails={(newDetails) => {
                         // B6: 会話設定メニュー(RolePlaySettings)側へも即時同期し、
                         // 送信・反映時のgetCurrentSettings()に状態パネルの変更を含める。
-                        setCurrentSessionConfig((prev: any) => {
-                            const merged = { ...prev, characterDetails: newDetails };
-                            rolePlaySettingsRef.current?.applySettings(merged);
-                            return merged;
-                        });
+                        // updater 関数の中から別コンポーネントの状態を更新すると描画中の更新になり
+                        // React が反映を保証しないため、先に合成してから両方へ別々に渡す。
+                        const merged = { ...currentSessionConfig, characterDetails: newDetails };
+                        setCurrentSessionConfig(merged);
+                        rolePlaySettingsRef.current?.applySettings(merged);
                     }}
                     uiCatalog={uiCatalog}
                     isSessionDirty={!!currentSessionId && isSSRPDirty}
@@ -1063,11 +1088,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         onChange={(newDateTimeSettings) => {
                             // B6: UI2系統のstate統一。currentSessionConfig（単一ソース）を更新しつつ、
                             // 会話設定メニュー側(RolePlaySettings)へも即時同期し、両UIの食い違いを防ぐ。
-                            setCurrentSessionConfig((prev: any) => {
-                                const merged = { ...prev, dateTimeSettings: newDateTimeSettings };
-                                rolePlaySettingsRef.current?.applySettings(merged);
-                                return merged;
-                            });
+                            // updater 関数の中から別コンポーネントの状態を更新すると描画中の更新になり
+                            // React が反映を保証しないため、先に合成してから両方へ別々に渡す。
+                            const merged = { ...currentSessionConfig, dateTimeSettings: newDateTimeSettings };
+                            setCurrentSessionConfig(merged);
+                            rolePlaySettingsRef.current?.applySettings(merged);
                         }}
                         uiCatalog={uiCatalog}
                         isSessionDirty={!!currentSessionId && isSSRPDirty}
@@ -1083,6 +1108,18 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     <TagJudgeWorkflowDrawerPanel
                         backendUrl={BACKEND_URL}
                         uiCatalog={uiCatalog}
+                        active={isStatusDrawerOpen}
+                    />
+                )}
+
+                {/* 画像生成ジョブの単位（分析と生成をまとめる／分ける）とタグ有効/無効設定。
+                    常時表示。表示条件はタグ判定・ワークフロー設定パネルと同じ。
+                    ドロワーが開くたびに設定を読み直す（他画面での変更を拾う） */}
+                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                    <ImageGenDrawerControls
+                        backendUrl={BACKEND_URL}
+                        uiCatalog={uiCatalog}
+                        active={isStatusDrawerOpen}
                     />
                 )}
 
@@ -1093,6 +1130,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     <TTSDrawerPanel
                         backendUrl={BACKEND_URL}
                         uiCatalog={uiCatalog}
+                        active={isStatusDrawerOpen}
                     />
                 )}
             </StatusDrawer>
@@ -1474,79 +1512,47 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 </div>
             )}
 
-            <header className="px-4 pt-3 pb-2 sm:py-0 border-b border-gray-700 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-10 sm:h-16 sm:flex sm:justify-between sm:items-center">
-                {/* 1段目：タイトル行（常時表示） */}
-                <div className="flex justify-between items-center sm:contents">
-                    <div className="flex items-center gap-3">
-                        {/* セッション状態ドロワーを開く。会話中のみ表示し、💛状態と同じピンク色にする */}
-                        {currentSessionId && (
-                            <button
-                                onClick={() => setIsStatusDrawerOpen(true)}
-                                className="p-2 -ml-2 hover:bg-gray-800 rounded-lg text-pink-400 hover:text-pink-300 transition-colors"
-                                title={t(CHAT_VIEW_I18N_KEYS.statusMenu)}
-                            >
-                                <Menu size={24} />
-                            </button>
-                        )}
-                        <div className="flex items-center gap-2">
-                            <img src="/icons/app.png" alt="AlSlime" className="w-6 h-6" />
-                            <h1 className="font-bold text-lg hidden sm:block">AlSlime</h1>
-                            <h1 className="font-bold text-lg sm:hidden">AlSlime</h1>
-                        </div>
-                    </div>
-
-                    {/* ボタン群：sm以上は1段目の右側、sm未満は1段目の右端に新規セッションのみ */}
-                    <div className="flex items-center gap-1 sm:gap-2">
+            {/* ヘッダー下引き中の案内帯。引き量に応じて伸び、閾値到達で文言が変わる */}
+            {pullToReload.pullDistance > 0 && (
+                <div
+                    className={`absolute top-0 left-0 right-0 z-30 flex items-end justify-center overflow-hidden pointer-events-none text-xs font-semibold transition-colors ${
+                        pullToReload.isReady ? 'bg-pink-600/90 text-white' : 'bg-gray-800/90 text-gray-300'
+                    }`}
+                    style={{ height: `${Math.min(pullToReload.pullDistance, 96)}px` }}
+                    aria-live="polite"
+                >
+                    <span className="pb-1">
+                        {pullToReload.isReloading || pullToReload.isReady
+                            ? t(CHAT_VIEW_I18N_KEYS.releaseToReload)
+                            : t(CHAT_VIEW_I18N_KEYS.pullToReload)}
+                    </span>
+                </div>
+            )}
+            {/* ヘッダーは常に1段。狭い幅ではアプリ名の文字を隠してボタン群を優先し、
+                横方向のはみ出しを出さない（@container で自身の幅を基準に判定） */}
+            <header ref={headerRef} className="@container px-4 py-2 sm:py-0 border-b border-gray-700 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-10 sm:h-16 flex justify-between items-center">
+                <div className="flex items-center gap-3 min-w-0">
+                    {/* セッション状態ドロワーを開く。会話中のみ表示し、💛状態と同じピンク色にする */}
+                    {currentSessionId && (
                         <button
-                            onClick={() => handleNewSessionWrapper()}
-                            className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-green-400 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.newSession)}
+                            onClick={() => setIsStatusDrawerOpen(true)}
+                            className="p-2 -ml-2 shrink-0 hover:bg-gray-800 rounded-lg text-pink-400 hover:text-pink-300 transition-colors"
+                            title={t(CHAT_VIEW_I18N_KEYS.statusMenu)}
                         >
-                            <Plus size={20} />
+                            <Menu size={24} />
                         </button>
-                        <button
-                            onClick={openSessionModalWrapper}
-                            className="hidden sm:flex p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-blue-400 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.sessionHistory)}
-                        >
-                            <History size={20} />
-                        </button>
-                        <button
-                            onClick={() => setIsJobProgressOpen(true)}
-                            className="hidden sm:flex relative p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-gray-200 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.jobProgress)}
-                        >
-                            <Activity size={20} />
-                            {runningJobCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 text-[10px] font-bold bg-blue-500 text-white rounded-full flex items-center justify-center leading-none">
-                                    {runningJobCount}
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            onClick={() => { setConfigEditorInitialTab('config'); setIsConfigEditorOpen(true); }}
-                            className="hidden sm:flex p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-purple-400 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.configEditor)}
-                        >
-                            <NotebookPen size={20} />
-                        </button>
-                        <button
-                            onClick={() => setIsSettingsOpen(true)}
-                            className="hidden sm:flex p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-yellow-400 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.settings)}
-                        >
-                            <Settings size={20} />
-                        </button>
-                        <HamburgerMenu
-                            isOpen={isRolePlaySettingsOpen}
-                            onClick={handleOpenRolePlaySettings}
-                            uiCatalog={uiCatalog}
-                        />
+                    )}
+                    <div className="flex items-center gap-2 min-w-0">
+                        <img src="/icons/app.png" alt="AlSlime" className="w-6 h-6 shrink-0" />
+                        {/* ボタン6個とアイコン類が収まらない幅ではアプリ名を隠す。
+                            コンテナクエリは左右余白を除いた内側幅で判定するため、
+                            380px は画面幅では約 412px に相当する */}
+                        <h1 className="font-bold text-lg truncate hidden @min-[380px]:block">AlSlime</h1>
                     </div>
                 </div>
 
-                {/* 2段目：sm未満のみ表示 */}
-                <div className="flex sm:hidden items-center justify-end gap-1 mt-1 pb-1">
+                {/* ボタン群：sm未満は新規セッションを設定の右隣に置き、sm以上では先頭へ戻す */}
+                <div className="flex items-center gap-0 sm:gap-2 shrink-0">
                     <button
                         onClick={openSessionModalWrapper}
                         className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-blue-400 transition-colors"
@@ -1580,6 +1586,18 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     >
                         <Settings size={20} />
                     </button>
+                    <button
+                        onClick={() => handleNewSessionWrapper()}
+                        className="sm:order-first p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-green-400 transition-colors"
+                        title={t(CHAT_VIEW_I18N_KEYS.newSession)}
+                    >
+                        <Plus size={20} />
+                    </button>
+                    <HamburgerMenu
+                        isOpen={isRolePlaySettingsOpen}
+                        onClick={handleOpenRolePlaySettings}
+                        uiCatalog={uiCatalog}
+                    />
                 </div>
             </header>
 

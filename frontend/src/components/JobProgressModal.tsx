@@ -16,6 +16,7 @@ const KIND_LABEL: Record<string, string> = {
     claude: 'Claude',
     antigravity: 'Antigravity',
     openai_compat: 'API (OpenAI-compatible)',
+    comfyui: 'ComfyUI',
 };
 
 const KIND_COLOR: Record<string, string> = {
@@ -23,6 +24,7 @@ const KIND_COLOR: Record<string, string> = {
     claude: 'text-orange-400 bg-orange-900/40 border-orange-700',
     antigravity: 'text-purple-400 bg-purple-900/40 border-purple-700',
     openai_compat: 'text-emerald-400 bg-emerald-900/40 border-emerald-700',
+    comfyui: 'text-pink-400 bg-pink-900/40 border-pink-700',
 };
 
 function elapsed(job: Job): string {

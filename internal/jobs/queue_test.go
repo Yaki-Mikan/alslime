@@ -407,3 +407,111 @@ func TestList_createdAt降順(t *testing.T) {
 		t.Fatalf("createdAt 降順（新しい b が先頭）のはず: %#v", list)
 	}
 }
+
+// nextRunner は完了時に後続ジョブを返す Runner（分析ジョブ→生成ジョブの連鎖を模す）。
+type nextRunner struct {
+	inner *fakeRunner
+	next  func(job Job) *Spec
+}
+
+func (r *nextRunner) Run(ctx context.Context, job Job) (Result, error) {
+	res, err := r.inner.Run(ctx, job)
+	if err == nil && r.next != nil {
+		res.Next = r.next(job)
+	}
+	return res, err
+}
+
+func renderSpecFor(job Job) *Spec {
+	if job.Type != TypeImageAnalyze {
+		return nil
+	}
+	return &Spec{Type: TypeImageRender, Kind: models.KindComfyUI, SessionID: job.SessionID, DedupeKey: job.DedupeKey}
+}
+
+func TestRun_完了時に後続ジョブを投入しNextJobIDを記録する(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(&nextRunner{inner: f, next: renderSpecFor})
+
+	a := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	f.complete(a.JobID, "analyzed")
+	waitStatus(t, q, a.JobID, StatusCompleted)
+
+	// 後続の生成ジョブが投入され、分析ジョブに ID が記録される。
+	renderID := <-f.started
+	ja, _ := q.Get(a.JobID)
+	if ja.NextJobID != renderID {
+		t.Fatalf("NextJobID 想定外: %q (want %q)", ja.NextJobID, renderID)
+	}
+	jr, ok := q.Get(renderID)
+	if !ok || jr.Type != TypeImageRender || jr.Kind != models.KindComfyUI || jr.DedupeKey != "k1" {
+		t.Fatalf("後続ジョブ想定外: %#v", jr)
+	}
+	f.complete(renderID, "rendered")
+	waitStatus(t, q, renderID, StatusCompleted)
+}
+
+func TestRun_errorとcanceledでは後続ジョブを投入しない(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(&nextRunner{inner: f, next: renderSpecFor})
+
+	a := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	f.fail(a.JobID, errors.New("boom"))
+	waitStatus(t, q, a.JobID, StatusError)
+
+	b := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s2", DedupeKey: "k2"})
+	<-f.started
+	if !q.Cancel(b.JobID) {
+		t.Fatalf("processing はキャンセルできるはず")
+	}
+	waitStatus(t, q, b.JobID, StatusCanceled)
+
+	time.Sleep(30 * time.Millisecond)
+	for _, j := range q.List() {
+		if j.Type == TypeImageRender {
+			t.Fatalf("後続ジョブは投入されないはず: %#v", j)
+		}
+	}
+}
+
+func TestRun_後続ジョブは分析ジョブがglobal枠を待つ間も起動する(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(&nextRunner{inner: f, next: renderSpecFor}) // global=1, comfyui=1
+
+	a := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	// 2 件目の分析は global 枠待ちで pending。
+	b := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s2", DedupeKey: "k2"})
+
+	f.complete(a.JobID, "analyzed")
+	waitStatus(t, q, a.JobID, StatusCompleted)
+	// a の後続（生成）と b（分析）の両方が起動する（生成は ComfyUI 枠、分析は解放された global 枠）。
+	started := map[string]bool{<-f.started: true, <-f.started: true}
+	ja, _ := q.Get(a.JobID)
+	if !started[ja.NextJobID] || !started[b.JobID] {
+		t.Fatalf("生成ジョブと次の分析ジョブが同時に起動するはず: %#v", started)
+	}
+	f.complete(ja.NextJobID, "rendered")
+	f.complete(b.JobID, "analyzed")
+	waitStatus(t, q, ja.NextJobID, StatusCompleted)
+}
+
+func TestRun_後続ジョブの投入がメンテナンスで拒否されたら分析ジョブをerrorにする(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(&nextRunner{inner: f, next: renderSpecFor})
+
+	a := q.Add(Spec{Type: TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	// 実行中はメンテナンスへ入れないため、maintenance フラグを直接立てて投入拒否を模す。
+	q.mu.Lock()
+	q.maintenance = true
+	q.mu.Unlock()
+	f.complete(a.JobID, "analyzed")
+	waitStatus(t, q, a.JobID, StatusError)
+	ja, _ := q.Get(a.JobID)
+	if ja.NextJobID != "" {
+		t.Fatalf("拒否時は NextJobID を持たないはず: %#v", ja)
+	}
+}

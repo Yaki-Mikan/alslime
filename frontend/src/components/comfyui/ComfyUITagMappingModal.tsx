@@ -18,6 +18,8 @@ import {
 } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
 import { LoraUnreachableNotice } from './LoraUnreachableNotice';
+import { LoraStrengthInput } from './LoraStrengthInput';
+import { ToggleSwitch } from '../common/ToggleSwitch';
 import type { DanbooruTagFormat, DanbooruTagResult } from '../../api/comfyui';
 import type {
     TagCategory,
@@ -41,6 +43,18 @@ interface ComfyUITagMappingModalProps {
     onOpenIntegrated?: () => void;
     uiCatalog?: I18NCatalog | null;
 }
+
+const createEmptyTagLora = (): TagLoraEntry => ({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
+
+// 末尾が名前付きLoRAなら空の選択欄を1つ足し、常に次のLoRAを選べる状態にする。
+// 保存時は空行が除外されるため、読込・選択・削除の各時点でこの整形を通す。
+const withTrailingEmptyLora = (lora: TagLoraEntry[] | undefined | null): TagLoraEntry[] => {
+    const list = lora ? [...lora] : [];
+    if (list.length === 0 || list[list.length - 1].name) {
+        list.push(createEmptyTagLora());
+    }
+    return list;
+};
 
 export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
     isOpen,
@@ -137,11 +151,9 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
             setIsLoading(true);
             try {
                 const data = await getTagMapping(backendUrl, selectedCategoryId);
-                // 各タグのloraが空なら空行を1つ追加（LoRA選択UIを表示するため）
+                // 各タグの末尾に空行を1つ追加（次のLoRA選択UIを表示するため）
                 for (const tag of data.tags) {
-                    if (!tag.lora || tag.lora.length === 0) {
-                        tag.lora = [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }];
-                    }
+                    tag.lora = withTrailingEmptyLora(tag.lora);
                 }
                 setMappingData(data);
             } catch (e) {
@@ -227,6 +239,17 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
         setIsDirty(true);
     }, [selectedTagIndex]);
 
+    // 有効/無効（一覧行のトグル。有効は項目を持たない形へ揃え、保存時に省略される）
+    const setTagEnabledAt = useCallback((idx: number, enabled: boolean) => {
+        setMappingData(prev => {
+            if (!prev) return prev;
+            const newTags = [...prev.tags];
+            newTags[idx] = { ...newTags[idx], enabled: enabled ? undefined : false };
+            return { ...prev, tags: newTags };
+        });
+        setIsDirty(true);
+    }, []);
+
     // トリガーワードUI
     const [triggerWordsLoading, setTriggerWordsLoading] = useState<Record<number, boolean>>({});
 
@@ -287,12 +310,8 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
         const newLora = [...tag.lora];
         newLora[loraIndex] = { ...newLora[loraIndex], name: loraName };
 
-        // 最後の行で選択 → 新しい空行を自動追加
-        if (loraIndex === newLora.length - 1 && loraName) {
-            newLora.push({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
-        }
-
-        updateTagField('lora', newLora);
+        // 末尾が埋まったら新しい空行を自動追加
+        updateTagField('lora', withTrailingEmptyLora(newLora));
         setLoraDropdownIdx(null);
         setLoraSearchQuery('');
     }, [mappingData, selectedTagIndex, updateTagField]);
@@ -302,10 +321,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
         if (!mappingData || selectedTagIndex === null) return;
         const tag = mappingData.tags[selectedTagIndex];
         const newLora = tag.lora.filter((_, i) => i !== loraIndex);
-        if (newLora.length === 0) {
-            newLora.push({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
-        }
-        updateTagField('lora', newLora);
+        updateTagField('lora', withTrailingEmptyLora(newLora));
         setLoraDetailMode({});
     }, [mappingData, selectedTagIndex, updateTagField]);
 
@@ -318,7 +334,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
             prompt: '',
             negativePrompt: '',
             workflowTemplateId: '',
-            lora: [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }],
+            lora: [createEmptyTagLora()],
         };
         const newTags = [...mappingData.tags, newTag];
         setMappingData({ ...mappingData, tags: newTags });
@@ -460,6 +476,7 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                         </button>
                                         <span className="flex-1">{TAG_MAPPING.LABELS.DANBOORU_PROMPT_SHORT}</span>
                                         <span className="w-16 text-center">LoRA</span>
+                                        <span className="w-14 text-center">{TAG_MAPPING.LABELS.ENABLED}</span>
                                         <span className="w-8" />
                                     </div>
                                     {/* タグ行 */}
@@ -484,6 +501,10 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                                 <span className="flex-1 truncate text-gray-400">{tag.prompt || '-'}</span>
                                                 <span className="w-16 text-center text-xs">
                                                     {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                                </span>
+                                                <span className="w-14 flex justify-center" onClick={e => e.stopPropagation()}>
+                                                    <ToggleSwitch size="sm" accent="cyan" checked={tag.enabled !== false}
+                                                        onChange={v => setTagEnabledAt(idx, v)} />
                                                 </span>
                                                 <button
                                                     onClick={e => { e.stopPropagation(); deleteTag(idx); }}
@@ -669,29 +690,25 @@ export const ComfyUITagMappingModal: React.FC<ComfyUITagMappingModalProps> = ({
                                                                 <>
                                                                     {isDetail ? (
                                                                         <>
-                                                                            <input
-                                                                                type="number"
+                                                                            <LoraStrengthInput
                                                                                 value={lora.strengthModel}
-                                                                                onChange={e => updateTagLora(loraIdx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                                                onCommit={v => updateTagLora(loraIdx, 'strengthModel', v)}
                                                                                 step={0.05}
                                                                                 className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1.5 text-xs text-center text-gray-200 outline-none focus:border-cyan-500"
                                                                                 title={LORA.LABELS.MODEL_STRENGTH}
                                                                             />
-                                                                            <input
-                                                                                type="number"
+                                                                            <LoraStrengthInput
                                                                                 value={lora.strengthClip}
-                                                                                onChange={e => updateTagLora(loraIdx, 'strengthClip', parseFloat(e.target.value) || 0)}
+                                                                                onCommit={v => updateTagLora(loraIdx, 'strengthClip', v)}
                                                                                 step={0.05}
                                                                                 className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1.5 text-xs text-center text-gray-200 outline-none focus:border-cyan-500"
                                                                                 title={LORA.LABELS.CLIP_STRENGTH}
                                                                             />
                                                                         </>
                                                                     ) : (
-                                                                        <input
-                                                                            type="number"
+                                                                        <LoraStrengthInput
                                                                             value={lora.strengthModel}
-                                                                            onChange={e => {
-                                                                                const v = parseFloat(e.target.value) || 0;
+                                                                            onCommit={v => {
                                                                                 updateTagLora(loraIdx, 'strengthModel', v);
                                                                                 updateTagLora(loraIdx, 'strengthClip', v);
                                                                             }}

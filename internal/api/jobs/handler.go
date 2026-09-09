@@ -49,6 +49,8 @@ type jobDTO struct {
 	SessionID string `json:"sessionId,omitempty"`
 	Status    string `json:"status"`
 	Error     string `json:"error,omitempty"`
+	// NextJobID は分析ジョブ完了時に投入した生成ジョブの ID（分離モードのみ）。
+	NextJobID string `json:"nextJobId,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
 	StartedAt int64  `json:"startedAt,omitempty"`
 	UpdatedAt int64  `json:"updatedAt"`
@@ -63,6 +65,7 @@ func toDTO(j jobsvc.Job) jobDTO {
 		SessionID: j.SessionID,
 		Status:    string(j.Status),
 		Error:     j.Err,
+		NextJobID: j.NextJobID,
 		CreatedAt: j.CreatedAt,
 		StartedAt: j.StartedAt,
 		UpdatedAt: j.UpdatedAt,
@@ -116,6 +119,8 @@ type limitsRequest struct {
 	Claude       *int `json:"claude"`
 	Antigravity  *int `json:"antigravity"`
 	OpenAICompat *int `json:"openai_compat"`
+	// ComfyUI は global 枠から独立した画像生成の専用枠。
+	ComfyUI *int `json:"comfyui"`
 }
 
 func handlePostLimits(deps Deps) http.HandlerFunc {
@@ -126,7 +131,7 @@ func handlePostLimits(deps Deps) http.HandlerFunc {
 			return
 		}
 		// 指定された値は正の整数であること（クランプは manager 側）。
-		for _, v := range []*int{req.Global, req.Gemini, req.Claude, req.Antigravity, req.OpenAICompat} {
+		for _, v := range []*int{req.Global, req.Gemini, req.Claude, req.Antigravity, req.OpenAICompat, req.ComfyUI} {
 			if v != nil && *v < 1 {
 				apierror.Write(w, apierror.BadRequestKey(errKeyInvalidProcessLimit))
 				return
@@ -151,6 +156,9 @@ func handlePostLimits(deps Deps) http.HandlerFunc {
 		if req.OpenAICompat != nil {
 			next.OpenAICompat = *req.OpenAICompat
 		}
+		if req.ComfyUI != nil {
+			next.ComfyUI = *req.ComfyUI
+		}
 		updated := deps.Process.UpdateLimits(next)
 
 		// globalsettings へ部分マージ永続化（失敗してもメモリ更新は有効・レスポンスは更新後）。
@@ -161,6 +169,7 @@ func handlePostLimits(deps Deps) http.HandlerFunc {
 				"claude":        updated.Claude,
 				"antigravity":   updated.Antigravity,
 				"openai_compat": updated.OpenAICompat,
+				"comfyui":       updated.ComfyUI,
 			}}
 			if _, err := deps.Limits.Update(patch); err != nil {
 				// 保存失敗でもメモリ上の limits は有効・レスポンスは更新後の値。

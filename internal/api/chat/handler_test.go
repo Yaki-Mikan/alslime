@@ -16,6 +16,7 @@ import (
 	"alslime/internal/config"
 	"alslime/internal/domain/chatjobs"
 	jobsvc "alslime/internal/jobs"
+	"alslime/internal/domain/models"
 	"alslime/internal/process"
 )
 
@@ -322,4 +323,61 @@ func waitStatus(t *testing.T, mux *http.ServeMux, jobID string, want jobsvc.Stat
 	}
 	t.Fatalf("status did not become %s", want)
 	return statusResponse{}
+}
+
+// imageChainRunner は分析ジョブ完了時に生成ジョブを後続として返し、生成ジョブは添付 JSON を返す。
+type imageChainRunner struct {
+	analyzeStarted chan struct{}
+	renderStarted  chan struct{}
+	release        chan struct{}
+}
+
+func (r imageChainRunner) Run(ctx context.Context, job jobsvc.Job) (jobsvc.Result, error) {
+	switch job.Type {
+	case jobsvc.TypeImageAnalyze:
+		r.analyzeStarted <- struct{}{}
+		<-r.release
+		next := jobsvc.Spec{Type: jobsvc.TypeImageRender, Kind: models.KindComfyUI, SessionID: job.SessionID, DedupeKey: job.DedupeKey}
+		return jobsvc.Result{FinalSessionID: job.SessionID, Next: &next}, nil
+	case jobsvc.TypeImageRender:
+		r.renderStarted <- struct{}{}
+		<-r.release
+		return jobsvc.Result{FinalSessionID: job.SessionID, Output: `{"id":"img-1","filename":"img-1.png"}`}, nil
+	}
+	return jobsvc.Result{}, ctx.Err()
+}
+
+func TestStatus_SplitImageJobReturnsStageAndNextJobID(t *testing.T) {
+	runner := imageChainRunner{
+		analyzeStarted: make(chan struct{}, 1),
+		renderStarted:  make(chan struct{}, 1),
+		release:        make(chan struct{}),
+	}
+	mux := http.NewServeMux()
+	q := jobsvc.NewQueue(process.NewManager(), runner, seqID())
+	Register(mux, Deps{Queue: q})
+
+	added := q.Add(jobsvc.Spec{Type: jobsvc.TypeImageAnalyze, Kind: models.KindGemini, SessionID: "s1", DedupeKey: "k1"})
+	<-runner.analyzeStarted
+	status := waitStatus(t, mux, added.JobID, jobsvc.StatusProcessing)
+	if status.Stage != stageAnalyzing || status.Type != string(jobsvc.TypeImageAnalyze) {
+		t.Fatalf("analyzing stage 想定外: %#v", status)
+	}
+
+	// 分析完了 → 生成ジョブが後続として積まれ、分析ジョブの応答に nextJobId が付く。
+	runner.release <- struct{}{}
+	status = waitStatus(t, mux, added.JobID, jobsvc.StatusCompleted)
+	if status.NextJobID == "" || status.ImageAttachment != nil {
+		t.Fatalf("分析完了は nextJobId のみを返すはず: %#v", status)
+	}
+	<-runner.renderStarted
+	render := waitStatus(t, mux, status.NextJobID, jobsvc.StatusProcessing)
+	if render.Stage != stageRendering || render.Type != string(jobsvc.TypeImageRender) {
+		t.Fatalf("rendering stage 想定外: %#v", render)
+	}
+	runner.release <- struct{}{}
+	render = waitStatus(t, mux, status.NextJobID, jobsvc.StatusCompleted)
+	if render.ImageAttachment == nil || render.Stage != "" {
+		t.Fatalf("生成完了は imageAttachment を返すはず: %#v", render)
+	}
 }

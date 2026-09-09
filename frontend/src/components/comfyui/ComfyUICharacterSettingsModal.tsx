@@ -17,6 +17,8 @@ import {
 } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
 import { LoraUnreachableNotice } from './LoraUnreachableNotice';
+import { LoraStrengthInput } from './LoraStrengthInput';
+import { withTrailingEmptyLora } from './loraEntries';
 import type { CharacterImageGenConfig, DanbooruTagFormat, DanbooruTagResult } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
@@ -179,16 +181,14 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         setIsLoading(true);
         try {
             const loaded = await getCharacterImageGenConfig(backendUrl, getCharDirName(name));
-            // LoRAが空なら空行1つを追加しておく
-            if (!loaded.lora || loaded.lora.length === 0) {
-                loaded.lora = [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }];
-            }
+            // 末尾に空行を1つ追加しておく（次のLoRA選択欄を出すため）
+            loaded.lora = withTrailingEmptyLora(loaded.lora);
             if (!loaded.outfits) {
                 loaded.outfits = [];
             }
             loaded.outfits = loaded.outfits.map(outfit => ({
                 ...outfit,
-                lora: outfit.lora && outfit.lora.length > 0 ? outfit.lora : [createEmptyLora()],
+                lora: withTrailingEmptyLora(outfit.lora),
             }));
             setConfig(loaded);
             setAliasesText((loaded.aliases || []).join(', '));
@@ -238,8 +238,8 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
 
     const removeLora = (index: number) => {
         const remaining = config.lora.filter((_, i) => i !== index);
-        // 全部消えた場合は空行を1つ残す（LoRA追加UIを維持するため）
-        updateField('lora', remaining.length > 0 ? remaining : [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }]);
+        // 末尾に空行を残す（LoRA追加UIを維持するため）
+        updateField('lora', withTrailingEmptyLora(remaining));
         setLoraDetailMode(prev => {
             const next = { ...prev };
             delete next[index];
@@ -314,15 +314,11 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
 
     // LoRA選択時に空行を自動追加
     const selectLora = (index: number, loraName: string) => {
-        updateLora(index, 'name', loraName);
+        // 名前を差し替えたうえで、末尾が埋まっていれば新しい空行を追加
+        const newLora = config.lora.map((l, i) => i === index ? { ...l, name: loraName } : l);
+        updateField('lora', withTrailingEmptyLora(newLora));
         setLoraDropdownIdx(null);
         setLoraSearchQuery('');
-        // 最後の行で選択された場合、新しい空行を追加
-        if (index === config.lora.length - 1 && loraName) {
-            setTimeout(() => {
-                updateField('lora', [...config.lora.map((l, i) => i === index ? { ...l, name: loraName } : l), { name: '', strengthModel: 1.0, strengthClip: 1.0 }]);
-            }, 0);
-        }
     };
 
     // 服装設定
@@ -362,10 +358,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         const outfit = newOutfits[outfitIndex];
         const newLora = [...outfit.lora];
         newLora[loraIndex] = { ...newLora[loraIndex], name: loraName };
-        if (loraIndex === newLora.length - 1 && loraName) {
-            newLora.push(createEmptyLora());
-        }
-        newOutfits[outfitIndex] = { ...outfit, lora: newLora };
+        newOutfits[outfitIndex] = { ...outfit, lora: withTrailingEmptyLora(newLora) };
         updateField('outfits', newOutfits);
         setOutfitLoraDropdown(null);
         setOutfitLoraSearchQuery('');
@@ -377,7 +370,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         const newLora = outfit.lora.filter((_, i) => i !== loraIndex);
         newOutfits[outfitIndex] = {
             ...outfit,
-            lora: newLora.length > 0 ? newLora : [createEmptyLora()],
+            lora: withTrailingEmptyLora(newLora),
         };
         updateField('outfits', newOutfits);
     };
@@ -685,22 +678,22 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                                         <>
                                                             <div className="flex items-center gap-0.5">
                                                                 <span className="text-xs text-gray-500">M</span>
-                                                                <input type="number" value={lora.strengthModel}
-                                                                    onChange={(e) => updateLora(idx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                                <LoraStrengthInput value={lora.strengthModel}
+                                                                    onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                                     step={0.05} min={-2} max={2}
                                                                     className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
                                                             </div>
                                                             <div className="flex items-center gap-0.5">
                                                                 <span className="text-xs text-gray-500">C</span>
-                                                                <input type="number" value={lora.strengthClip}
-                                                                    onChange={(e) => updateLora(idx, 'strengthClip', parseFloat(e.target.value) || 0)}
+                                                                <LoraStrengthInput value={lora.strengthClip}
+                                                                    onCommit={v => updateLora(idx, 'strengthClip', v)}
                                                                     step={0.05} min={-2} max={2}
                                                                     className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
                                                             </div>
                                                         </>
                                                     ) : (
-                                                        <input type="number" value={lora.strengthModel}
-                                                            onChange={(e) => updateLora(idx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                        <LoraStrengthInput value={lora.strengthModel}
+                                                            onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                             step={0.05} min={-2} max={2}
                                                             className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500"
                                                             title={LORA.LABELS.STRENGTH} />
@@ -895,13 +888,9 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                                                     </div>
                                                                     {lora.name && (
                                                                         <>
-                                                                            <input
-                                                                                type="number"
+                                                                            <LoraStrengthInput
                                                                                 value={lora.strengthModel}
-                                                                                onChange={(e) => {
-                                                                                    const v = parseFloat(e.target.value) || 0;
-                                                                                    updateOutfitLora(outfitIdx, loraIdx, 'strengthModel', v);
-                                                                                }}
+                                                                                onCommit={v => updateOutfitLora(outfitIdx, loraIdx, 'strengthModel', v)}
                                                                                 step={0.05}
                                                                                 min={-2}
                                                                                 max={2}

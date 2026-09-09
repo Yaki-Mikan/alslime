@@ -13,6 +13,8 @@ import { createComfyUIText } from '../i18n';
 import type { I18NCatalog } from '../../../api/i18n';
 import { formatTriggerLine, appendTriggerLineDedup } from '../danbooru-format';
 import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
+import { LoraStrengthInput } from '../LoraStrengthInput';
+import { withTrailingEmptyLora } from '../loraEntries';
 
 interface Props {
     // キャラクター選択ドロップダウン用。hideCharacterSelector のときは不要
@@ -127,7 +129,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     // LoRA操作
     const removeLora = (index: number) => {
         const remaining = config.lora.filter((_, i) => i !== index);
-        onUpdateConfig('lora', remaining.length > 0 ? remaining : [createEmptyLora()]);
+        onUpdateConfig('lora', withTrailingEmptyLora(remaining));
         setLoraDetailMode(prev => { const next = { ...prev }; delete next[index]; return next; });
     };
 
@@ -142,17 +144,11 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     };
 
     const selectLora = (index: number, loraName: string) => {
-        updateLora(index, 'name', loraName);
+        // 名前を差し替えたうえで、末尾が埋まっていれば新しい空行を追加
+        const newLora = config.lora.map((l, i) => i === index ? { ...l, name: loraName } : l);
+        onUpdateConfig('lora', withTrailingEmptyLora(newLora));
         setLoraDropdownIdx(null);
         setLoraSearchQuery('');
-        if (index === config.lora.length - 1 && loraName) {
-            setTimeout(() => {
-                onUpdateConfig('lora', [
-                    ...config.lora.map((l, i) => i === index ? { ...l, name: loraName } : l),
-                    createEmptyLora(),
-                ]);
-            }, 0);
-        }
     };
 
     // トリガーワード
@@ -203,8 +199,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
         const outfit = newOutfits[outfitIndex];
         const newLora = [...outfit.lora];
         newLora[loraIndex] = { ...newLora[loraIndex], name: loraName };
-        if (loraIndex === newLora.length - 1 && loraName) newLora.push(createEmptyLora());
-        newOutfits[outfitIndex] = { ...outfit, lora: newLora };
+        newOutfits[outfitIndex] = { ...outfit, lora: withTrailingEmptyLora(newLora) };
         onUpdateConfig('outfits', newOutfits);
         setOutfitLoraDropdown(null);
         setOutfitLoraSearchQuery('');
@@ -214,7 +209,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
         const newOutfits = [...config.outfits];
         const outfit = newOutfits[outfitIndex];
         const newLora = outfit.lora.filter((_, i) => i !== loraIndex);
-        newOutfits[outfitIndex] = { ...outfit, lora: newLora.length > 0 ? newLora : [createEmptyLora()] };
+        newOutfits[outfitIndex] = { ...outfit, lora: withTrailingEmptyLora(newLora) };
         onUpdateConfig('outfits', newOutfits);
     };
 
@@ -417,22 +412,22 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                         <>
                                                             <div className="flex items-center gap-0.5">
                                                                 <span className="text-xs text-gray-500">{LORA.LABELS.MODEL_STRENGTH}</span>
-                                                                <input type="number" value={lora.strengthModel}
-                                                                    onChange={(e) => updateLora(idx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                                <LoraStrengthInput value={lora.strengthModel}
+                                                                    onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                                     step={0.05} min={-2} max={2}
                                                                     className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
                                                             </div>
                                                             <div className="flex items-center gap-0.5">
                                                                 <span className="text-xs text-gray-500">{LORA.LABELS.CLIP_STRENGTH}</span>
-                                                                <input type="number" value={lora.strengthClip}
-                                                                    onChange={(e) => updateLora(idx, 'strengthClip', parseFloat(e.target.value) || 0)}
+                                                                <LoraStrengthInput value={lora.strengthClip}
+                                                                    onCommit={v => updateLora(idx, 'strengthClip', v)}
                                                                     step={0.05} min={-2} max={2}
                                                                     className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
                                                             </div>
                                                         </>
                                                     ) : (
-                                                        <input type="number" value={lora.strengthModel}
-                                                            onChange={(e) => updateLora(idx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                        <LoraStrengthInput value={lora.strengthModel}
+                                                            onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                             step={0.05} min={-2} max={2}
                                                             className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500"
                                                             title={LORA.LABELS.STRENGTH} />
@@ -629,8 +624,8 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                             </div>
                                                             {lora.name && (
                                                                 <>
-                                                                    <input type="number" value={lora.strengthModel}
-                                                                        onChange={(e) => updateOutfitLora(outfitIdx, loraIdx, 'strengthModel', parseFloat(e.target.value) || 0)}
+                                                                    <LoraStrengthInput value={lora.strengthModel}
+                                                                        onCommit={v => updateOutfitLora(outfitIdx, loraIdx, 'strengthModel', v)}
                                                                         step={0.05} min={-2} max={2}
                                                                         className="w-14 bg-gray-900 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500"
                                                                         title={LORA.LABELS.STRENGTH} />

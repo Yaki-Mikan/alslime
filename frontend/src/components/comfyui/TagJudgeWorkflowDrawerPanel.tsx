@@ -3,11 +3,13 @@
  *
  * StatusDrawer 内で開閉するパネルの器（デフォルト閉）。開いた時に
  * TagJudgeWorkflowPanel をマウントして設定を読み込むため、
- * 閉→開で他画面での変更を拾う。表示条件（支援者機能・モジュール連携）は
- * Chat 側で判定して渡す。
+ * 閉→開で他画面での変更を拾う。StatusDrawer は閉じても中身を捨てないため、
+ * パネルを開いたままドロワーを閉じて開き直した場合も拾えるよう、ドロワーの開閉状態を
+ * active で受け取り、開くたびに中身を再マウントする。
+ * 表示条件（支援者機能・モジュール連携）は Chat 側で判定して渡す。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Workflow } from 'lucide-react';
 import { TagJudgeWorkflowPanel } from './TagJudgeWorkflowPanel';
 import { createComfyUIText } from './i18n';
@@ -16,11 +18,18 @@ import type { I18NCatalog } from '../../api/i18n';
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
+    // ドロワーが開いているか。true になるたびに中身を再マウントして設定を読み直す（未指定なら常に有効）。
+    active?: boolean;
 }
 
-export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null }) => {
+export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true }) => {
     const { SECTION_NAMES } = createComfyUIText(uiCatalog);
     const [isOpen, setIsOpen] = useState(false);
+    // ドロワーが開くたびに増やし、開いたままのパネル中身を再マウントさせる
+    const [mountKey, setMountKey] = useState(0);
+    useEffect(() => {
+        if (active) setMountKey((k) => k + 1);
+    }, [active]);
 
     return (
         <div className="border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40">
@@ -35,6 +44,7 @@ export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCat
             {isOpen && (
                 <div className="p-3 border-t border-gray-700/60">
                     <TagJudgeWorkflowPanel
+                        key={mountKey}
                         backendUrl={backendUrl}
                         uiCatalog={uiCatalog}
                         showHeading={false}

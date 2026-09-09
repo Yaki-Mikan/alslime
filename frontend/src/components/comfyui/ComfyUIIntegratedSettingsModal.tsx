@@ -19,6 +19,7 @@ import {
     listComfyUITemplates,
 } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
+import { withTrailingEmptyLora } from './loraEntries';
 import type { CharacterImageGenConfig, TemplateInfo } from '../../api/comfyui';
 import type { DanbooruTagFormat, TriggerWordFormat } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
@@ -204,17 +205,13 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
         setCharIsLoading(true);
         try {
             const loaded = await getCharacterImageGenConfig(backendUrl, getCharDirName(name));
-            if (!loaded.lora || loaded.lora.length === 0) {
-                loaded.lora = [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }];
-            }
+            loaded.lora = withTrailingEmptyLora(loaded.lora);
             if (!loaded.outfits) {
                 loaded.outfits = [];
             }
             loaded.outfits = loaded.outfits.map(outfit => ({
                 ...outfit,
-                lora: outfit.lora && outfit.lora.length > 0
-                    ? outfit.lora
-                    : [{ name: '', strengthModel: 1.0, strengthClip: 1.0 }],
+                lora: withTrailingEmptyLora(outfit.lora),
             }));
             setCharConfig(loaded);
             setCharIsDirty(false);

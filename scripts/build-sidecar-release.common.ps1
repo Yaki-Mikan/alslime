@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$')]
     [string]$Version,
@@ -36,9 +36,25 @@ $ModuleCmdDir = Join-Path $CoreRoot "cmd\$CommandName"
 $WinresJson = Join-Path $ModuleCmdDir 'winres\winres.json'
 $ResolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
 $OutputDir = Split-Path -Parent $ResolvedOutputPath
-$GoCacheDir = Join-Path $ClientRoot '.gocache'
-$GoTmpDir = Join-Path $ClientRoot '.gotmp'
-$GarbleCacheDir = Join-Path $ClientRoot '.garble-cache'
+# キャッシュ置き場は呼び出し元の指定を優先し、その場合は後片付けも呼び出し元が担う。
+# 指定が無いときだけ既定値を作り、ビルド終了時にこのスクリプトが必ず削除する。
+$CallerGoCache = [Environment]::GetEnvironmentVariable('GOCACHE', 'Process')
+$CallerGoTmp = [Environment]::GetEnvironmentVariable('GOTMPDIR', 'Process')
+$CallerGarbleCache = [Environment]::GetEnvironmentVariable('GARBLE_CACHE', 'Process')
+$CacheOwnedByCaller = -not (
+    [string]::IsNullOrWhiteSpace($CallerGoCache) -or
+    [string]::IsNullOrWhiteSpace($CallerGoTmp) -or
+    [string]::IsNullOrWhiteSpace($CallerGarbleCache)
+)
+if ($CacheOwnedByCaller) {
+    $GoCacheDir = $CallerGoCache
+    $GoTmpDir = $CallerGoTmp
+    $GarbleCacheDir = $CallerGarbleCache
+} else {
+    $GoCacheDir = Join-Path $ClientRoot '.gocache'
+    $GoTmpDir = Join-Path $ClientRoot '.gotmp'
+    $GarbleCacheDir = Join-Path $ClientRoot '.garble-cache'
+}
 $ComponentId = switch ($CommandName) {
     'comfymodule' { 'alslime-comfy' }
     'ttsmodule' { 'alslime-tts' }
@@ -211,6 +227,13 @@ try {
     Get-ChildItem -LiteralPath $ModuleCmdDir -Filter 'rsrc_windows_*.syso' `
         -ErrorAction SilentlyContinue |
         Remove-Item -Force
+    # 呼び出し元が置き場を指定していない場合に限り、このスクリプトが作った
+    # 既定のキャッシュを成功・失敗を問わず削除する。
+    if (-not $CacheOwnedByCaller) {
+        foreach ($CacheDir in @($GoCacheDir, $GoTmpDir, $GarbleCacheDir)) {
+            Remove-Item -LiteralPath $CacheDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     foreach ($Name in $TrackedEnvironment) {
         [Environment]::SetEnvironmentVariable(
             $Name,

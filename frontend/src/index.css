@@ -5,18 +5,33 @@
 }
 
 html,
+body,
 #root {
   height: 100%;
+}
+
+/* ソフトウェアキーボードの表示でページ全体に第二のスクロール軸が生えると、
+   ブラウザのキャレット追従スクロールが画面ごと上へずらしてしまう。
+   スクロールできる場所をチャット履歴欄の内部だけに閉じ込める。 */
+html,
+body {
+  overflow: hidden;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
   @apply bg-gray-950 text-white;
 }
 
+/* 実表示 viewport へぴたりと貼り付ける。
+   offset-top は、キーボード表示時にレイアウト viewport 側がずらされる分の打ち消し。
+   transform は使わない（子孫の position: fixed の基準が壊れるため）。 */
 .chat-viewport-shell {
+  position: fixed;
+  top: var(--chat-viewport-offset-top, 0px);
+  left: 0;
+  right: 0;
   height: var(--chat-viewport-height, 100svh);
   min-height: 0;
   overflow: hidden;

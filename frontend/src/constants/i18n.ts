@@ -399,6 +399,8 @@ export const ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE: Record<AntigravityThinking,
 
 export const CHAT_VIEW_I18N_KEYS = {
     statusMenu: 'chatView.statusMenu',
+    pullToReload: 'chatView.pullToReload',
+    releaseToReload: 'chatView.releaseToReload',
     sessionHistory: 'chatView.sessionHistory',
     noSessionHistory: 'chatView.noSessionHistory',
     sessionInfoPreset: 'chatView.sessionInfo.preset',
@@ -441,6 +443,8 @@ export const CHAT_VIEW_LOCALIZED_TEXT = {
 
 export const CHAT_VIEW_TEXT_FALLBACK_JA: Record<string, string> = {
     [CHAT_VIEW_I18N_KEYS.statusMenu]: 'セッション状態',
+    [CHAT_VIEW_I18N_KEYS.pullToReload]: '下に引いて更新',
+    [CHAT_VIEW_I18N_KEYS.releaseToReload]: '離して更新',
     [CHAT_VIEW_I18N_KEYS.sessionHistory]: 'セッション履歴',
     [CHAT_VIEW_I18N_KEYS.noSessionHistory]: 'セッション履歴がありません',
     [CHAT_VIEW_I18N_KEYS.sessionInfoPreset]: 'プリセット',
@@ -634,6 +638,8 @@ export const JOBS_I18N_KEYS = {
     max: 'jobs.limits.max',
     clampDescription: 'jobs.limits.clampDescription',
     saving: 'jobs.limits.saving',
+    comfyuiLimit: 'jobs.limits.comfyui',
+    comfyuiLimitDescription: 'jobs.limits.comfyuiDescription',
 } as const;
 
 export const JOBS_TEXT_FALLBACK_JA: Record<string, string> = {
@@ -653,6 +659,8 @@ export const JOBS_TEXT_FALLBACK_JA: Record<string, string> = {
     [JOBS_I18N_KEYS.max]: '最大: {{value}}',
     [JOBS_I18N_KEYS.clampDescription]: '全体の値を下げると各種別の値も自動的に合わせて下がります。',
     [JOBS_I18N_KEYS.saving]: '保存中...',
+    [JOBS_I18N_KEYS.comfyuiLimit]: 'ComfyUI へ同時に送る生成の数',
+    [JOBS_I18N_KEYS.comfyuiLimitDescription]: '全体の同時実行数とは別枠です。2 以上にすると ComfyUI 側に複数件が積まれ、生成のタイムアウトは投入時点から数えます。',
 };
 
 export const CHARACTER_STATUS_I18N_KEYS = {
@@ -716,6 +724,10 @@ export const MESSAGE_LIST_I18N_KEYS = {
     imageGenerateFailed: 'messageList.image.generateFailed',
     imageGenerateTimeout: 'messageList.image.generateTimeout',
     imageGenerateError: 'messageList.image.generateError',
+    imageStageReserved: 'messageList.image.stage.reserved',
+    imageStageAnalyzing: 'messageList.image.stage.analyzing',
+    imageStageRenderWaiting: 'messageList.image.stage.renderWaiting',
+    imageStageRendering: 'messageList.image.stage.rendering',
     actionChoiceTitle: 'messageList.actionChoice.title',
     actionChoiceOther: 'messageList.actionChoice.other',
 } as const;
@@ -741,6 +753,10 @@ export const MESSAGE_LIST_TEXT_FALLBACK_JA: Record<string, string> = {
     [MESSAGE_LIST_I18N_KEYS.imageGenerateFailed]: '画像生成に失敗しました',
     [MESSAGE_LIST_I18N_KEYS.imageGenerateTimeout]: 'タイムアウト（5分）：生成が完了しませんでした',
     [MESSAGE_LIST_I18N_KEYS.imageGenerateError]: '画像生成中にエラーが発生しました',
+    [MESSAGE_LIST_I18N_KEYS.imageStageReserved]: '予約中',
+    [MESSAGE_LIST_I18N_KEYS.imageStageAnalyzing]: '分析中',
+    [MESSAGE_LIST_I18N_KEYS.imageStageRenderWaiting]: '生成待ち',
+    [MESSAGE_LIST_I18N_KEYS.imageStageRendering]: '生成中',
     [MESSAGE_LIST_I18N_KEYS.actionChoiceTitle]: '行動を選ぶ（選択したままチャット入力で補足もできます）',
     [MESSAGE_LIST_I18N_KEYS.actionChoiceOther]: 'その他（自由入力）',
 };

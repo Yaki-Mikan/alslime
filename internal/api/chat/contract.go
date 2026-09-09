@@ -11,6 +11,13 @@ const (
 	pathParamJobID  = "jobId"
 )
 
+// 分離モードの画像生成ジョブの段階（status API の stage）。
+const (
+	stageAnalyzing     = "analyzing"
+	stageRenderWaiting = "render-waiting"
+	stageRendering     = "rendering"
+)
+
 // chat API が返すエラー・メッセージの i18n キー。
 const (
 	errKeyInvalidJSONBody   = i18n.KeyErrorInvalidJSONBody

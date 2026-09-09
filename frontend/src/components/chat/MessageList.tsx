@@ -285,6 +285,23 @@ const stripTTSEmojis = (text: string, emojis: string[]): string => {
     return out;
 };
 
+/**
+ * 画像生成の進行段階（バブルのボタン表示用）。
+ * reserved: 待機中（予約）、analyzing: 分析中、render-waiting: 生成待ち、rendering: 生成中、
+ * processing: 統合ジョブの実行中（段階の区別なし）。
+ */
+type ImageJobStage = 'reserved' | 'analyzing' | 'render-waiting' | 'rendering' | 'processing';
+
+function imageStageLabel(stage: ImageJobStage, t: (key: string) => string): string {
+    switch (stage) {
+        case 'reserved': return t(MESSAGE_LIST_I18N_KEYS.imageStageReserved);
+        case 'analyzing': return t(MESSAGE_LIST_I18N_KEYS.imageStageAnalyzing);
+        case 'render-waiting': return t(MESSAGE_LIST_I18N_KEYS.imageStageRenderWaiting);
+        case 'rendering': return t(MESSAGE_LIST_I18N_KEYS.imageStageRendering);
+        default: return t(MESSAGE_LIST_I18N_KEYS.generating);
+    }
+}
+
 interface MessageItemProps {
     msg: Message;
     isLast: boolean;
@@ -292,10 +309,8 @@ interface MessageItemProps {
     /** このメッセージが編集対象の場合のみ非null（親で絞り込み済み） */
     editingState: EditingState | null;
     attachments: ImageAttachment[] | undefined;
-    /** 生成中のTURNキー（`${msgId}::${turnId ?? turnIndex}`）。非生成中はnull */
-    generatingKey: string | null;
-    /** いずれかのバブルで画像生成中か（ボタンdisabled用） */
-    generateDisabled: boolean;
+    /** 進行中のTURNキー（`${msgId}::${turnId ?? turnIndex}`）→ 段階。進行中でないTURNは含まれない */
+    generating: Record<string, ImageJobStage>;
     /** ComfyUI 画像生成機能が有効か */
     canUseComfyUI: boolean;
     isLoading: boolean;
@@ -353,8 +368,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     settings,
     editingState,
     attachments,
-    generatingKey,
-    generateDisabled,
+    generating,
     canUseComfyUI,
     isLoading,
     backendUrl,
@@ -559,8 +573,9 @@ const MessageItem = React.memo<MessageItemProps>(({
                                     </div>
                                 ) : null;
 
-                                // このバブルが生成中かどうか（スピナー表示用）
-                                const isTurnGenerating = generatingKey !== null && generatingKey === `${msg.id}::${turn.turnId ?? turn.index}`;
+                                // このバブルが進行中かどうかと、その段階（スピナー・段階文言の表示用）
+                                const turnStage = generating[`${msg.id}::${turn.turnId ?? turn.index}`];
+                                const isTurnGenerating = turnStage !== undefined;
                                 // このTURNに紐づく生成画像（バブル直下へ表示）
                                 const turnAttachments = attachmentsByTurn.get(turn.index);
                                 const turnAttachmentRow = msg.id && turnAttachments && turnAttachments.length > 0 ? (
@@ -728,7 +743,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                         {canUseComfyUI && (
                                             <button
                                                 onClick={() => onGenerate(msg.id!, turn.turnId, turn.index)}
-                                                disabled={generateDisabled}
+                                                disabled={isTurnGenerating}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/20 hover:bg-purple-800/50 border border-purple-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
                                             >
@@ -737,7 +752,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 ) : (
                                                     <Palette size={14} />
                                                 )}
-                                                <span>{t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
+                                                <span>{isTurnGenerating ? imageStageLabel(turnStage, t) : t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
                                             </button>
                                         )}
                                     </div>
@@ -1094,8 +1109,21 @@ export const MessageList: React.FC<MessageListProps> = ({
     }, [characterImageDirectoriesKey, backendUrl, iconRefreshKey]);
 
     // 画像生成
-    // 生成中バブルのキー（`${msgId}::${turnId ?? turnIndex}`）。セッション内同時1件を維持。
-    const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+    // 進行中バブルのキー（`${msgId}::${turnId ?? turnIndex}`）→ 段階。複数 TURN を同時に持てる
+    //（後から押した分は待機中＝予約として並ぶ。同一 TURN の二重投入だけを弾く）。
+    const [generating, setGenerating] = useState<Record<string, ImageJobStage>>({});
+    // useCallback の依存に入れずに最新値を参照するための写し。
+    const generatingRef = useRef<Record<string, ImageJobStage>>({});
+    const updateGeneratingStage = useCallback((key: string, stage: ImageJobStage | null) => {
+        const next = { ...generatingRef.current };
+        if (stage) {
+            next[key] = stage;
+        } else {
+            delete next[key];
+        }
+        generatingRef.current = next;
+        setGenerating(next);
+    }, []);
     const [imageAttachments, setImageAttachments] = useState<Record<string, ImageAttachment[]>>({});
     const [expandedAttachment, setExpandedAttachment] = useState<ImageAttachment | null>(null);
     const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
@@ -1385,17 +1413,21 @@ export const MessageList: React.FC<MessageListProps> = ({
 
     // 画像生成ハンドラ（ジョブキュー方式: submit → ポーリング）
     // turnId / turnIndex は押下されたチャットバブル（TURN）の指定（turnId優先）。
+    // 同一 TURN の二重投入だけを防ぎ、別 TURN は待機中（予約）として続けて投入できる。
     const handleGenerate = useCallback(async (messageId: string, turnId: string | null, turnIndex: number) => {
         // backendUrl は同梱ビルドでは空文字（同一オリジン相対）なのでガード対象にしない
-        if (!canUseComfyUI || !sessionId || generatingKey) return;
-        setGeneratingKey(`${messageId}::${turnId ?? turnIndex}`);
+        const key = `${messageId}::${turnId ?? turnIndex}`;
+        if (!canUseComfyUI || !sessionId || generatingRef.current[key]) return;
+        updateGeneratingStage(key, 'reserved');
         try {
             // ジョブ送信（即座にjobIdが返る）
             const submitted = await generateFromChat(backendUrl, sessionId, messageId, turnId, turnIndex);
-            const jobId = submitted.jobId;
+            let jobId: string = submitted.jobId;
             console.log('[Frontend] Image-generate job submitted:', jobId);
 
-            // ポーリング（最大5分、2秒間隔）
+            // ポーリング（2秒間隔）。試行回数は実行中の段階だけ数え（最大5分）、
+            // 待機中（予約・生成待ち）は時間を消費しない。分析ジョブが完了して
+            // 後続の生成ジョブが返ったら、そちらのポーリングへ乗り換える。
             const maxAttempts = 150;
             let attempts = 0;
             while (attempts < maxAttempts) {
@@ -1410,8 +1442,24 @@ export const MessageList: React.FC<MessageListProps> = ({
                     attempts++;
                     continue;
                 }
-                const { status, imageAttachment, error } = statusData;
+                const { status, stage, nextJobId, imageAttachment, error } = statusData;
+                if (status === 'pending') {
+                    updateGeneratingStage(key, stage === 'render-waiting' ? 'render-waiting' : 'reserved');
+                    continue;
+                }
+                if (status === 'processing') {
+                    updateGeneratingStage(key, stage === 'analyzing' || stage === 'rendering' ? stage : 'processing');
+                    attempts++;
+                    continue;
+                }
                 if (status === 'completed') {
+                    if (nextJobId) {
+                        // 分析完了 → 後続の生成ジョブへ乗り換える
+                        jobId = nextJobId;
+                        attempts = 0;
+                        updateGeneratingStage(key, 'render-waiting');
+                        continue;
+                    }
                     if (imageAttachment) {
                         setImageAttachments(prev => ({
                             ...prev,
@@ -1443,11 +1491,11 @@ export const MessageList: React.FC<MessageListProps> = ({
             }
         } finally {
             if (!disposedRef.current) {
-                setGeneratingKey(null);
+                updateGeneratingStage(key, null);
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canUseComfyUI, sessionId, backendUrl, generatingKey, showToast, uiCatalog]);
+    }, [canUseComfyUI, sessionId, backendUrl, showToast, uiCatalog, updateGeneratingStage]);
 
     const openExpandedImage = (attachment: ImageAttachment, msgId?: string, turnKey?: string) => {
         setExpandedAttachment(attachment);
@@ -1560,7 +1608,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     const stableOnTTSDeleteAudio = useStableCallback((messageId: string) => setTtsDeleteTarget(messageId));
 
     return (
-        <div ref={containerRef} className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+        <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 relative">
             {/* 背景画像 */}
             {!useChatAreaBackground && activeBackgroundUrl && (
                 <div
@@ -1588,8 +1636,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                     settings={settings}
                     editingState={editingState && msg.id && editingState.messageId === msg.id ? editingState : null}
                     attachments={msg.id ? imageAttachments[msg.id] : undefined}
-                    generatingKey={generatingKey}
-                    generateDisabled={generatingKey !== null}
+                    generating={generating}
                     canUseComfyUI={canUseComfyUI}
                     isLoading={isLoading}
                     backendUrl={backendUrl}

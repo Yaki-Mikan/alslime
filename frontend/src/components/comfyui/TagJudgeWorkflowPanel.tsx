@@ -1,24 +1,60 @@
 /**
- * TagJudgeWorkflowPanel.tsx - タグ判定形式と使用ワークフローの設定部品
+ * TagJudgeWorkflowPanel.tsx - タグ判定 AI・形式と使用ワークフローの設定部品
  *
- * 形式×ワークフロー対応表（ラジオが使用形式 directiveMode、各行のセレクトが
- * その形式に紐づくワークフロー workflowByDirectiveMode）と、共通ワークフロー
- * （defaultTemplateId）の選択を提供する。変更は即時保存（config 全体を読み直して
- * 該当キーだけ差し替えて PUT。統合設定のフォーマット設定と同方式・後勝ち）。
+ * 分析AI とモデル（TagJudgeProviderFields）、形式×ワークフロー対応表（ラジオが
+ * 使用形式 directiveMode、各行のセレクトがその形式に紐づくワークフロー
+ * workflowByDirectiveMode）、共通ワークフロー（defaultTemplateId）の選択を提供する。
+ * 変更は即時保存（config 全体を読み直して該当キーだけ差し替えて PUT。統合設定の
+ * フォーマット設定と同方式・後勝ち）。連続した変更で古い読み直しが新しい保存を
+ * 上書きしないよう、保存は直列化する。
  * 画像生成統合設定のワークフローセクションと、左メニューの
  * タグ判定・ワークフロー設定パネルの両方で使う。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Workflow, CheckCircle, AlertCircle } from 'lucide-react';
 import {
     getComfyUIConfig,
     saveComfyUIConfig,
     listComfyUITemplates,
 } from '../../api/comfyui';
-import type { DirectiveMode, TemplateInfo } from '../../api/comfyui';
+import type { ComfyUIConfig, DirectiveMode, TemplateInfo } from '../../api/comfyui';
+import { TagJudgeProviderFields, type TagJudgeProviderValues } from './TagJudgeProviderFields';
+import { normalizeClaudeEffort } from '../../constants/claude';
+import { DEFAULT_ANTIGRAVITY_THINKING, normalizeAntigravityThinking } from '../../constants/antigravity';
 import { createComfyUIText } from './i18n';
 import type { I18NCatalog } from '../../api/i18n';
+
+/** config の tagJudge* 欄と部品の値の相互変換。 */
+const tagJudgeValuesFromConfig = (config: ComfyUIConfig): TagJudgeProviderValues => ({
+    provider: config.tagJudgeProvider || 'gemini',
+    geminiModel: config.tagJudgeGeminiModel || 'gemini-3-flash-preview',
+    claudeModel: config.tagJudgeClaudeModel || 'claude-sonnet-4-6',
+    claudeEffort: normalizeClaudeEffort(config.tagJudgeClaudeEffort),
+    antigravityModel: config.tagJudgeAntigravityModel || 'antigravity',
+    antigravityThinking: normalizeAntigravityThinking(config.tagJudgeAntigravityThinking),
+    openAICompatModel: config.tagJudgeOpenAICompatModel || '',
+});
+
+const tagJudgeConfigPatch = (values: TagJudgeProviderValues): Partial<ComfyUIConfig> => ({
+    tagJudgeProvider: values.provider,
+    tagJudgeGeminiModel: values.geminiModel,
+    tagJudgeClaudeModel: values.claudeModel,
+    tagJudgeClaudeEffort: values.claudeEffort,
+    tagJudgeAntigravityModel: values.antigravityModel,
+    tagJudgeAntigravityThinking: values.antigravityThinking,
+    tagJudgeOpenAICompatModel: values.openAICompatModel,
+});
+
+const defaultTagJudgeValues: TagJudgeProviderValues = {
+    provider: 'gemini',
+    geminiModel: 'gemini-3-flash-preview',
+    claudeModel: 'claude-sonnet-4-6',
+    claudeEffort: '',
+    antigravityModel: 'antigravity',
+    antigravityThinking: DEFAULT_ANTIGRAVITY_THINKING,
+    openAICompatModel: '',
+};
 
 interface Props {
     backendUrl: string;
@@ -43,8 +79,13 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
     const [directiveMode, setDirectiveMode] = useState<DirectiveMode>('danbooru_only');
     const [workflowByDirectiveMode, setWorkflowByDirectiveMode] = useState<Record<string, string>>({});
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
+    const [tagJudgeValues, setTagJudgeValues] = useState<TagJudgeProviderValues>(defaultTagJudgeValues);
+    // 設定の読み込みが終わるまで分析AI 部品の自動補正（先頭自動選択等）で保存が走らないようにする。
+    const [configLoaded, setConfigLoaded] = useState(false);
     const [ownTemplates, setOwnTemplates] = useState<TemplateInfo[]>([]);
     const [notice, setNotice] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null);
+    // 保存の直列化（読み直し→書き込みの組が交差しないようにする）
+    const saveChain = useRef<Promise<void>>(Promise.resolve());
 
     const effectiveTemplates = templates ?? ownTemplates;
 
@@ -59,6 +100,8 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 setDirectiveMode((config.directiveMode || 'danbooru_only') as DirectiveMode);
                 setWorkflowByDirectiveMode(config.workflowByDirectiveMode || {});
                 setDefaultTemplateId(config.defaultTemplateId || '');
+                setTagJudgeValues(tagJudgeValuesFromConfig(config));
+                setConfigLoaded(true);
             } catch (error) {
                 console.error('[TagJudgeWorkflowPanel] config load failed:', error);
             }
@@ -80,21 +123,33 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
         window.setTimeout(() => setNotice(null), 2500);
     };
 
-    // 即時保存（config 全体を読み直して該当キーだけ差し替えて PUT）
-    const persistPatch = useCallback(async (patch: {
-        directiveMode?: DirectiveMode;
-        workflowByDirectiveMode?: Record<string, string>;
-        defaultTemplateId?: string;
-    }) => {
-        try {
-            const config = await getComfyUIConfig(backendUrl);
-            await saveComfyUIConfig(backendUrl, { ...config, ...patch });
-            showNotice('saved', COMMON.MESSAGES.SAVED);
-        } catch (error) {
-            console.error('[TagJudgeWorkflowPanel] save failed:', error);
-            showNotice('error', COMMON.MESSAGES.SAVE_FAILED);
-        }
+    // 即時保存（config 全体を読み直して該当キーだけ差し替えて PUT）。
+    // 直前の保存が終わるまで次の読み直しを待たせ、古い config で上書きしないようにする。
+    const persistPatch = useCallback((patch: Partial<ComfyUIConfig>) => {
+        const run = async () => {
+            try {
+                const config = await getComfyUIConfig(backendUrl);
+                await saveComfyUIConfig(backendUrl, { ...config, ...patch });
+                showNotice('saved', COMMON.MESSAGES.SAVED);
+            } catch (error) {
+                console.error('[TagJudgeWorkflowPanel] save failed:', error);
+                showNotice('error', COMMON.MESSAGES.SAVE_FAILED);
+            }
+        };
+        saveChain.current = saveChain.current.then(run, run);
+        return saveChain.current;
     }, [backendUrl, COMMON.MESSAGES.SAVED, COMMON.MESSAGES.SAVE_FAILED]);
+
+    // 分析AI・モデルの変更（部品の自動補正も含む）。tagJudge* の 7 キーは常にまとめて書く。
+    const handleChangeTagJudge = useCallback((patch: Partial<TagJudgeProviderValues>) => {
+        setTagJudgeValues((prev) => {
+            const next = { ...prev, ...patch };
+            if (configLoaded) {
+                void persistPatch(tagJudgeConfigPatch(next));
+            }
+            return next;
+        });
+    }, [configLoaded, persistPatch]);
 
     const handleChangeDirectiveMode = (mode: DirectiveMode) => {
         setDirectiveMode(mode);
@@ -136,7 +191,17 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                     {COMMON.MESSAGES.FORMAT_WORKFLOW_HEADING}
                 </h4>
             )}
-            <p className="text-xs text-gray-500">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
+            {/* 分析AI・モデル（画像生成設定モーダルと同じ部品。変更は即時保存） */}
+            <TagJudgeProviderFields
+                backendUrl={backendUrl}
+                uiCatalog={uiCatalog}
+                active={configLoaded}
+                values={tagJudgeValues}
+                onChange={handleChangeTagJudge}
+                stacked={stacked}
+            />
+
+            <p className="text-xs text-gray-500 pt-1">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
             <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
 
             {rows.map((row) => {

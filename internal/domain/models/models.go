@@ -25,6 +25,9 @@ const (
 	// KindTTS は音声読み上げ（Irodori-TTS への送信）。AI CLI を使わないため
 	// process.Manager では global 枠から独立した専用枠で同時数を制御する。
 	KindTTS Kind = "tts"
+	// KindComfyUI は画像生成の生成段（ComfyUI への投入と完了待ち）。AI CLI を使わないため
+	// process.Manager では global 枠から独立した専用枠で同時数を制御する。
+	KindComfyUI Kind = "comfyui"
 )
 
 // ParseKind は provider 指定文字列を Kind へ解決する。
