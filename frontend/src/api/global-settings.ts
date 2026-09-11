@@ -8,7 +8,7 @@
  */
 
 import axios from '../lib/axios';
-import type { ClaudeEffort } from '../constants/claude';
+import type { ClaudeEffort, RegenerateClaudeEffort } from '../constants/claude';
 import type { AntigravityThinking } from '../constants/antigravity';
 
 // グローバル設定の型定義
@@ -23,6 +23,8 @@ export interface GlobalSettings {
     defaultProvider?: string;          // チャット欄の初期プロバイダ（空 = antigravity）
     claudeChatEffort?: ClaudeEffort;   // 通常チャットでClaudeへ渡すeffort（空 = CLI既定）
     antigravityChatThinking?: AntigravityThinking; // 通常チャットでAntigravityへ渡すThinkingレベル
+    regenerateClaudeEffort?: RegenerateClaudeEffort; // 別モデル再生成でClaudeへ渡すeffort（未保持 = Low）
+    regenerateAntigravityThinking?: AntigravityThinking; // 別モデル再生成でAntigravityへ渡すThinkingレベル（未保持 = Low）
     antigravityStreamGuardLimit?: number; // Antigravity streamGenerateContent 呼び出し上限
     [key: string]: any;                // その他の設定
 }

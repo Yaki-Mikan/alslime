@@ -57,6 +57,10 @@ func Register(mux *http.ServeMux, deps Deps) {
 			switch {
 			case modErr == nil:
 				modules = entries
+				if err := annotateModuleNotices(deps.Update, modules); err != nil {
+					apierror.Write(w, apierror.Internal(err))
+					return
+				}
 			case errors.Is(modErr, sponsorsvc.ErrModuleNoToken):
 				// 未ログインはモジュール確認をスキップ（本体分のみで成立させる）。
 			default:
@@ -117,4 +121,28 @@ func Register(mux *http.ServeMux, deps Deps) {
 		}
 		apiresponse.WriteJSON(w, http.StatusOK, view)
 	})
+}
+
+// annotateModuleNotices は各モジュールに告知抑止状態（スキップ済み・「後で」当日）を
+// 付与する。判定は更新確認設定側（domain/update）で行い、ここでは結果を書き戻すだけ
+// にする（sponsor 側に設定依存を持ち込まない）。
+func annotateModuleNotices(svc *updatesvc.Service, entries []sponsorsvc.ModuleUpdateEntry) error {
+	queries := make([]updatesvc.ModuleNoticeQuery, 0, len(entries))
+	for _, entry := range entries {
+		queries = append(queries, updatesvc.ModuleNoticeQuery{
+			ID:                   entry.ID,
+			Version:              entry.LatestVersion,
+			CompanionPackVersion: entry.LatestCompanionPackVersion,
+		})
+	}
+	flags, err := svc.ModuleNoticeFlags(queries)
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		flag := flags[entries[i].ID]
+		entries[i].Skipped = flag.Skipped
+		entries[i].PostponedToday = flag.PostponedToday
+	}
+	return nil
 }

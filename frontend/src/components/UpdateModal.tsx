@@ -24,6 +24,9 @@ import { SPONSOR_MODULE_LABELS, UPDATE_I18N_KEYS, UPDATE_TEXT_FALLBACK_JA } from
 //   ラベルは従来どおり「今すぐ更新」）。
 // - モジュールカード内の「更新」: 当該モジュールのみ取得・配置・サイドカー再起動。
 // - 本体更新が無い（app=null）場合はモジュールのみの表示となり、フッターは「閉じる」。
+// - 「後で」「スキップ」は本体（フッター）と各モジュール行で独立に持つ。押した側だけが
+//   画面から消え、本体・モジュールとも無くなれば親がモーダルを閉じる。背景クリックと
+//   「閉じる」は何も記録せずに全体を閉じる。
 interface UpdateModalProps {
     isOpen: boolean;
     // app は本体更新の告知対象（本体の告知を出さない場合は null）。
@@ -32,8 +35,13 @@ interface UpdateModalProps {
     modules: ModuleUpdateEntry[];
     uiCatalog: I18NCatalog | null;
     backendUrl: string;
+    // onClose は何も記録せずに全体を閉じる（背景クリック・「閉じる」）。
+    onClose: () => void;
+    // onLater / onSkip は本体分の「後で」「スキップ」（記録と本体セクションの消去は親が行う）。
     onLater: () => void;
     onSkip: () => void;
+    // onModuleDismiss は当該モジュールの「後で」「スキップ」を記録した後に呼ぶ（親が行を消す）。
+    onModuleDismiss: (moduleId: string) => void;
     // モジュール配置状態の変化を親へ中継する（SponsorModal と同じ契約。
     // これが無いと配置後も Chat 側の表示条件が古いままになる）。
     onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
@@ -48,7 +56,7 @@ type ApplyUIPhase = UpdateApplyStatus['phase'] | 'modules';
 
 type ModuleOutcome = 'restarted' | 'restartRequired';
 
-export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLater, onSkip, onModulesChanged }: UpdateModalProps) => {
+export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClose, onLater, onSkip, onModuleDismiss, onModulesChanged }: UpdateModalProps) => {
     const [phase, setPhase] = useState<ApplyUIPhase>('idle');
     const [percent, setPercent] = useState(0);
     const [errorKey, setErrorKey] = useState<string | null>(null);
@@ -98,6 +106,23 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLat
             window.open(app.notesUrl, '_blank', 'noopener,noreferrer');
         }
         onLater();
+    };
+
+    // モジュール行の「後で」「スキップ」。記録はここで行い、行の消去は親に任せる
+    // （保存失敗しても行は消す。次回起動時に再表示されるだけで実害なし）。
+    const handleModuleLater = (moduleId: string) => {
+        saveUpdateSettings(backendUrl, { postponeModules: [moduleId] }).catch(() => {});
+        onModuleDismiss(moduleId);
+    };
+    const handleModuleSkip = (entry: ModuleUpdateEntry) => {
+        saveUpdateSettings(backendUrl, {
+            skipModules: [{
+                id: entry.id,
+                version: entry.latestVersion,
+                companionPackVersion: entry.latestCompanionPackVersion,
+            }],
+        }).catch(() => {});
+        onModuleDismiss(entry.id);
     };
 
     // 1 モジュールの取得・配置・サイドカー再起動。結果・エラーはカード内に表示する。
@@ -239,7 +264,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLat
     return (
         <div
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-            onClick={busy ? undefined : onLater}
+            onClick={busy ? undefined : onClose}
         >
             <div
                 className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden"
@@ -307,6 +332,26 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLat
                                         ? t('sponsor.module.downloading', 'ダウンロード中...')
                                         : t(UPDATE_I18N_KEYS.moduleUpdateButton)}
                                 </button>
+                            )}
+                            {!moduleOutcomes[entry.id] && (
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleModuleLater(entry.id)}
+                                        disabled={busy}
+                                        className="flex-1 px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 text-xs"
+                                    >
+                                        {t(UPDATE_I18N_KEYS.later)}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleModuleSkip(entry)}
+                                        disabled={busy}
+                                        className="flex-1 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 text-xs border border-gray-700"
+                                    >
+                                        {t(UPDATE_I18N_KEYS.moduleSkip)}
+                                    </button>
+                                </div>
                             )}
                         </div>
                     ))}
@@ -391,7 +436,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onLat
                     ) : (
                         <button
                             type="button"
-                            onClick={onLater}
+                            onClick={onClose}
                             disabled={busy}
                             className="w-full px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 text-sm"
                         >

@@ -64,6 +64,32 @@ type SettingsPatch struct {
 	// できないモジュール ID を記録する（本体更新後の起動時に一度だけ適用）。
 	// 空配列は記録のクリア。
 	ApproveModuleUpdates *[]string `json:"approveModuleUpdates"`
+	// PostponeModules は「後で」を押したモジュール ID。各 ID の当日抑止をサーバー側の
+	// 現在日付で記録する（本体の PostponeToday とは独立で、互いに影響しない）。
+	PostponeModules *[]string `json:"postponeModules"`
+	// SkipModules は告知をスキップしたモジュール。表示中の最新版（exe・付属パック）を
+	// 組で記録し、どちらかが上がれば再告知する。
+	SkipModules *[]ModuleSkipPatch `json:"skipModules"`
+}
+
+// ModuleSkipPatch は 1 モジュール分の告知スキップ記録。
+type ModuleSkipPatch struct {
+	ID                   string `json:"id"`
+	Version              string `json:"version"`
+	CompanionPackVersion string `json:"companionPackVersion"`
+}
+
+// ModuleNoticeQuery は告知抑止状態の問い合わせ（モジュール ID と配布側の最新版）。
+type ModuleNoticeQuery struct {
+	ID                   string
+	Version              string
+	CompanionPackVersion string
+}
+
+// ModuleNoticeFlag は 1 モジュールの告知抑止状態。
+type ModuleNoticeFlag struct {
+	Skipped        bool
+	PostponedToday bool
 }
 
 // Service は本体アップデート確認と設定の読み書きを担う。
@@ -198,6 +224,31 @@ func (s *Service) UpdateSettings(patch SettingsPatch) (SettingsView, error) {
 		}
 		current.PendingModuleUpdates = ids
 	}
+	if patch.PostponeModules != nil {
+		today := s.now().Format(postponeDateLayout)
+		for _, id := range *patch.PostponeModules {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			notice := current.ModuleNotices[id]
+			notice.PostponedDate = today
+			current.ModuleNotices = setModuleNotice(current.ModuleNotices, id, notice)
+		}
+	}
+	if patch.SkipModules != nil {
+		for _, skip := range *patch.SkipModules {
+			id := strings.TrimSpace(skip.ID)
+			if id == "" {
+				continue
+			}
+			// モジュールの版は配布側の文字列をそのまま比較する（sponsor 側の更新判定と同じ流儀）。
+			notice := current.ModuleNotices[id]
+			notice.SkippedVersion = strings.TrimSpace(skip.Version)
+			notice.SkippedCompanionPackVersion = strings.TrimSpace(skip.CompanionPackVersion)
+			current.ModuleNotices = setModuleNotice(current.ModuleNotices, id, notice)
+		}
+	}
 	saved, err := s.store.Save(current)
 	if err != nil {
 		return SettingsView{}, err
@@ -287,6 +338,43 @@ func (s *Service) ConsumePendingModuleUpdates() ([]string, error) {
 		return nil, err
 	}
 	return ids, nil
+}
+
+// ModuleNoticeFlags は各モジュールの告知抑止状態をモジュール ID 引きで返す。
+// Skipped はスキップ記録の exe 版・付属パック版がともに現在の最新と一致する時だけ
+// true（どちらかが上がれば再告知）。PostponedToday は「後で」の記録日が当日のとき true。
+// 本体の告知状態（SkippedVersion / PostponedDate）とは独立に判定する。
+func (s *Service) ModuleNoticeFlags(queries []ModuleNoticeQuery) (map[string]ModuleNoticeFlag, error) {
+	settings, err := s.store.Load()
+	if err != nil {
+		return nil, err
+	}
+	today := s.now().Format(postponeDateLayout)
+	out := make(map[string]ModuleNoticeFlag, len(queries))
+	for _, q := range queries {
+		notice, ok := settings.ModuleNotices[q.ID]
+		if !ok {
+			out[q.ID] = ModuleNoticeFlag{}
+			continue
+		}
+		hasSkip := notice.SkippedVersion != "" || notice.SkippedCompanionPackVersion != ""
+		out[q.ID] = ModuleNoticeFlag{
+			Skipped: hasSkip &&
+				notice.SkippedVersion == q.Version &&
+				notice.SkippedCompanionPackVersion == q.CompanionPackVersion,
+			PostponedToday: notice.PostponedDate == today,
+		}
+	}
+	return out, nil
+}
+
+// setModuleNotice は nil map を考慮して 1 件の告知抑止記録を書き込む。
+func setModuleNotice(notices map[string]storage.ModuleNotice, id string, notice storage.ModuleNotice) map[string]storage.ModuleNotice {
+	if notices == nil {
+		notices = map[string]storage.ModuleNotice{}
+	}
+	notices[id] = notice
+	return notices
 }
 
 func toView(settings storage.Settings) SettingsView {

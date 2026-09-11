@@ -19,7 +19,7 @@ describe('左メニューのセッション時刻パネル', () => {
         const onChange = vi.fn();
         render(<SessionTimePanel dateTimeSettings={settingsWithoutSessionTime} onChange={onChange} embedded />);
 
-        await user.click(screen.getByRole('button', { name: '時刻' }));
+        await user.click(screen.getByRole('button', { name: 'セッション時刻' }));
         await user.click(screen.getByTitle('編集'));
 
         // 年の select（表示値は固定日時の年）

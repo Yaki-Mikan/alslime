@@ -37,6 +37,8 @@ export interface ComfyUIConfig {
     tagJudgeTimeoutSeconds: number;
     /** 画像生成ジョブの単位。省略時は combined */
     imageJobMode?: ImageJobMode;
+    /** AI 応答の正常完了時に各 TURN へ上から順に画像生成を自動投入するか。省略時は無効 */
+    autoGenerateEnabled?: boolean;
     lightweightImageSave: LightweightImageSaveConfig;
     /** 選択中のプレースホルダプリセット名（空/未設定は未選択） */
     placeholderPresetName?: string;

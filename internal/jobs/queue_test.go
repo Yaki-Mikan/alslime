@@ -515,3 +515,55 @@ func TestRun_後続ジョブの投入がメンテナンスで拒否されたら�
 		t.Fatalf("拒否時は NextJobID を持たないはず: %#v", ja)
 	}
 }
+
+func TestAdd_画像ジョブ中でも同セッションのチャットは重複にならない(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(f)
+
+	img := q.Add(Spec{Type: TypeImageRender, Kind: models.KindComfyUI, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	tts := q.Add(Spec{Type: TypeTTS, Kind: models.KindTTS, SessionID: "s1", DedupeKey: "t1"})
+	<-f.started
+	if img.Duplicate || tts.Duplicate {
+		t.Fatalf("画像・TTS は DedupeKey 判定なので重複にならないはず")
+	}
+
+	chat := q.Add(Spec{Type: TypeChat, Kind: models.KindGemini, SessionID: "s1"})
+	if chat.Duplicate {
+		t.Fatalf("画像・TTS 処理中の同セッションチャットは重複にならないはず: %#v", chat)
+	}
+	<-f.started
+
+	// チャット同士の排他は維持される（regenerate も同じ枠）。
+	regen := q.Add(Spec{Type: TypeRegenerate, Kind: models.KindGemini, SessionID: "s1"})
+	if !regen.Duplicate || regen.ExistingJobID != chat.JobID {
+		t.Fatalf("チャット処理中の同セッション regenerate は重複になるはず: %#v", regen)
+	}
+
+	f.complete(img.JobID, "img")
+	f.complete(tts.JobID, "tts")
+	f.complete(chat.JobID, "chat")
+	waitStatus(t, q, chat.JobID, StatusCompleted)
+}
+
+func TestActiveBySessionID_画像ジョブは返さずチャットだけ返す(t *testing.T) {
+	f := newFakeRunner()
+	q := newQueue(f)
+
+	img := q.Add(Spec{Type: TypeImageRender, Kind: models.KindComfyUI, SessionID: "s1", DedupeKey: "k1"})
+	<-f.started
+	if _, ok := q.ActiveBySessionID("s1"); ok {
+		t.Fatalf("画像ジョブしか無いセッションでは active を返さないはず")
+	}
+
+	chat := q.Add(Spec{Type: TypeChat, Kind: models.KindGemini, SessionID: "s1"})
+	<-f.started
+	got, ok := q.ActiveBySessionID("s1")
+	if !ok || got.JobID != chat.JobID {
+		t.Fatalf("チャットジョブが active として返るはず: ok=%v got=%#v", ok, got)
+	}
+
+	f.complete(img.JobID, "img")
+	f.complete(chat.JobID, "chat")
+	waitStatus(t, q, chat.JobID, StatusCompleted)
+}

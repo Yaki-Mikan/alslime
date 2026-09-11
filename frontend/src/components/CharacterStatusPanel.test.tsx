@@ -36,7 +36,7 @@ describe('左メニューのキャラクター状態欄', () => {
             />,
         );
 
-        await user.click(screen.getByRole('button', { name: '状態' }));
+        await user.click(screen.getByRole('button', { name: 'キャラクター状態' }));
         await user.click(screen.getByRole('button', { name: '雪の状態' }));
         await user.click(screen.getByTitle('編集'));
         await user.click(screen.getByRole('button', { name: '保存' }));
@@ -65,7 +65,7 @@ describe('左メニューのキャラクター状態欄', () => {
             />,
         );
 
-        await user.click(screen.getByRole('button', { name: '状態' }));
+        await user.click(screen.getByRole('button', { name: 'キャラクター状態' }));
         await user.click(screen.getByRole('button', { name: '雪の状態' }));
         await user.click(screen.getByTitle('編集'));
         await user.click(screen.getByRole('button', { name: '保存' }));

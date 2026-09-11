@@ -3,8 +3,16 @@
  *
  * 読み上げ開始（TURN単位／1応答全体）→ ステータスポーリング（2秒間隔）→
  * tts.chunk / tts.merged の解釈 → 逐次再生（ttsPlayer）→ 終端処理、を担う。
+ * 生成ジョブは応答ごとに複数を同時に追跡する（前の応答の生成中に次の応答が
+ * 届いても開始要求を捨てない）。同じ応答を対象とする二重の開始要求は弾く。
  * 画面更新後は実行中ジョブを検出してボタン状態を復元する
  * （要件により再生は自動で再開しない。ポーリングと表示のみ）。
+ *
+ * 再生の割り込み規則:
+ * - 自動読み上げ・全体読み上げの通し再生は、既に何かが鳴っていれば待ち行列へ積み、
+ *   鳴り終わってから始める（前の再生を途中で打ち切らない）。
+ * - 個別TURNの読み上げ（逐次再生）と個別の再生は、人の明示操作なので
+ *   鳴っているものを全て止めてから始める（待ち行列も捨てる）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -40,28 +48,41 @@ export interface TTSPlaylistEntry {
     turnIds: string[];
 }
 
+// TTSSequenceOptions は通し再生の開始指定。
+// mode='queue' は再生中なら待ち行列へ積んで鳴り終わってから始める（自動読み上げ・全体読み上げ）。
+// mode='interrupt' は鳴っているものを全て止めてから始める（個別再生の続き自動再生）。
+export interface TTSSequenceOptions {
+    autoAdvance: boolean;
+    startTurnId?: string;
+    mode: 'queue' | 'interrupt';
+}
+
 export interface TTSReadingState {
     index: TTSAudioIndex | null;
-    activeKey: string | null;
-    cancelling: boolean;
+    // activeKeys は実行中（生成中）の対象キー集合（turn:... / msg:...）。
+    activeKeys: ReadonlySet<string>;
+    // cancellingKeys はキャンセル要求済みで終端待ちの対象キー集合。
+    cancellingKeys: ReadonlySet<string>;
+    // activeMessageIds は実行中ジョブが対象とする応答IDの集合（同一応答内の排他判定用）。
+    activeMessageIds: ReadonlySet<string>;
     notice: TTSNotice | null;
     playingFinalKey: string | null;
     // sequenceActive は通し再生（応答ひと塊の先頭からの再生）の実行中フラグ。
     sequenceActive: boolean;
     // sequenceCurrentKey は通し再生で今鳴っている TURN のキー（turn:...）。待機中は null。
     sequenceCurrentKey: string | null;
-    // start は生成ジョブの開始確定（サーバー応答とジョブ参照のセット）まで待てる。
-    // 通し再生（startSequence）を続けて呼ぶ場合は await しないと、ジョブ参照が
-    // 空のままの先頭TURN判定が「音声なし確定」へ誤って倒れる。
+    // start は通信前から生成予定を登録し、ジョブ開始の確定まで待てる。
     start: (messageId: string, turnId?: string, opts?: { playback?: boolean }) => Promise<void>;
-    cancel: () => void;
+    // 設定取得前から生成予定を登録し、全体生成と通し再生を一緒に開始する。
+    readMessage: (messageId: string, automatic?: boolean) => Promise<void>;
+    // cancel は targetKey（turn:... / msg:...）が対象の生成ジョブをキャンセルする。
+    cancel: (targetKey: string) => void;
     playFinal: (messageId: string, turnId: string) => void;
     stopFinal: () => void;
     // startSequence は startMessageId の応答ひと塊を先頭TURN（startTurnId 指定時はそのTURN）
-    // から通しで再生する。autoAdvance が真なら応答の区切りを超えて、生成済みの次の音声も
-    // 続けて再生する。
-    startSequence: (startMessageId: string, playlist: TTSPlaylistEntry[], autoAdvance: boolean, startTurnId?: string) => void;
-    // stopPlayback は全ての再生を止める（生成ジョブは止めない）。
+    // から通しで再生する。autoAdvance が真なら応答の区切りを超えて生成待ち・探索を続ける。
+    startSequence: (startMessageId: string, playlist: TTSPlaylistEntry[], opts: TTSSequenceOptions) => void;
+    // stopPlayback は全ての再生を止め、待ち行列も捨てる（生成ジョブは止めない）。
     stopPlayback: () => void;
     // deleteMessageAudio は1応答（メッセージ）分の生成音声を削除する（要件10章）。
     // 失敗時は false を返す（呼び出し側が通知を出す）。
@@ -71,32 +92,81 @@ export interface TTSReadingState {
 const POLL_INTERVAL_MS = 2000;
 const NOTICE_MS = 2500;
 
+// TrackedJob は追跡中の生成ジョブ1件（ポーリング・既読進捗・逐次再生器をジョブごとに持つ）。
+interface TrackedJob {
+    jobId: string;
+    messageId: string;
+    turnId: string;
+    targetKey: string;
+    player: TTSPlaybackController | null;
+    seenSeq: Set<number>;
+    pollTimer: ReturnType<typeof setTimeout> | null;
+    pollFailures: number;
+    cancelling: boolean;
+    settledTurns: Set<string>;
+}
+
+interface StartingRead {
+    messageId: string;
+    turnId?: string;
+    targetKey: string;
+    cancelling: boolean;
+}
+
+interface SequenceProgress {
+    playedTurns: Set<string>;
+    completedMessages: Set<string>;
+}
+
+const newSequenceProgress = (): SequenceProgress => ({ playedTurns: new Set(), completedMessages: new Set() });
+
+// SequenceRequest は通し再生の待ち行列の1件。
+interface SequenceRequest {
+    startMessageId: string;
+    playlist: TTSPlaylistEntry[];
+    autoAdvance: boolean;
+    startTurnId?: string;
+    // 重なった予約だけで共有する。後から改めて開始した再生には持ち越さない。
+    progress: SequenceProgress;
+}
+
 export function useTTSReading(
     backendUrl: string,
     sessionId: string | null,
     enabled: boolean,
     // 読み上げ開始時に同梱する会話設定側VoiceDesign（キーはキャラクター名。要件6.5）。
     getPresetVoiceDesign?: () => Record<string, TTSPresetVoiceDesign> | undefined,
+    getPlaylist?: () => TTSPlaylistEntry[],
 ): TTSReadingState {
     const [index, setIndex] = useState<TTSAudioIndex | null>(null);
-    const [activeKey, setActiveKey] = useState<string | null>(null);
-    const [cancelling, setCancelling] = useState(false);
+    const [activeKeys, setActiveKeys] = useState<ReadonlySet<string>>(() => new Set());
+    const [cancellingKeys, setCancellingKeys] = useState<ReadonlySet<string>>(() => new Set());
+    const [activeMessageIds, setActiveMessageIds] = useState<ReadonlySet<string>>(() => new Set());
     const [notice, setNotice] = useState<TTSNotice | null>(null);
     const [playingFinalKey, setPlayingFinalKey] = useState<string | null>(null);
     // 通し再生（P3拡張: 応答ひと塊の先頭からのプレイリスト再生）。
     const [sequenceActive, setSequenceActive] = useState(false);
     const [sequenceCurrentKey, setSequenceCurrentKey] = useState<string | null>(null);
     const sequenceTokenRef = useRef(0);
+    const sequenceRunningRef = useRef(false);
     const sequenceAudioRef = useRef<HTMLAudioElement | null>(null);
+    // 通し再生の待ち行列（mode='queue' で再生中に積まれた分。鳴り終わりで順に始める）。
+    const pendingSequencesRef = useRef<SequenceRequest[]>([]);
+    const sequenceProgressRef = useRef(newSequenceProgress());
+    const playlistGetterRef = useRef(getPlaylist);
+    useEffect(() => { playlistGetterRef.current = getPlaylist; }, [getPlaylist]);
+    // 停止とセッション切替を別々に識別する。再生停止では生成を継続する。
+    const playbackEpochRef = useRef(0);
+    const sessionEpochRef = useRef(0);
+    // drainRef は「鳴り終わったら待ち行列の先頭を始める」処理。通し再生本体と相互参照するため ref 経由で呼ぶ。
+    const drainRef = useRef<() => void>(() => { /* 初期化前は何もしない */ });
 
     const disposedRef = useRef(false);
-    // ポーリングの連続失敗回数。一時的な取得失敗で即終了すると未再生キューが
-    // 破棄され再生が途切れるため、しきい値までは再試行する。
-    const pollFailuresRef = useRef(0);
-    const jobRef = useRef<{ jobId: string; messageId: string; turnId: string; format: string; restored: boolean } | null>(null);
-    const playerRef = useRef<TTSPlaybackController | null>(null);
-    const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const seenSeqRef = useRef<Set<number>>(new Set());
+    const jobsRef = useRef<Map<string, TrackedJob>>(new Map());
+    const startingReadsRef = useRef(new Map<string, StartingRead>());
+    // 鳴っている（または生成待ちで鳴る予定の）逐次再生器の集合。
+    // ジョブ終端後も onEnded まではここに残し「再生中」として扱う。
+    const playersRef = useRef<Set<TTSPlaybackController>>(new Set());
     const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const finalAudioRef = useRef<HTMLAudioElement | null>(null);
     const configRef = useRef<TTSConfig | null>(null);
@@ -107,60 +177,116 @@ export function useTTSReading(
         noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_MS);
     }, []);
 
+    // syncJobState は追跡中ジョブの集合から表示用の状態を作り直す。
+    const syncJobState = useCallback(() => {
+        const active = new Set<string>();
+        const cancelling = new Set<string>();
+        const messageIds = new Set<string>();
+        for (const pending of startingReadsRef.current.values()) {
+            active.add(pending.targetKey);
+            messageIds.add(pending.messageId);
+            if (pending.cancelling) cancelling.add(pending.targetKey);
+        }
+        for (const job of jobsRef.current.values()) {
+            active.add(job.targetKey);
+            messageIds.add(job.messageId);
+            if (job.cancelling) cancelling.add(job.targetKey);
+        }
+        setActiveKeys(active);
+        setCancellingKeys(cancelling);
+        setActiveMessageIds(messageIds);
+    }, []);
+
+    // isMessageGenerating は応答 messageId を対象とするジョブを追跡中か。
+    const isMessageGenerating = useCallback((messageId: string): boolean => {
+        if (startingReadsRef.current.has(messageId)) return true;
+        for (const job of jobsRef.current.values()) {
+            if (job.messageId === messageId) return true;
+        }
+        return false;
+    }, []);
+
+    const isTurnGenerating = useCallback((messageId: string, turnId: string): boolean => {
+        const pending = startingReadsRef.current.get(messageId);
+        if (pending && !pending.cancelling && (!pending.turnId || pending.turnId === turnId)) return true;
+        for (const job of jobsRef.current.values()) {
+            if (job.messageId === messageId && !job.cancelling
+                && (!job.turnId || job.turnId === turnId) && !job.settledTurns.has(turnId)) return true;
+        }
+        return false;
+    }, []);
+
+    // isPlayingNow は何かが鳴っている（通し再生・単発再生・逐次再生のいずれか）か。
+    const isPlayingNow = useCallback((): boolean =>
+        sequenceRunningRef.current || finalAudioRef.current !== null || playersRef.current.size > 0, []);
+
+    // stopPlayers は逐次再生器を全て止める（生成ジョブには触れない）。
+    const stopPlayers = useCallback(() => {
+        for (const player of playersRef.current) player.stop();
+        playersRef.current.clear();
+        for (const job of jobsRef.current.values()) job.player = null;
+    }, []);
+
     const refreshIndex = useCallback(async () => {
         if (!enabled || !sessionId) return;
+        const epoch = sessionEpochRef.current;
         try {
             const idx = await fetchTTSAudioIndex(backendUrl, sessionId);
-            if (!disposedRef.current) setIndex(idx);
+            if (!disposedRef.current && sessionEpochRef.current === epoch) setIndex(idx);
         } catch (error) {
             console.error('[useTTSReading] index load failed:', error);
         }
     }, [backendUrl, sessionId, enabled]);
 
-    const stopPolling = useCallback(() => {
-        if (pollTimerRef.current !== null) {
-            clearTimeout(pollTimerRef.current);
-            pollTimerRef.current = null;
+    const stopJobPolling = useCallback((job: TrackedJob) => {
+        if (job.pollTimer !== null) {
+            clearTimeout(job.pollTimer);
+            job.pollTimer = null;
         }
     }, []);
 
-    const finishJob = useCallback((status: 'completed' | 'error' | 'canceled') => {
-        stopPolling();
-        const player = playerRef.current;
+    const finishJob = useCallback((jobId: string, status: 'completed' | 'error' | 'canceled') => {
+        const job = jobsRef.current.get(jobId);
+        if (!job) return;
+        stopJobPolling(job);
+        const player = job.player;
         if (player) {
             if (status === 'completed') {
+                // 未再生分を鳴らし切る。鳴り終わりは onEnded で playersRef から外れる。
                 player.finish();
             } else {
                 player.stop();
+                playersRef.current.delete(player);
             }
         }
-        playerRef.current = null;
-        jobRef.current = null;
-        seenSeqRef.current = new Set();
-        setActiveKey(null);
-        setCancelling(false);
+        job.player = null;
+        jobsRef.current.delete(jobId);
+        syncJobState();
         void refreshIndex();
-    }, [refreshIndex, stopPolling]);
+        // 逐次再生器が鳴らずに消えた場合は、待ち行列の通し再生を動かす契機がここしかない。
+        if (player && status !== 'completed') drainRef.current();
+    }, [refreshIndex, stopJobPolling, syncJobState]);
 
-    const pollOnce = useCallback(async () => {
-        const job = jobRef.current;
+    const pollOnce = useCallback(async (jobId: string) => {
+        const job = jobsRef.current.get(jobId);
         if (!job || disposedRef.current || !sessionId) return;
         try {
             const status = await fetchTTSStatus(backendUrl, job.jobId);
-            pollFailuresRef.current = 0;
+            if (disposedRef.current || jobsRef.current.get(jobId) !== job) return;
+            job.pollFailures = 0;
             for (const entry of status.progress ?? []) {
-                if (seenSeqRef.current.has(entry.seq)) continue;
-                seenSeqRef.current.add(entry.seq);
+                if (job.seenSeq.has(entry.seq)) continue;
+                job.seenSeq.add(entry.seq);
                 const args = entry.args ?? [];
-                if (entry.textKey === 'tts.chunk' && args.length >= 4 && playerRef.current) {
+                if (entry.textKey === 'tts.chunk' && args.length >= 4 && job.player) {
                     const [messageId, turnId, chunkIndex, format] = args;
                     const url = ttsChunkAudioPath(backendUrl, sessionId, messageId, turnId, Number(chunkIndex), format);
                     try {
                         // チャンクは再作成のたびに中身が変わる使い捨てのため共有キャッシュへ載せない
                         //（旧チャンクの再生を防ぐ）。解放はプレイヤーが再生終了・停止時に行う。
                         const objectUrl = await fetchAudioObjectUrlOnce(url);
-                        if (playerRef.current) {
-                            playerRef.current.enqueue(objectUrl);
+                        if (job.player) {
+                            job.player.enqueue(objectUrl);
                         } else {
                             URL.revokeObjectURL(objectUrl);
                         }
@@ -171,116 +297,40 @@ export function useTTSReading(
                     // TURN の最終音声が確定（差し替え）した。古い objectURL を必ず捨ててから
                     // 索引を読み直す（全体読み上げでの再生成でも旧音声が残らないようにする）。
                     if (args.length >= 2) {
+                        job.settledTurns.add(args[1]);
                         releaseAuthedAudioUrl(ttsFinalAudioPath(backendUrl, sessionId, args[0], args[1]));
                     }
                     void refreshIndex();
+                } else if (entry.textKey === 'tts.skipped' && args.length > 0) {
+                    job.settledTurns.add(args[0]);
                 }
             }
             if (status.status === 'completed' || status.status === 'error' || status.status === 'canceled') {
-                finishJob(status.status);
+                finishJob(jobId, status.status);
                 return;
             }
         } catch (error) {
+            if (disposedRef.current || jobsRef.current.get(jobId) !== job) return;
             console.error('[useTTSReading] status poll failed:', error);
             // 一時的な取得失敗で即終了せず、連続3回まではポーリングを続ける
             // （即 stop すると未再生キューが破棄され再生が途切れるため）。
-            pollFailuresRef.current += 1;
-            if (pollFailuresRef.current >= 3) {
-                pollFailuresRef.current = 0;
-                finishJob('error');
+            job.pollFailures += 1;
+            if (job.pollFailures >= 3) {
+                finishJob(jobId, 'error');
                 return;
             }
         }
-        pollTimerRef.current = setTimeout(() => void pollOnce(), POLL_INTERVAL_MS);
+        if (!jobsRef.current.has(jobId)) return;
+        job.pollTimer = setTimeout(() => void pollOnce(jobId), POLL_INTERVAL_MS);
     }, [backendUrl, sessionId, finishJob, refreshIndex]);
 
-    const beginPolling = useCallback(() => {
-        stopPolling();
-        pollTimerRef.current = setTimeout(() => void pollOnce(), 0);
-    }, [pollOnce, stopPolling]);
-
-    // opts.playback=false は自動読み上げ（要件4章: 生成のみ・自動再生なし）用に
-    // 逐次再生を行わず生成だけ走らせる。省略時は従来どおり設定に従い逐次再生する。
-    // 返す Promise はジョブ開始の確定（またはスキップ・失敗の確定）で解決する。
-    const start = useCallback(async (messageId: string, turnId?: string, opts?: { playback?: boolean }) => {
-        if (!enabled || !sessionId || jobRef.current) return;
-        const targetKey = turnId ? ttsTurnActiveKey(messageId, turnId) : ttsMessageActiveKey(messageId);
-        try {
-            // 設定（無音秒・音量・形式）は他画面で随時変わるため、開始ごとに読み直す。
-            const config = await getTTSConfig(backendUrl);
-            configRef.current = config;
-            const res = await startTTSRead(backendUrl, {
-                sessionId,
-                messageId,
-                turnId,
-                presetVoiceDesign: getPresetVoiceDesign?.(),
-            });
-            if (disposedRef.current) return;
-            if (res.empty) {
-                showNotice(targetKey, res.reason || 'empty');
-                return;
-            }
-            if (res.duplicate) {
-                // 同一対象の実行中あり（自動読み上げの開始要求と競合した直後など）。
-                // ジョブ参照を持たずに戻ると、続く通し再生が「生成中でない＝音声なし」と
-                // 誤読して先頭TURNを飛ばすため、既存ジョブを引き取ってポーリングする。
-                if (!res.existingJobId || jobRef.current) return;
-                jobRef.current = {
-                    jobId: res.existingJobId,
-                    messageId,
-                    turnId: turnId ?? '',
-                    format: config.responseFormat,
-                    restored: true,
-                };
-                seenSeqRef.current = new Set();
-                playerRef.current = null;
-                setActiveKey(targetKey);
-                setCancelling(false);
-                beginPolling();
-                return;
-            }
-            if (!res.jobId) return;
-            // 再作成時に旧 objectURL キャッシュを破棄する（最終音声の差し替え）。
-            if (turnId) {
-                releaseAuthedAudioUrl(ttsFinalAudioPath(backendUrl, sessionId, messageId, turnId));
-            }
-            jobRef.current = {
-                jobId: res.jobId,
-                messageId,
-                turnId: turnId ?? '',
-                format: config.responseFormat,
-                restored: false,
-            };
-            seenSeqRef.current = new Set();
-            playerRef.current = (opts?.playback ?? true) && config.sequentialPlayback
-                ? new TTSPlaybackController({
-                    silenceSeconds: config.chunkSilenceSeconds,
-                    startCount: config.playbackStartChunkCount,
-                    volume: config.volume,
-                    ownsUrls: true,
-                    onError: error => console.error('[useTTSReading] playback error:', error),
-                })
-                : null;
-            setActiveKey(targetKey);
-            setCancelling(false);
-            beginPolling();
-        } catch (error) {
-            console.error('[useTTSReading] start failed:', error);
-            showNotice(targetKey, 'requestFailed');
-        }
-    }, [backendUrl, sessionId, enabled, beginPolling, showNotice, getPresetVoiceDesign]);
-
-    const cancel = useCallback(() => {
-        const job = jobRef.current;
-        if (!job) return;
-        setCancelling(true);
-        // 再生は即時停止し、未再生分を破棄する（要件9.3）。終端確定はポーリングが検知する。
-        playerRef.current?.stop();
-        playerRef.current = null;
-        void cancelTTSJob(backendUrl, job.jobId).catch(error => {
-            console.error('[useTTSReading] cancel failed:', error);
-        });
-    }, [backendUrl]);
+    // trackJob は生成ジョブを追跡対象に登録してポーリングを始める。
+    const trackJob = useCallback((job: TrackedJob) => {
+        jobsRef.current.set(job.jobId, job);
+        if (job.player) playersRef.current.add(job.player);
+        syncJobState();
+        job.pollTimer = setTimeout(() => void pollOnce(job.jobId), 0);
+    }, [pollOnce, syncJobState]);
 
     const stopFinal = useCallback(() => {
         if (finalAudioRef.current) {
@@ -290,48 +340,193 @@ export function useTTSReading(
         setPlayingFinalKey(null);
     }, []);
 
-    const playFinal = useCallback((messageId: string, turnId: string) => {
-        if (!enabled || !sessionId) return;
-        stopFinal();
-        const key = ttsTurnActiveKey(messageId, turnId);
-        void (async () => {
-            try {
-                const config = await getTTSConfig(backendUrl);
-                configRef.current = config;
-                const url = await resolveAuthedAudioUrl(ttsFinalAudioPath(backendUrl, sessionId, messageId, turnId));
-                if (disposedRef.current) return;
-                const audio = new Audio(url);
-                audio.volume = Math.min(1, Math.max(0, config.volume));
-                audio.onended = () => {
-                    if (finalAudioRef.current === audio) {
-                        finalAudioRef.current = null;
-                        setPlayingFinalKey(null);
-                    }
-                };
-                finalAudioRef.current = audio;
-                setPlayingFinalKey(key);
-                await audio.play();
-            } catch (error) {
-                console.error('[useTTSReading] final playback failed:', error);
-                if (!disposedRef.current) setPlayingFinalKey(null);
-            }
-        })();
-    }, [backendUrl, sessionId, enabled, stopFinal]);
-
-    // stopPlayback は全ての再生（通し再生・チャンク逐次再生・単発再生）を止める。
-    // 生成ジョブには触れない（要件: 生成は止めずに再生のみを止める）。
+    // stopPlayback は全ての再生（通し再生・チャンク逐次再生・単発再生）を止め、
+    // 待ち行列に積まれた通し再生も捨てる。生成ジョブには触れない
+    // （要件: 生成は止めずに再生のみを止める）。
     const stopPlayback = useCallback(() => {
+        playbackEpochRef.current += 1;
+        sequenceProgressRef.current = newSequenceProgress();
+        pendingSequencesRef.current = [];
         sequenceTokenRef.current += 1;
+        sequenceRunningRef.current = false;
         if (sequenceAudioRef.current) {
             sequenceAudioRef.current.pause();
             sequenceAudioRef.current = null;
         }
         setSequenceActive(false);
         setSequenceCurrentKey(null);
-        playerRef.current?.stop();
-        playerRef.current = null;
+        stopPlayers();
         stopFinal();
-    }, [stopFinal]);
+    }, [stopFinal, stopPlayers]);
+
+    // opts.playback=false は自動読み上げ（要件4章: 生成のみ・自動再生なし）用に
+    // 逐次再生を行わず生成だけ走らせる。省略時は従来どおり設定に従い逐次再生する。
+    // 同じ応答を対象とするジョブを追跡中なら何もしない（同一応答内の相互排他。要件9.7）。
+    // 別応答のジョブは並行して追跡する。
+    // 返す Promise はジョブ開始の確定（またはスキップ・失敗の確定）で解決する。
+    const start = useCallback(async (messageId: string, turnId?: string, opts?: {
+        playback?: boolean;
+        onConfig?: (config: TTSConfig) => boolean;
+    }) => {
+        if (!enabled || !sessionId || isMessageGenerating(messageId)) return;
+        const targetKey = turnId ? ttsTurnActiveKey(messageId, turnId) : ttsMessageActiveKey(messageId);
+        const pending: StartingRead = { messageId, turnId, targetKey, cancelling: false };
+        const sessionEpoch = sessionEpochRef.current;
+        const playbackEpoch = playbackEpochRef.current;
+        startingReadsRef.current.set(messageId, pending);
+        syncJobState();
+        try {
+            // 設定（無音秒・音量・形式）は他画面で随時変わるため、開始ごとに読み直す。
+            const config = await getTTSConfig(backendUrl);
+            if (disposedRef.current || sessionEpochRef.current !== sessionEpoch || pending.cancelling) return;
+            configRef.current = config;
+            if (opts?.onConfig && !opts.onConfig(config)) return;
+            const res = await startTTSRead(backendUrl, {
+                sessionId,
+                messageId,
+                turnId,
+                presetVoiceDesign: getPresetVoiceDesign?.(),
+            });
+            if (disposedRef.current || sessionEpochRef.current !== sessionEpoch) return;
+            if (res.empty) {
+                showNotice(targetKey, res.reason || 'empty');
+                return;
+            }
+            if (res.duplicate) {
+                // 同一対象の実行中あり（自動読み上げの開始要求と競合した直後など）。
+                // ジョブ参照を持たずに戻ると、続く通し再生が「生成中でない＝音声なし」と
+                // 誤読して先頭TURNを飛ばすため、既存ジョブを引き取ってポーリングする。
+                if (!res.existingJobId || jobsRef.current.has(res.existingJobId)) return;
+                trackJob({
+                    jobId: res.existingJobId,
+                    messageId,
+                    turnId: turnId ?? '',
+                    targetKey,
+                    player: null,
+                    seenSeq: new Set(),
+                    pollTimer: null,
+                    pollFailures: 0,
+                    cancelling: pending.cancelling,
+                    settledTurns: new Set(),
+                });
+                if (pending.cancelling) void cancelTTSJob(backendUrl, res.existingJobId).catch(console.error);
+                return;
+            }
+            if (!res.jobId) return;
+            // 再作成時に旧 objectURL キャッシュを破棄する（最終音声の差し替え）。
+            if (turnId) {
+                releaseAuthedAudioUrl(ttsFinalAudioPath(backendUrl, sessionId, messageId, turnId));
+            }
+            let player: TTSPlaybackController | null = null;
+            if ((opts?.playback ?? true) && config.sequentialPlayback && !pending.cancelling
+                && playbackEpochRef.current === playbackEpoch) {
+                // 個別TURNの読み上げは人の明示操作。鳴っているものを全て止めてから逐次再生に入る
+                //（通し再生の後続TURNや待ち行列も一緒に止める）。
+                stopPlayback();
+                const created: TTSPlaybackController = new TTSPlaybackController({
+                    silenceSeconds: config.chunkSilenceSeconds,
+                    startCount: config.playbackStartChunkCount,
+                    volume: config.volume,
+                    ownsUrls: true,
+                    onError: error => console.error('[useTTSReading] playback error:', error),
+                    onEnded: () => {
+                        playersRef.current.delete(created);
+                        drainRef.current();
+                    },
+                });
+                player = created;
+            }
+            trackJob({
+                jobId: res.jobId,
+                messageId,
+                turnId: turnId ?? '',
+                targetKey,
+                player,
+                seenSeq: new Set(),
+                pollTimer: null,
+                pollFailures: 0,
+                cancelling: pending.cancelling,
+                settledTurns: new Set(),
+            });
+            if (pending.cancelling) void cancelTTSJob(backendUrl, res.jobId).catch(console.error);
+        } catch (error) {
+            if (disposedRef.current || sessionEpochRef.current !== sessionEpoch) return;
+            console.error('[useTTSReading] start failed:', error);
+            showNotice(targetKey, 'requestFailed');
+        } finally {
+            if (startingReadsRef.current.get(messageId) === pending) {
+                startingReadsRef.current.delete(messageId);
+                syncJobState();
+            }
+        }
+    }, [backendUrl, sessionId, enabled, isMessageGenerating, trackJob, stopPlayback, showNotice, getPresetVoiceDesign, syncJobState]);
+
+    const cancel = useCallback((targetKey: string) => {
+        for (const pending of startingReadsRef.current.values()) {
+            if (pending.targetKey === targetKey) pending.cancelling = true;
+        }
+        syncJobState();
+        let target: TrackedJob | null = null;
+        for (const job of jobsRef.current.values()) {
+            if (job.targetKey === targetKey) {
+                target = job;
+                break;
+            }
+        }
+        if (!target) return;
+        target.cancelling = true;
+        // 再生は即時停止し、未再生分を破棄する（要件9.3）。終端確定はポーリングが検知する。
+        if (target.player) {
+            target.player.stop();
+            playersRef.current.delete(target.player);
+            target.player = null;
+            drainRef.current();
+        }
+        syncJobState();
+        void cancelTTSJob(backendUrl, target.jobId).catch(error => {
+            console.error('[useTTSReading] cancel failed:', error);
+        });
+    }, [backendUrl, syncJobState]);
+
+    // playFinal は1本の最終音声を単発で再生する。人の明示操作なので、鳴っているものを
+    // 全て止めてから始める。
+    const playFinal = useCallback((messageId: string, turnId: string) => {
+        if (!enabled || !sessionId) return;
+        stopPlayback();
+        const epoch = playbackEpochRef.current;
+        const key = ttsTurnActiveKey(messageId, turnId);
+        void (async () => {
+            try {
+                const config = await getTTSConfig(backendUrl);
+                configRef.current = config;
+                const url = await resolveAuthedAudioUrl(ttsFinalAudioPath(backendUrl, sessionId, messageId, turnId));
+                if (disposedRef.current || playbackEpochRef.current !== epoch) return;
+                const audio = new Audio(url);
+                audio.volume = Math.min(1, Math.max(0, config.volume));
+                const settle = () => {
+                    if (finalAudioRef.current === audio) {
+                        finalAudioRef.current = null;
+                        setPlayingFinalKey(null);
+                        drainRef.current();
+                    }
+                };
+                audio.onended = settle;
+                audio.onerror = settle;
+                finalAudioRef.current = audio;
+                setPlayingFinalKey(key);
+                try {
+                    await audio.play();
+                } catch (error) {
+                    // 再生に入れなかった audio を「鳴っている」扱いのまま残さない。
+                    settle();
+                    throw error;
+                }
+            } catch (error) {
+                console.error('[useTTSReading] final playback failed:', error);
+                if (!disposedRef.current) setPlayingFinalKey(null);
+            }
+        })();
+    }, [backendUrl, sessionId, enabled, stopPlayback]);
 
     // deleteMessageAudio は1応答（メッセージ）分の生成音声を削除する。
     // 再生を止めてから削除し、objectURL キャッシュを解放して索引を読み直す。
@@ -357,17 +552,15 @@ export function useTTSReading(
         return ok;
     }, [backendUrl, sessionId, index, stopPlayback, refreshIndex]);
 
-    // waitTurnAudio は TURN の最終音声 URL を返す。waitForGeneration が真のときは
-    // 対象メッセージの実行中ジョブの完成を待つ（音声未紐づけ等のスキップや
-    // 未生成が確定したら null）。
+    // 応答境界によらず、対象TURNの生成予定があれば待つ。予定がなければ次を探す。
     const waitTurnAudio = useCallback(async (
         messageId: string,
         turnId: string,
-        waitForGeneration: boolean,
         token: number,
     ): Promise<string | null> => {
         for (;;) {
             if (sequenceTokenRef.current !== token || disposedRef.current || !sessionId) return null;
+            const wasGenerating = isTurnGenerating(messageId, turnId);
             try {
                 const idx = await fetchTTSAudioIndex(backendUrl, sessionId);
                 if (sequenceTokenRef.current !== token) return null;
@@ -379,12 +572,15 @@ export function useTTSReading(
                 // 索引の取得失敗は次の周回で再試行（生成待ちと同じ扱い）。
             }
             // 対象メッセージの生成ジョブが動いていなければ、これ以上は現れない（スキップ確定）。
-            const job = jobRef.current;
-            const generating = waitForGeneration && job !== null && job.messageId === messageId;
-            if (!generating) return null;
+            const generating = isTurnGenerating(messageId, turnId);
+            // 索引取得中にジョブが完了した場合は、完了後の索引をもう一度確認する。
+            if (!generating) {
+                if (wasGenerating) continue;
+                return null;
+            }
             await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
         }
-    }, [backendUrl, sessionId]);
+    }, [backendUrl, sessionId, isTurnGenerating]);
 
     // playSequenceAudio は1本の最終音声を再生して終了まで待つ（停止されたら false）。
     const playSequenceAudio = useCallback(async (url: string, token: number): Promise<boolean> => {
@@ -412,17 +608,18 @@ export function useTTSReading(
         });
     }, [backendUrl]);
 
-    // startSequence は startMessageId の応答ひと塊を先頭TURN（startTurnId 指定時はそのTURN）
-    // から通しで再生する。生成済みTURNは最終音声を再生し、開始メッセージの未生成TURNは
-    // 実行中ジョブの完成を待って再生する。autoAdvance が真なら応答の区切りを超えて、
-    // 生成済みの次の音声を続けて再生し、未生成へ当たった時点で終わる。
-    const startSequence = useCallback((startMessageId: string, playlist: TTSPlaylistEntry[], autoAdvance: boolean, startTurnId?: string) => {
-        stopPlayback();
+    // 通し再生と予約で再生済みTURNを共有する。生成予定のない穴は飛ばし、生成中は待つ。
+    const runSequence = useCallback((req: SequenceRequest) => {
         if (!enabled || !sessionId) return;
+        const { startMessageId, autoAdvance, startTurnId, progress } = req;
+        const { playedTurns } = progress;
+        const currentPlaylist = () => playlistGetterRef.current?.() ?? req.playlist;
+        sequenceProgressRef.current = progress;
         const token = ++sequenceTokenRef.current;
+        sequenceRunningRef.current = true;
         setSequenceActive(true);
         void (async () => {
-            const startIdx = playlist.findIndex(entry => entry.messageId === startMessageId);
+            const startIdx = currentPlaylist().findIndex(entry => entry.messageId === startMessageId);
             let skipUntilStartTurn = Boolean(startTurnId);
             // TURN 同士・応答同士の切れ目に空ける間（設定 turnGapSeconds。結合ではなく再生側で待つ）。
             // 設定は他画面で随時変わるため、通し再生の開始ごとに読み直す（音量も同じ値を使う）。
@@ -436,104 +633,202 @@ export function useTTSReading(
             }
             if (sequenceTokenRef.current !== token) return;
             let playedAny = false;
-            outer: for (let mi = Math.max(0, startIdx); mi < playlist.length; mi++) {
-                const entry = playlist[mi];
+            for (let mi = startIdx; startIdx >= 0 && mi < currentPlaylist().length; mi++) {
+                const entry = currentPlaylist()[mi];
+                if (!entry) break;
                 const isStartMessage = entry.messageId === startMessageId;
-                for (const turnId of entry.turnIds) {
+                for (let ti = 0; ; ti++) {
+                    const turnId = currentPlaylist().find(item => item.messageId === entry.messageId)?.turnIds[ti];
+                    if (!turnId) break;
                     if (sequenceTokenRef.current !== token) return;
                     // 途中TURNからの開始（個別再生ボタンの自動継続）: 開始TURNまで飛ばす。
                     if (skipUntilStartTurn) {
                         if (!isStartMessage || turnId !== startTurnId) continue;
                         skipUntilStartTurn = false;
                     }
-                    const url = await waitTurnAudio(entry.messageId, turnId, isStartMessage, token);
+                    const key = ttsTurnActiveKey(entry.messageId, turnId);
+                    if (playedTurns.has(key)) continue;
+                    const url = await waitTurnAudio(entry.messageId, turnId, token);
                     if (sequenceTokenRef.current !== token) return;
-                    if (url === null) {
-                        if (isStartMessage) continue; // スキップTURN（音声なし確定）は飛ばす
-                        break outer; // 先読み中に未生成へ当たったら終了
-                    }
+                    if (url === null) continue;
                     if (playedAny && gapSeconds > 0) {
                         // 前の音声の直後に始めず、切れ目の間を空ける（停止されたら抜ける）。
                         await new Promise(resolve => setTimeout(resolve, gapSeconds * 1000));
                         if (sequenceTokenRef.current !== token) return;
                     }
-                    setSequenceCurrentKey(ttsTurnActiveKey(entry.messageId, turnId));
+                    setSequenceCurrentKey(key);
                     const ok = await playSequenceAudio(url, token);
                     if (sequenceTokenRef.current === token) setSequenceCurrentKey(null);
                     if (!ok) return;
+                    playedTurns.add(key);
                     playedAny = true;
                 }
+                progress.completedMessages.add(entry.messageId);
                 if (!autoAdvance) break;
             }
             if (sequenceTokenRef.current === token) {
                 sequenceAudioRef.current = null;
+                sequenceRunningRef.current = false;
                 setSequenceActive(false);
                 setSequenceCurrentKey(null);
+                drainRef.current();
             }
         })();
-    }, [enabled, sessionId, backendUrl, stopPlayback, waitTurnAudio, playSequenceAudio]);
+    }, [enabled, sessionId, backendUrl, waitTurnAudio, playSequenceAudio]);
+
+    // drainPending は何も鳴っていなければ待ち行列の先頭の通し再生を始める。
+    const drainPending = useCallback(() => {
+        if (disposedRef.current || isPlayingNow()) return;
+        const next = pendingSequencesRef.current.shift();
+        if (!next) return;
+        runSequence(next);
+    }, [isPlayingNow, runSequence]);
+    useEffect(() => {
+        drainRef.current = drainPending;
+    }, [drainPending]);
+
+    const enqueueSequence = useCallback((req: SequenceRequest, mode: TTSSequenceOptions['mode']) => {
+        if (!enabled || !sessionId) return;
+        if (mode === 'interrupt') {
+            stopPlayback();
+            runSequence(req);
+            return;
+        }
+        if (isPlayingNow()) {
+            // 鳴っている最中は割り込まず、鳴り終わってから始める。
+            pendingSequencesRef.current.push(req);
+            return;
+        }
+        runSequence(req);
+    }, [enabled, sessionId, stopPlayback, runSequence, isPlayingNow]);
+
+    const startSequence = useCallback((startMessageId: string, playlist: TTSPlaylistEntry[], opts: TTSSequenceOptions) => {
+        enqueueSequence({
+            startMessageId, playlist, autoAdvance: opts.autoAdvance, startTurnId: opts.startTurnId,
+            progress: opts.mode === 'queue' && isPlayingNow()
+                && !sequenceProgressRef.current.completedMessages.has(startMessageId)
+                ? sequenceProgressRef.current : newSequenceProgress(),
+        }, opts.mode);
+    }, [enqueueSequence, isPlayingNow]);
+
+    const readMessage = useCallback(async (messageId: string, automatic = false) => {
+        const epoch = playbackEpochRef.current;
+        // 設定通信中に自動継続が進んでも、開始時に重なっていた再生済み範囲を引き継ぐ。
+        const progress = (isPlayingNow() || startingReadsRef.current.size > 0)
+            && (automatic || !sequenceProgressRef.current.completedMessages.has(messageId))
+            ? sequenceProgressRef.current : newSequenceProgress();
+        if (!isPlayingNow()) sequenceProgressRef.current = progress;
+        await start(messageId, undefined, {
+            playback: false,
+            onConfig: config => {
+                if (automatic && !config.autoReadEnabled) return false;
+                if ((!automatic || config.autoReadPlaybackEnabled) && playbackEpochRef.current === epoch) {
+                    enqueueSequence({
+                        startMessageId: messageId,
+                        playlist: playlistGetterRef.current?.() ?? [],
+                        autoAdvance: config.autoAdvanceEnabled,
+                        progress,
+                    }, 'queue');
+                }
+                return true;
+            },
+        });
+    }, [start, enqueueSequence, isPlayingNow]);
 
     // セッション切替時: 索引の再取得と、実行中ジョブのボタン状態復元（再生は再開しない）。
     useEffect(() => {
         disposedRef.current = false;
+        sessionEpochRef.current += 1;
+        playbackEpochRef.current += 1;
+        const sessionEpoch = sessionEpochRef.current;
+        const startingReads = startingReadsRef.current;
+        startingReads.clear();
+        sequenceProgressRef.current = newSequenceProgress();
         setIndex(null);
-        setActiveKey(null);
-        setCancelling(false);
         setNotice(null);
         stopFinal();
-        // 通し再生も破棄する（トークンを進めてループを無効化）。
+        // 通し再生と待ち行列も破棄する（トークンを進めてループを無効化）。
+        pendingSequencesRef.current = [];
         sequenceTokenRef.current += 1;
+        sequenceRunningRef.current = false;
         sequenceAudioRef.current?.pause();
         sequenceAudioRef.current = null;
         setSequenceActive(false);
         setSequenceCurrentKey(null);
-        playerRef.current?.stop();
-        playerRef.current = null;
-        jobRef.current = null;
-        seenSeqRef.current = new Set();
-        stopPolling();
+        stopPlayers();
+        for (const job of jobsRef.current.values()) stopJobPolling(job);
+        jobsRef.current = new Map();
+        syncJobState();
         if (!enabled || !sessionId) return;
         void refreshIndex();
         void (async () => {
             try {
                 const jobs = await fetchJobs(backendUrl);
-                const running = jobs.jobs.find(j => j.type === 'tts' && j.sessionId === sessionId
+                const running = jobs.jobs.filter(j => j.type === 'tts' && j.sessionId === sessionId
                     && (j.status === 'pending' || j.status === 'processing'));
-                if (!running || disposedRef.current) return;
-                const status = await fetchTTSStatus(backendUrl, running.jobId);
-                if (disposedRef.current || !status.messageId) return;
-                jobRef.current = {
-                    jobId: running.jobId,
-                    messageId: status.messageId,
-                    turnId: status.turnId ?? '',
-                    format: 'wav',
-                    restored: true,
-                };
-                // 進捗の既出分は再生しない（復元では表示状態のみ戻す）。
-                seenSeqRef.current = new Set((status.progress ?? []).map(entry => entry.seq));
-                setActiveKey(status.turnId
-                    ? ttsTurnActiveKey(status.messageId, status.turnId)
-                    : ttsMessageActiveKey(status.messageId));
-                beginPolling();
+                if (running.length === 0 || disposedRef.current || sessionEpochRef.current !== sessionEpoch) return;
+                for (const entry of running) {
+                    const status = await fetchTTSStatus(backendUrl, entry.jobId);
+                    if (disposedRef.current || sessionEpochRef.current !== sessionEpoch) return;
+                    if (!status.messageId || jobsRef.current.has(entry.jobId)) continue;
+                    // 進捗の既出分は再生しない（復元では表示状態のみ戻す）。
+                    trackJob({
+                        jobId: entry.jobId,
+                        messageId: status.messageId,
+                        turnId: status.turnId ?? '',
+                        targetKey: status.turnId
+                            ? ttsTurnActiveKey(status.messageId, status.turnId)
+                            : ttsMessageActiveKey(status.messageId),
+                        player: null,
+                        seenSeq: new Set((status.progress ?? []).map(p => p.seq)),
+                        pollTimer: null,
+                        pollFailures: 0,
+                        cancelling: false,
+                        settledTurns: new Set((status.progress ?? []).flatMap(p =>
+                            p.textKey === 'tts.skipped' ? p.args?.slice(0, 1) ?? []
+                                : p.textKey === 'tts.merged' ? p.args?.slice(1, 2) ?? [] : [])),
+                    });
+                }
             } catch {
                 // 復元は任意動作のため失敗は握りつぶす（通常操作には影響しない）。
             }
         })();
         return () => {
             disposedRef.current = true;
-            stopPolling();
+            sessionEpochRef.current += 1;
+            playbackEpochRef.current += 1;
+            startingReads.clear();
+            for (const job of jobsRef.current.values()) stopJobPolling(job);
+            pendingSequencesRef.current = [];
             sequenceTokenRef.current += 1;
+            sequenceRunningRef.current = false;
             sequenceAudioRef.current?.pause();
             sequenceAudioRef.current = null;
-            playerRef.current?.stop();
-            playerRef.current = null;
+            stopPlayers();
             if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
             stopFinal();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [backendUrl, sessionId, enabled]);
 
-    return { index, activeKey, cancelling, notice, playingFinalKey, sequenceActive, sequenceCurrentKey, start, cancel, playFinal, stopFinal, startSequence, stopPlayback, deleteMessageAudio };
+    return {
+        index,
+        activeKeys,
+        cancellingKeys,
+        activeMessageIds,
+        notice,
+        playingFinalKey,
+        sequenceActive,
+        sequenceCurrentKey,
+        start,
+        readMessage,
+        cancel,
+        playFinal,
+        stopFinal,
+        startSequence,
+        stopPlayback,
+        deleteMessageAudio,
+    };
 }
 
 // ttsHasFinalAudio は作成済み判定（読み上げ→再作成ボタン切替・再生ボタン表示）。

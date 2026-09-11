@@ -11,8 +11,18 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Settings as SettingsType } from '../../types/Settings';
 import { parseMultiCharacterResponse } from '../../lib/multiCharacterParser';
-import type { Message, Model, ModelProvider } from '../../hooks/useChat';
+import type { Message, Model, ModelProvider, RegenerateModelOptions } from '../../hooks/useChat';
 import { modelDisplayLabel, modelProviderOf } from '../../hooks/useChat';
+import {
+    REGENERATE_CLAUDE_EFFORT_VALUES,
+    normalizeRegenerateClaudeEffort,
+    type RegenerateClaudeEffort,
+} from '../../constants/claude';
+import {
+    antigravityThinkingLevelsOf,
+    normalizeAntigravityThinking,
+    type AntigravityThinking,
+} from '../../constants/antigravity';
 import { Edit2, RefreshCw, Palette, Loader2, FileText, X, ImageIcon, Clock, Trash2, Play, Square, Volume2, Music } from 'lucide-react';
 import { useTTSReading, ttsHasFinalAudio, ttsFinalAudioDuration, ttsTurnActiveKey, ttsMessageActiveKey } from './useTTSReading';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -21,12 +31,16 @@ import { getTTSConfig } from '../../api/tts';
 import type { TTSAudioIndex } from '../../api/tts';
 import type { TTSNotice } from './useTTSReading';
 import axiosLib from '../../lib/axios';
-import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment } from '../../api/comfyui';
+import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment, getComfyUIConfig, testComfyUIConnection } from '../../api/comfyui';
 import type { ImageAttachment } from '../../api/comfyui';
 import { FEATURE_ACTION_CHOICE, FEATURE_COMFYUI, isFeatureEnabled } from '../../constants/features';
 import { Toast, useToast } from '../common/Toast';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import {
+    ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE,
+    CHAT_INPUT_I18N_KEYS,
+    CHAT_INPUT_TEXT_FALLBACK_JA,
+    CLAUDE_EFFORT_I18N_KEY_BY_VALUE,
     COMMON_I18N_KEYS,
     COMMON_TEXT_FALLBACK_JA,
     MESSAGE_LIST_I18N_KEYS,
@@ -58,8 +72,12 @@ interface MessageListProps {
     onEditSave: () => void;
     onEditChange: (content: string) => void;
     onRegenerate: () => void;
-    /** 指定モデルで再生成（同一プロバイダ内の別モデル） */
-    onRegenerateWithModel: (modelId: string) => void;
+    /** 指定モデルで再生成（プロバイダ跨ぎ可。options は詳細指定時の Effort / Thinking） */
+    onRegenerateWithModel: (modelId: string, options?: RegenerateModelOptions) => void;
+    /** 再生成用に保持している Claude effort（詳細指定の初期値） */
+    regenerateClaudeEffort: RegenerateClaudeEffort;
+    /** 再生成用に保持している Antigravity Thinking（詳細指定の初期値） */
+    regenerateAntigravityThinking: AntigravityThinking;
     models: Model[];
     selectedModel: string;
     selectedModelProvider: ModelProvider;
@@ -326,7 +344,9 @@ interface MessageItemProps {
     onEditSave: () => void;
     onEditChange: (content: string) => void;
     onRegenerate: () => void;
-    onRegenerateWithModel: (modelId: string) => void;
+    onRegenerateWithModel: (modelId: string, options?: RegenerateModelOptions) => void;
+    regenerateClaudeEffort: RegenerateClaudeEffort;
+    regenerateAntigravityThinking: AntigravityThinking;
     models: Model[];
     selectedModel: string;
     selectedModelProvider: ModelProvider;
@@ -339,9 +359,12 @@ interface MessageItemProps {
     /** 文体指示の対応絵文字一覧（表示からの常時除去用） */
     ttsEmojiList: string[];
     ttsIndex: TTSAudioIndex | null;
-    /** 実行中の読み上げ対象キー（turn:.../msg:...）。非実行中は null */
-    ttsActiveKey: string | null;
-    ttsCancelling: boolean;
+    /** 実行中（生成中）の読み上げ対象キー集合（turn:.../msg:...）。応答ごとに並行しうる */
+    ttsActiveKeys: ReadonlySet<string>;
+    /** キャンセル要求済みで終端待ちの対象キー集合 */
+    ttsCancellingKeys: ReadonlySet<string>;
+    /** 実行中ジョブが対象とする応答IDの集合（同一応答内の相互排他に使う） */
+    ttsActiveMessageIds: ReadonlySet<string>;
     ttsNotice: TTSNotice | null;
     ttsPlayingFinalKey: string | null;
     /** 通し再生（全体読み上げ・自動継続）の実行中。停止してからでないと他の個別再生は押せない */
@@ -349,13 +372,18 @@ interface MessageItemProps {
     /** 通し再生で今鳴っている TURN のキー（そのTURNのボタンだけ「停止」として押せる） */
     ttsSequenceCurrentKey: string | null;
     onTTSStart: (messageId: string, turnId?: string) => void;
-    onTTSCancel: () => void;
+    /** 対象キー（turn:.../msg:...）の生成ジョブをキャンセルする */
+    onTTSCancel: (targetKey: string) => void;
     onTTSPlayFinal: (messageId: string, turnId: string) => void;
     onTTSStopFinal: () => void;
     /** 通し再生の停止（再生中TURNの「停止」ボタン用） */
     onTTSStopPlayback: () => void;
     onTTSDeleteAudio: (messageId: string) => void;
 }
+
+/** 別モデル再生成の簡易選択で先頭に置く「詳細...」の値。モデルIDと衝突しない値にする */
+const ALT_MODEL_DETAIL_VALUE = '__regenerate_detail__';
+const ALT_MODEL_SELECT_CLASS = 'bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1 outline-none focus:border-blue-500 cursor-pointer hover:bg-gray-700 transition-colors max-w-[260px]';
 
 /**
  * メッセージ1件の表示コンポーネント
@@ -382,6 +410,8 @@ const MessageItem = React.memo<MessageItemProps>(({
     onEditChange,
     onRegenerate,
     onRegenerateWithModel,
+    regenerateClaudeEffort,
+    regenerateAntigravityThinking,
     models,
     selectedModel,
     selectedModelProvider,
@@ -391,8 +421,9 @@ const MessageItem = React.memo<MessageItemProps>(({
     ttsEnabled,
     ttsEmojiList,
     ttsIndex,
-    ttsActiveKey,
-    ttsCancelling,
+    ttsActiveKeys,
+    ttsCancellingKeys,
+    ttsActiveMessageIds,
     ttsNotice,
     ttsPlayingFinalKey,
     ttsSequenceActive,
@@ -404,16 +435,45 @@ const MessageItem = React.memo<MessageItemProps>(({
     onTTSStopPlayback,
     onTTSDeleteAudio
 }) => {
-    // 別モデル再生成の展開状態と選択モデル。候補はセッションのプロバイダ内に限定する
-    // （再生成はセッションに固定されたプロバイダ種別で動くため、跨いだ指定はできない）。
-    const [altModelOpen, setAltModelOpen] = useState(false);
-    const [altModelId, setAltModelId] = useState('');
-    const altModelChoices = models.filter(m => modelProviderOf(m) === selectedModelProvider);
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
-        MESSAGE_LIST_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
+        MESSAGE_LIST_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || CHAT_INPUT_TEXT_FALLBACK_JA[key] || key
     );
+    // 別モデル再生成の展開状態と選択内容。簡易モードは現在のプロバイダ内のモデルだけを
+    // 並べ、先頭の「詳細...」を選ぶとプロバイダ・モデル・Effort/Thinking を個別に選べる。
+    // 簡易モードの Effort/Thinking は再生成用の保持値（props）が使われる。
+    const [altModelOpen, setAltModelOpen] = useState(false);
+    const [altDetailOpen, setAltDetailOpen] = useState(false);
+    const [altProvider, setAltProvider] = useState<ModelProvider>(selectedModelProvider);
+    const [altModelId, setAltModelId] = useState('');
+    const [altClaudeEffort, setAltClaudeEffort] = useState<RegenerateClaudeEffort>(regenerateClaudeEffort);
+    const [altAntigravityThinking, setAltAntigravityThinking] = useState<AntigravityThinking>(regenerateAntigravityThinking);
+    const altQuickChoices = models.filter(m => modelProviderOf(m) === selectedModelProvider);
+    const altDetailChoices = models.filter(m => modelProviderOf(m) === altProvider);
+    const altThinkingLevels = altProvider === 'antigravity'
+        ? antigravityThinkingLevelsOf(altDetailChoices.find(m => m.id === altModelId))
+        : [];
+    // そのモデルで選べないレベルは表示・送信とも Low へ落とす（保持値は useChat 側で維持）。
+    const altThinkingValue = altThinkingLevels.length > 0
+        ? normalizeAntigravityThinking(altAntigravityThinking, altThinkingLevels)
+        : altAntigravityThinking;
+    const altProviderChoices: { value: ModelProvider; label: string }[] = [
+        { value: 'antigravity', label: 'Antigravity' },
+        { value: 'claude', label: 'Claude' },
+        { value: 'gemini', label: 'Gemini' },
+        { value: 'openai_compat', label: t(CHAT_INPUT_I18N_KEYS.providerOpenAICompat) },
+    ].filter(p => models.some(m => modelProviderOf(m) === p.value)) as { value: ModelProvider; label: string }[];
+    // プロバイダ切替時の初期モデル。入力欄で選択中のモデルがそのプロバイダなら優先する。
+    const altPickModelFor = (provider: ModelProvider): string => {
+        const choices = models.filter(m => modelProviderOf(m) === provider);
+        if (choices.some(m => m.id === selectedModel)) return selectedModel;
+        return choices[0]?.id ?? '';
+    };
+    const closeAltModel = () => {
+        setAltModelOpen(false);
+        setAltDetailOpen(false);
+    };
     // TTS 文言はインライン fallback 方式（catalog.go の tts.* キー）。
     const tt = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
     const displayContent = React.useMemo(
@@ -672,13 +732,14 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 const ttsTurnButtons = (() => {
                                     if (!ttsEnabled || !msg.id || !turn.turnId || !sessionId || isLoading) return null;
                                     const turnActiveKey = ttsTurnActiveKey(msg.id, turn.turnId);
-                                    const isTurnReading = ttsActiveKey === turnActiveKey;
+                                    const isTurnReading = ttsActiveKeys.has(turnActiveKey);
+                                    const isTurnCancelling = ttsCancellingKeys.has(turnActiveKey);
                                     const hasAudio = ttsHasFinalAudio(ttsIndex, msg.id, turn.turnId);
                                     const audioDuration = ttsFinalAudioDuration(ttsIndex, msg.id, turn.turnId);
                                     const isFinalPlaying = ttsPlayingFinalKey === turnActiveKey;
                                     const noticeHere = ttsNotice !== null && ttsNotice.targetKey === turnActiveKey;
-                                    // 同一応答内の相互排他（要件9.7）: 他の実行中は開始できない。
-                                    const otherActive = ttsActiveKey !== null && !isTurnReading;
+                                    // 同一応答内の相互排他（要件9.7）: 同じ応答の他の実行中は開始できない。
+                                    const otherActive = ttsActiveMessageIds.has(msg.id) && !isTurnReading;
                                     return (
                                         <>
                                             {noticeHere && (
@@ -713,8 +774,8 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 );
                                             })()}
                                             <button
-                                                onClick={() => isTurnReading ? onTTSCancel() : onTTSStart(msg.id!, turn.turnId!)}
-                                                disabled={otherActive || (isTurnReading && ttsCancelling)}
+                                                onClick={() => isTurnReading ? onTTSCancel(turnActiveKey) : onTTSStart(msg.id!, turn.turnId!)}
+                                                disabled={otherActive || (isTurnReading && isTurnCancelling)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title={isTurnReading
                                                     ? tt('tts.button.cancel', 'キャンセル')
@@ -729,7 +790,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     <Volume2 size={14} />
                                                 )}
                                                 <span>{isTurnReading
-                                                    ? (ttsCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
+                                                    ? (isTurnCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
                                                     : hasAudio ? tt('tts.button.recreate', '再作成') : tt('tts.button.read', '読み上げ')}</span>
                                             </button>
                                         </>
@@ -854,10 +915,14 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             <span>{t(MESSAGE_LIST_I18N_KEYS.regenerate)}</span>
                                         </button>
                                     )}
-                                    {isLast && !isLoading && sessionId && altModelChoices.length > 0 && !altModelOpen && (
+                                    {isLast && !isLoading && sessionId && models.length > 0 && !altModelOpen && (
                                         <button
                                             onClick={() => {
-                                                setAltModelId(altModelChoices.some(m => m.id === selectedModel) ? selectedModel : altModelChoices[0].id);
+                                                setAltProvider(selectedModelProvider);
+                                                setAltModelId(altPickModelFor(selectedModelProvider));
+                                                setAltClaudeEffort(regenerateClaudeEffort);
+                                                setAltAntigravityThinking(regenerateAntigravityThinking);
+                                                setAltDetailOpen(false);
                                                 setAltModelOpen(true);
                                             }}
                                             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
@@ -868,30 +933,102 @@ const MessageItem = React.memo<MessageItemProps>(({
                                         </button>
                                     )}
                                     {isLast && !isLoading && sessionId && altModelOpen && (
-                                        <div className="flex items-center gap-1.5">
-                                            <select
-                                                value={altModelId}
-                                                onChange={(e) => setAltModelId(e.target.value)}
-                                                className="bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1 outline-none focus:border-blue-500 cursor-pointer hover:bg-gray-700 transition-colors max-w-[260px]"
-                                                title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModel)}
-                                            >
-                                                {altModelChoices.map(m => (
-                                                    <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
-                                                ))}
-                                            </select>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {altDetailOpen ? (
+                                                <>
+                                                    <select
+                                                        value={altProvider}
+                                                        onChange={(e) => {
+                                                            const provider = e.target.value as ModelProvider;
+                                                            setAltProvider(provider);
+                                                            setAltModelId(altPickModelFor(provider));
+                                                        }}
+                                                        className={ALT_MODEL_SELECT_CLASS}
+                                                        title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelProvider)}
+                                                        aria-label={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelProvider)}
+                                                    >
+                                                        {altProviderChoices.map(p => (
+                                                            <option key={p.value} value={p.value}>{p.label}</option>
+                                                        ))}
+                                                    </select>
+                                                    <select
+                                                        value={altModelId}
+                                                        onChange={(e) => setAltModelId(e.target.value)}
+                                                        className={ALT_MODEL_SELECT_CLASS}
+                                                        title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModel)}
+                                                    >
+                                                        {altDetailChoices.map(m => (
+                                                            <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
+                                                        ))}
+                                                    </select>
+                                                    {altProvider === 'claude' && (
+                                                        <select
+                                                            value={altClaudeEffort}
+                                                            onChange={(e) => setAltClaudeEffort(normalizeRegenerateClaudeEffort(e.target.value))}
+                                                            className={ALT_MODEL_SELECT_CLASS}
+                                                            title={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                                            aria-label={t(CHAT_INPUT_I18N_KEYS.claudeEffort)}
+                                                        >
+                                                            {REGENERATE_CLAUDE_EFFORT_VALUES.map(effort => (
+                                                                <option key={effort} value={effort}>{t(CLAUDE_EFFORT_I18N_KEY_BY_VALUE[effort])}</option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                    {altProvider === 'antigravity' && altThinkingLevels.length > 0 && (
+                                                        <select
+                                                            value={altThinkingValue}
+                                                            onChange={(e) => setAltAntigravityThinking(normalizeAntigravityThinking(e.target.value, altThinkingLevels))}
+                                                            className={ALT_MODEL_SELECT_CLASS}
+                                                            title={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                                            aria-label={t(CHAT_INPUT_I18N_KEYS.antigravityThinking)}
+                                                        >
+                                                            {altThinkingLevels.map(level => (
+                                                                <option key={level} value={level}>{t(ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE[level])}</option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <select
+                                                    value={altModelId}
+                                                    onChange={(e) => {
+                                                        if (e.target.value === ALT_MODEL_DETAIL_VALUE) {
+                                                            setAltDetailOpen(true);
+                                                            return;
+                                                        }
+                                                        setAltModelId(e.target.value);
+                                                    }}
+                                                    className={ALT_MODEL_SELECT_CLASS}
+                                                    title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModel)}
+                                                >
+                                                    <option value={ALT_MODEL_DETAIL_VALUE}>{t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelDetail)}</option>
+                                                    {altQuickChoices.map(m => (
+                                                        <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
+                                                    ))}
+                                                </select>
+                                            )}
                                             <button
                                                 onClick={() => {
                                                     if (!altModelId) return;
-                                                    setAltModelOpen(false);
-                                                    onRegenerateWithModel(altModelId);
+                                                    const detail = altDetailOpen;
+                                                    closeAltModel();
+                                                    if (detail) {
+                                                        onRegenerateWithModel(altModelId, {
+                                                            claudeEffort: altClaudeEffort,
+                                                            antigravityThinking: altThinkingValue,
+                                                        });
+                                                    } else {
+                                                        onRegenerateWithModel(altModelId);
+                                                    }
                                                 }}
-                                                className="flex items-center gap-1 px-3 py-1 text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-full transition-colors"
+                                                disabled={!altModelId}
+                                                className="flex items-center gap-1 px-3 py-1 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-full transition-colors"
                                             >
                                                 <RefreshCw size={12} />
                                                 <span>{t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelRun)}</span>
                                             </button>
                                             <button
-                                                onClick={() => setAltModelOpen(false)}
+                                                onClick={closeAltModel}
                                                 className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
                                                 title={t(MESSAGE_LIST_I18N_KEYS.close)}
                                             >
@@ -901,8 +1038,10 @@ const MessageItem = React.memo<MessageItemProps>(({
                                     )}
                                     {ttsEnabled && msg.id && sessionId && !isLoading && (() => {
                                         const messageKey = ttsMessageActiveKey(msg.id);
-                                        const isMessageReading = ttsActiveKey === messageKey;
-                                        const otherActive = ttsActiveKey !== null && !isMessageReading;
+                                        const isMessageReading = ttsActiveKeys.has(messageKey);
+                                        const isMessageCancelling = ttsCancellingKeys.has(messageKey);
+                                        // 同一応答内の相互排他: 同じ応答のTURN個別が生成中なら全体は開始できない。
+                                        const otherActive = ttsActiveMessageIds.has(msg.id) && !isMessageReading;
                                         const noticeHere = ttsNotice !== null && ttsNotice.targetKey === messageKey;
                                         const hasAnyAudio = ttsIndex !== null
                                             && Object.values(ttsIndex.entries).some(entry => entry.messageId === msg.id);
@@ -914,8 +1053,8 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     </span>
                                                 )}
                                                 <button
-                                                    onClick={() => isMessageReading ? onTTSCancel() : onTTSStart(msg.id!)}
-                                                    disabled={otherActive || (isMessageReading && ttsCancelling)}
+                                                    onClick={() => isMessageReading ? onTTSCancel(messageKey) : onTTSStart(msg.id!)}
+                                                    disabled={otherActive || (isMessageReading && isMessageCancelling)}
                                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                     title={isMessageReading ? tt('tts.button.cancel', 'キャンセル') : tt('tts.button.readAll', '全体読み上げ')}
                                                 >
@@ -925,13 +1064,13 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                         <Volume2 size={12} />
                                                     )}
                                                     <span>{isMessageReading
-                                                        ? (ttsCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
+                                                        ? (isMessageCancelling ? tt('tts.button.cancelling', 'キャンセル中...') : tt('tts.button.cancel', 'キャンセル'))
                                                         : tt('tts.button.readAll', '全体読み上げ')}</span>
                                                 </button>
                                                 {hasAnyAudio && (
                                                     <button
                                                         onClick={() => onTTSDeleteAudio(msg.id!)}
-                                                        disabled={ttsActiveKey !== null}
+                                                        disabled={ttsActiveMessageIds.has(msg.id)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                         title={tt('tts.button.deleteAudio', '音声を削除')}
                                                     >
@@ -1027,6 +1166,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     onEditChange,
     onRegenerate,
     onRegenerateWithModel,
+    regenerateClaudeEffort,
+    regenerateAntigravityThinking,
     models,
     selectedModel,
     selectedModelProvider,
@@ -1171,7 +1312,16 @@ export const MessageList: React.FC<MessageListProps> = ({
     const canUseComfyUI = isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI);
     const canUseActionChoice = isFeatureEnabled(enabledFeatures, FEATURE_ACTION_CHOICE);
     // TTS 読み上げの実行状態（開始・ポーリング・逐次再生・キャンセル・作成済み索引）。
-    const tts = useTTSReading(backendUrl, sessionId ?? null, ttsEnabled, getTTSPresetVoiceDesign);
+    const buildTTSPlaylist = useStableCallback((): TTSPlaylistEntry[] =>
+        messages
+            .filter(m => m.role === 'agent' && m.id)
+            .map(m => ({
+                messageId: m.id!,
+                turnIds: parseMultiCharacterResponse(m.content)
+                    .map(turn => turn.turnId)
+                    .filter((id): id is string => Boolean(id)),
+            })));
+    const tts = useTTSReading(backendUrl, sessionId ?? null, ttsEnabled, getTTSPresetVoiceDesign, buildTTSPlaylist);
     // Sticky 停止ボタンの表示設定（tts_config.json の stopButtonEnabled）。
     // マウント時と再生開始時に読み、トグル変更は次の再生開始時に追随する。
     const [stopButtonVisible, setStopButtonVisible] = useState(false);
@@ -1187,10 +1337,10 @@ export const MessageList: React.FC<MessageListProps> = ({
             .then(cfg => { if (!disposed) setStopButtonVisible(cfg.stopButtonEnabled); })
             .catch(() => { /* 未接続時は非表示のまま */ });
         return () => { disposed = true; };
-    }, [ttsEnabled, backendUrl]);
+    }, [ttsEnabled, backendUrl, tts.sequenceActive]);
 
-    // 自動読み上げ（要件4章: 応答受信の正常完了時に1応答全体の生成を自動開始。
-    // 生成のみで自動再生はしない）。isLoading の true→false 遷移で待ちフラグを立て、
+    // 自動読み上げ: 応答受信の正常完了時に1応答全体を生成し、設定に従って再生する。
+    // isLoading の true→false 遷移で待ちフラグを立て、
     // 履歴再読み込みで最後の agent メッセージへ ID が付いた時点で一度だけ発火する。
     // エラー応答・ユーザーの次送信・セッション切替ではフラグを破棄する。
     const autoReadArmedRef = useRef(false);
@@ -1215,26 +1365,9 @@ export const MessageList: React.FC<MessageListProps> = ({
         if (!last.id) return; // 履歴再読み込みによる ID 付与を待つ（フラグ維持）
         autoReadArmedRef.current = false;
         const messageId = last.id;
-        void (async () => {
-            try {
-                // トグルはドロワー等で随時変わるため、発火のたびに現在値を確認する。
-                const cfg = await getTTSConfig(backendUrl);
-                if (!cfg.autoReadEnabled) return;
-                if (!cfg.autoReadPlaybackEnabled) {
-                    // 既定: 生成のみ（自動再生なし）。
-                    void tts.start(messageId, undefined, { playback: false });
-                    return;
-                }
-                // 「応答時に音声も再生する」ON: 生成を始めつつ全体読み上げと同じ通し再生へ入る
-                //（生成の確定を待ってから始める。先頭TURNの生成待ち判定を誤らせないため）。
-                setStopButtonVisible(cfg.stopButtonEnabled);
-                await tts.start(messageId, undefined, { playback: false });
-                tts.startSequence(messageId, buildTTSPlaylist(), cfg.autoAdvanceEnabled);
-            } catch (error) {
-                console.error('[MessageList] auto read config check failed:', error);
-            }
-        })();
-        // tts.start / startSequence は useCallback 済み。messages の更新（ID付与）を発火契機にする。
+        // 設定取得中も生成予定として扱い、通し再生の追い越しを防ぐ。
+        void tts.readMessage(messageId, true);
+        // messages の更新（ID付与）を発火契機にする。
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messages, ttsEnabled, backendUrl]);
 
@@ -1411,20 +1544,40 @@ export const MessageList: React.FC<MessageListProps> = ({
         return () => container.removeEventListener('scroll', handleScroll);
     }, [settings.enableBackgroundImage]);
 
-    // 画像生成ハンドラ（ジョブキュー方式: submit → ポーリング）
-    // turnId / turnIndex は押下されたチャットバブル（TURN）の指定（turnId優先）。
+    // 画像生成の投入（ジョブ送信のみ。返る jobId で完了待ちへ続ける）。
+    // turnId / turnIndex は対象のチャットバブル（TURN）の指定（turnId優先）。
     // 同一 TURN の二重投入だけを防ぎ、別 TURN は待機中（予約）として続けて投入できる。
-    const handleGenerate = useCallback(async (messageId: string, turnId: string | null, turnIndex: number) => {
+    // 二重投入と 409（サーバー側で処理中）は null を返し、それ以外の投入失敗は投げる。
+    // 投入と完了待ちを分けているのは、応答時の自動投入で「投入だけを上から順に待ち、
+    // 完了待ちは TURN ごとに並行させる」ため（完了まで順に待つと 1 枚目の完了後に
+    // 2 枚目を投入する形になり、順序は守れても大幅に遅くなる）。
+    const submitGenerate = useCallback(async (messageId: string, turnId: string | null, turnIndex: number): Promise<string | null> => {
         // backendUrl は同梱ビルドでは空文字（同一オリジン相対）なのでガード対象にしない
         const key = `${messageId}::${turnId ?? turnIndex}`;
-        if (!canUseComfyUI || !sessionId || generatingRef.current[key]) return;
+        if (!canUseComfyUI || !sessionId || generatingRef.current[key]) return null;
         updateGeneratingStage(key, 'reserved');
         try {
             // ジョブ送信（即座にjobIdが返る）
             const submitted = await generateFromChat(backendUrl, sessionId, messageId, turnId, turnIndex);
-            let jobId: string = submitted.jobId;
-            console.log('[Frontend] Image-generate job submitted:', jobId);
+            console.log('[Frontend] Image-generate job submitted:', submitted.jobId);
+            return submitted.jobId;
+        } catch (e: any) {
+            if (!disposedRef.current) {
+                updateGeneratingStage(key, null);
+            }
+            // 409: 既に処理中 → 重複扱い（何もしない）
+            if (e.response?.status === 409) {
+                console.log('[Frontend] Image-generate already in progress');
+                return null;
+            }
+            throw e;
+        }
+    }, [canUseComfyUI, sessionId, backendUrl, updateGeneratingStage]);
 
+    // 画像生成の完了待ち（ポーリング。添付の反映・失敗の通知・進行表示の解除まで行う）。
+    const pollGenerate = useCallback(async (key: string, messageId: string, submittedJobId: string) => {
+        let jobId = submittedJobId;
+        try {
             // ポーリング（2秒間隔）。試行回数は実行中の段階だけ数え（最大5分）、
             // 待機中（予約・生成待ち）は時間を消費しない。分析ジョブが完了して
             // 後続の生成ジョブが返ったら、そちらのポーリングへ乗り換える。
@@ -1480,12 +1633,7 @@ export const MessageList: React.FC<MessageListProps> = ({
             }
             showToast(t(MESSAGE_LIST_I18N_KEYS.imageGenerateTimeout));
         } catch (e: any) {
-            // 409: 既に処理中 → 重複扱い（何もしない）
-            if (e.response?.status === 409) {
-                console.log('[Frontend] Image-generate already in progress');
-                return;
-            }
-            console.error('[Frontend] Image-generate request failed:', e);
+            console.error('[Frontend] Image-generate polling failed:', e);
             if (!disposedRef.current) {
                 showToast(e.message || t(MESSAGE_LIST_I18N_KEYS.imageGenerateError));
             }
@@ -1495,7 +1643,100 @@ export const MessageList: React.FC<MessageListProps> = ({
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canUseComfyUI, sessionId, backendUrl, showToast, uiCatalog, updateGeneratingStage]);
+    }, [backendUrl, showToast, uiCatalog, updateGeneratingStage]);
+
+    // 画像生成ハンドラ（手動押下: 投入 → 完了待ち）
+    const handleGenerate = useCallback(async (messageId: string, turnId: string | null, turnIndex: number) => {
+        const key = `${messageId}::${turnId ?? turnIndex}`;
+        try {
+            const jobId = await submitGenerate(messageId, turnId, turnIndex);
+            if (jobId === null) return;
+            await pollGenerate(key, messageId, jobId);
+        } catch (e: any) {
+            console.error('[Frontend] Image-generate request failed:', e);
+            if (!disposedRef.current) {
+                showToast(e.message || t(MESSAGE_LIST_I18N_KEYS.imageGenerateError));
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [submitGenerate, pollGenerate, showToast, uiCatalog]);
+
+    // 自動画像生成（応答受信の正常完了時に、その応答の各 TURN へ上から順に画像生成を投入する）。
+    // 発火判定は自動読み上げと同じ: isLoading の true→false 遷移で待ちフラグを立て、
+    // 履歴再読み込みで最後の agent メッセージへ ID が付いた時点で一度だけ発火する。
+    // エラー応答・セッション切替ではフラグを破棄する。
+    // 投入前に ComfyUI の死活を確認し、応答が無ければトーストを一度出して何も積まない。
+    // 投入だけを上から順に待ち（ジョブキューは投入順に処理するため上から順に生成される）、
+    // 完了待ちは TURN ごとに並行させる。
+    const autoImageArmedRef = useRef(false);
+    const prevImageLoadingRef = useRef(isLoading);
+    useEffect(() => {
+        if (prevImageLoadingRef.current && !isLoading) {
+            autoImageArmedRef.current = true;
+        }
+        prevImageLoadingRef.current = isLoading;
+    }, [isLoading]);
+    useEffect(() => {
+        autoImageArmedRef.current = false;
+    }, [sessionId]);
+    useEffect(() => {
+        if (!autoImageArmedRef.current || !canUseComfyUI) return;
+        const last = messages[messages.length - 1];
+        if (!last) return;
+        if (last.role !== 'agent' || last.errorType) {
+            autoImageArmedRef.current = false;
+            return;
+        }
+        if (!last.id) return; // 履歴再読み込みによる ID 付与を待つ（フラグ維持）
+        autoImageArmedRef.current = false;
+        const messageId = last.id;
+        const content = last.content;
+        void (async () => {
+            // トグルはドロワーで随時変わるため、発火のたびに現在値を確認する。
+            // 設定が読めない（連携モジュール未稼働など）ときは静かに何もしない。
+            let connectionUrl = '';
+            try {
+                const cfg = await getComfyUIConfig(backendUrl);
+                if (!cfg.autoGenerateEnabled) return;
+                connectionUrl = (cfg.connectionUrl || '').trim();
+            } catch (error) {
+                console.error('[MessageList] auto image generate config check failed:', error);
+                return;
+            }
+            if (disposedRef.current) return;
+            // 死活チェック（接続先が未設定、または応答が無ければ予約しない）
+            let alive = false;
+            if (connectionUrl) {
+                try {
+                    alive = (await testComfyUIConnection(backendUrl, connectionUrl)).success;
+                } catch (error) {
+                    console.error('[MessageList] auto image generate connection check failed:', error);
+                }
+            }
+            if (disposedRef.current) return;
+            if (!alive) {
+                showToast(t(MESSAGE_LIST_I18N_KEYS.imageAutoSkipped));
+                return;
+            }
+            // 各 TURN へ上から順に投入。二重投入・409 の TURN は飛ばし、
+            // それ以外の投入失敗は残りを打ち切る（ComfyUI 側が途中で落ちた場合に積み続けないため）。
+            try {
+                for (const turn of parseMultiCharacterResponse(content)) {
+                    if (disposedRef.current) return;
+                    const jobId = await submitGenerate(messageId, turn.turnId, turn.index);
+                    if (jobId === null) continue;
+                    void pollGenerate(`${messageId}::${turn.turnId ?? turn.index}`, messageId, jobId);
+                }
+            } catch (error: any) {
+                console.error('[MessageList] auto image generate submit failed:', error);
+                if (!disposedRef.current) {
+                    showToast(error?.message || t(MESSAGE_LIST_I18N_KEYS.imageGenerateError));
+                }
+            }
+        })();
+        // submitGenerate / pollGenerate は useCallback 済み。messages の更新（ID付与）を発火契機にする。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, canUseComfyUI, backendUrl]);
 
     const openExpandedImage = (attachment: ImageAttachment, msgId?: string, turnKey?: string) => {
         setExpandedAttachment(attachment);
@@ -1551,40 +1792,17 @@ export const MessageList: React.FC<MessageListProps> = ({
     // 1応答全体の読み上げ（P3拡張）: 生成を開始しつつ（生成済み・音声未紐づけTURNは
     // サーバー側スキップ）、応答ひと塊の先頭TURNから通し再生する。全部生成済みで
     // ジョブが立たない場合も通し再生は開始する。TURN単位は従来どおり。
-    const buildTTSPlaylist = React.useCallback((): TTSPlaylistEntry[] =>
-        messages
-            .filter(m => m.role === 'agent' && m.id)
-            .map(m => ({
-                messageId: m.id!,
-                turnIds: parseMultiCharacterResponse(m.content)
-                    .map(turn => turn.turnId)
-                    .filter((id): id is string => Boolean(id)),
-            })), [messages]);
-
     const handleTTSStart = (messageId: string, turnId?: string) => {
         if (turnId) {
             void tts.start(messageId, turnId);
             return;
         }
-        void (async () => {
-            let autoAdvance = false;
-            try {
-                const cfg = await getTTSConfig(backendUrl);
-                autoAdvance = cfg.autoAdvanceEnabled;
-                setStopButtonVisible(cfg.stopButtonEnabled);
-            } catch {
-                // 設定が読めなくても既定値で再生は続行する。
-            }
-            // 生成開始の確定を待ってから通し再生へ入る。待たないと先頭TURNの
-            // 生成待ち判定がジョブ参照の空を「音声なし確定」と誤読してスキップする。
-            await tts.start(messageId, undefined, { playback: false });
-            tts.startSequence(messageId, buildTTSPlaylist(), autoAdvance);
-        })();
+        void tts.readMessage(messageId);
     };
     const stableOnTTSStart = useStableCallback(handleTTSStart);
     const stableOnTTSCancel = useStableCallback(tts.cancel);
     // 個別TURNの再生（要件14.1「続きを自動再生」）: トグルONならそのTURNから通し再生に
-    // 入り、後続の生成済み音声（応答の区切りを跨いで）を続けて再生する。OFFは1本だけ。
+    // 入り、応答の区切りを跨いで後続の音声の生成待ち・探索を続ける。OFFは1本だけ。
     const handleTTSPlayFinal = (messageId: string, turnId: string) => {
         void (async () => {
             let autoAdvance = false;
@@ -1596,7 +1814,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                 // 設定が読めなくても1本再生は続行する。
             }
             if (autoAdvance) {
-                tts.startSequence(messageId, buildTTSPlaylist(), true, turnId);
+                // 個別の再生は人の明示操作。鳴っているものを止めて切り替える。
+                tts.startSequence(messageId, buildTTSPlaylist(), { autoAdvance: true, startTurnId: turnId, mode: 'interrupt' });
             } else {
                 tts.playFinal(messageId, turnId);
             }
@@ -1650,6 +1869,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                     onEditChange={stableOnEditChange}
                     onRegenerate={stableOnRegenerate}
                     onRegenerateWithModel={stableOnRegenerateWithModel}
+                    regenerateClaudeEffort={regenerateClaudeEffort}
+                    regenerateAntigravityThinking={regenerateAntigravityThinking}
                     models={models}
                     selectedModel={selectedModel}
                     selectedModelProvider={selectedModelProvider}
@@ -1659,8 +1880,9 @@ export const MessageList: React.FC<MessageListProps> = ({
                     ttsEnabled={ttsEnabled}
                     ttsEmojiList={ttsEmojiList}
                     ttsIndex={tts.index}
-                    ttsActiveKey={tts.activeKey}
-                    ttsCancelling={tts.cancelling}
+                    ttsActiveKeys={tts.activeKeys}
+                    ttsCancellingKeys={tts.cancellingKeys}
+                    ttsActiveMessageIds={tts.activeMessageIds}
                     ttsNotice={tts.notice}
                     ttsPlayingFinalKey={tts.playingFinalKey}
                     ttsSequenceActive={tts.sequenceActive}
