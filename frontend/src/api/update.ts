@@ -24,6 +24,19 @@ export interface ModuleUpdateEntry {
     needsAppUpdate: boolean;
     // 本体が新しすぎる等で配布モジュールが対応していない（操作ボタンを無効化する）
     incompatible: boolean;
+    // 配布側の付属パック版（無ければ空。告知スキップの記録を exe 版と組で持つ）
+    latestCompanionPackVersion: string;
+    // このモジュールの告知抑止状態（本体の skipped / postponedToday とは独立）。
+    // 起動時チェックの表示可否はフロントが判定する（手動確認時は無視）。
+    skipped: boolean;
+    postponedToday: boolean;
+}
+
+// ModuleSkipPatch は 1 モジュール分の告知スキップ記録（表示中の最新版の組）。
+export interface ModuleSkipPatch {
+    id: string;
+    version: string;
+    companionPackVersion: string;
 }
 
 export interface UpdateCheckResponse {
@@ -46,6 +59,11 @@ export interface UpdateSettingsPatch {
     // 一括全更新の承認時に、本体更新後でないと適用できないモジュール ID を記録する
     // （本体更新後の起動時に一度だけ適用される）。
     approveModuleUpdates?: string[];
+    // 「後で」を押したモジュール ID。各 ID の当日抑止をバックエンドの現在日付で記録する
+    // （本体の postponeToday とは独立）。
+    postponeModules?: string[];
+    // 告知をスキップしたモジュール（どちらかの版が上がれば再告知される）。
+    skipModules?: ModuleSkipPatch[];
 }
 
 // fetchUpdateCheck は本体＋モジュールの更新有無を取得する。

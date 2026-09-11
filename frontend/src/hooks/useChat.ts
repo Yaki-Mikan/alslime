@@ -12,7 +12,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from '../lib/axios';
 import { getGlobalSettings, updateGlobalSettings } from '../api/global-settings';
-import { normalizeClaudeEffort, type ClaudeEffort } from '../constants/claude';
+import {
+    DEFAULT_REGENERATE_CLAUDE_EFFORT,
+    normalizeClaudeEffort,
+    normalizeRegenerateClaudeEffort,
+    type ClaudeEffort,
+    type RegenerateClaudeEffort,
+} from '../constants/claude';
 import {
     DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT,
     DEFAULT_ANTIGRAVITY_THINKING,
@@ -52,6 +58,12 @@ export interface Model {
 }
 
 export type ModelProvider = 'antigravity' | 'claude' | 'gemini' | 'openai_compat';
+
+/** 別モデル再生成の詳細指定。省略した項目は再生成用に保持している値を使う。 */
+export interface RegenerateModelOptions {
+    claudeEffort?: RegenerateClaudeEffort;
+    antigravityThinking?: AntigravityThinking;
+}
 
 /**
  * ID プレフィックスによる予備判定。判定の正本はサーバの provider フィールド
@@ -192,6 +204,10 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     const [geminiTempFileMode, setGeminiTempFileMode] = useState(false);
     const [claudeEffort, setClaudeEffort] = useState<ClaudeEffort>('');
     const [antigravityThinking, setAntigravityThinking] = useState<AntigravityThinking>(DEFAULT_ANTIGRAVITY_THINKING);
+    // 別モデル再生成用の Effort / Thinking。プロバイダ毎に最後に詳細指定した値を
+    // グローバル設定へ保持し、未保持なら各プロバイダの一番低いレベルを使う。
+    const [regenerateClaudeEffort, setRegenerateClaudeEffort] = useState<RegenerateClaudeEffort>(DEFAULT_REGENERATE_CLAUDE_EFFORT);
+    const [regenerateAntigravityThinking, setRegenerateAntigravityThinking] = useState<AntigravityThinking>(DEFAULT_ANTIGRAVITY_THINKING);
     const [antigravityStreamGuardLimit, setAntigravityStreamGuardLimit] = useState(
         DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT
     );
@@ -246,6 +262,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             setDefaultModels(dm);
             setClaudeEffort(normalizeClaudeEffort(settings.claudeChatEffort));
             setAntigravityThinking(normalizeAntigravityThinking(settings.antigravityChatThinking));
+            setRegenerateClaudeEffort(normalizeRegenerateClaudeEffort(settings.regenerateClaudeEffort));
+            setRegenerateAntigravityThinking(normalizeAntigravityThinking(settings.regenerateAntigravityThinking));
             setAntigravityStreamGuardLimit(
                 normalizeAntigravityStreamGuardLimit(settings.antigravityStreamGuardLimit)
             );
@@ -650,15 +668,43 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     };
 
     // 別モデル指定の再生成。セッションが無い（ローカルエラーの再送）状態では対象外。
-    const handleRegenerateWithModel = async (modelId: string) => {
+    // プロバイダ跨ぎ可。詳細指定（options）があれば、そのプロバイダの再生成用保持値として
+    // 保存してから使い、無ければ保持値（未保持なら一番低いレベル）を使う。
+    const handleRegenerateWithModel = async (modelId: string, options?: RegenerateModelOptions) => {
         if (isLoading || !currentSessionId) return;
         const trimmed = modelId.trim();
         if (!trimmed) return;
-        await submitRegenerate(currentSessionId, trimmed);
+        const target = models.find(m => m.id === trimmed);
+        const provider = target ? modelProviderOf(target) : getModelProvider(trimmed);
+        let effort: ClaudeEffort = regenerateClaudeEffort;
+        let thinking: AntigravityThinking = regenerateAntigravityThinking;
+        if (provider === 'claude' && options?.claudeEffort !== undefined) {
+            const normalized = normalizeRegenerateClaudeEffort(options.claudeEffort);
+            effort = normalized;
+            setRegenerateClaudeEffort(normalized);
+            void updateGlobalSettings(backendUrl, { regenerateClaudeEffort: normalized });
+        }
+        if (provider === 'antigravity' && options?.antigravityThinking !== undefined) {
+            const normalized = normalizeAntigravityThinking(options.antigravityThinking);
+            thinking = normalized;
+            setRegenerateAntigravityThinking(normalized);
+            void updateGlobalSettings(backendUrl, { regenerateAntigravityThinking: normalized });
+        }
+        // そのモデルで選べない Thinking レベルは Low へ落とす（保存値は触らない）。
+        const levels = antigravityThinkingLevelsOf(target);
+        if (levels.length > 0) {
+            thinking = normalizeAntigravityThinking(thinking, levels);
+        }
+        await submitRegenerate(currentSessionId, trimmed, { claudeEffort: effort, antigravityThinking: thinking });
     };
 
     // 再生成ジョブの投入。overrideModel が空なら前回モデル（サーバ側で補完）を使う。
-    const submitRegenerate = async (sessionId: string, overrideModel?: string) => {
+    // overrides は別モデル再生成時の Effort / Thinking。無ければ通常チャットの値を送る。
+    const submitRegenerate = async (
+        sessionId: string,
+        overrideModel?: string,
+        overrides?: { claudeEffort: ClaudeEffort; antigravityThinking: AntigravityThinking },
+    ) => {
         try {
             const res = await axios.post(`${backendUrl}/api/regenerate`, {
                 sessionId,
@@ -667,8 +713,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 ssrpSettings: ssrpSettings || undefined,
                 antigravityTempFileMode,
                 geminiTempFileMode,
-                claudeEffort,
-                antigravityThinking,
+                claudeEffort: overrides?.claudeEffort ?? claudeEffort,
+                antigravityThinking: overrides?.antigravityThinking ?? antigravityThinking,
                 antigravityMaxStreamCalls: antigravityStreamGuardLimit,
                 enableResponseBackup: settings.enableResponseBackup,
             });
@@ -754,6 +800,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         handleStop,
         handleRegenerate,
         handleRegenerateWithModel,
+        regenerateClaudeEffort,
+        regenerateAntigravityThinking,
         handleSaveEdit,
         pollJobStatus, // ポーリング関数をエクスポート
         loadHistory // 履歴読み込み関数もエクスポート（ジョブ完了後に使用）

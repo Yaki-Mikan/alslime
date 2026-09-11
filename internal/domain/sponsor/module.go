@@ -509,6 +509,14 @@ type ModuleUpdateEntry struct {
 	// Incompatible は本体が新しすぎる等で配布モジュールが対応していない
 	//（MaxAppVersion 超過。取得・更新の操作は無効化する。交換日記 005-5）。
 	Incompatible bool `json:"incompatible"`
+	// LatestCompanionPackVersion は配布側の付属パック版（配布に無ければ空）。
+	// 告知スキップの記録を exe 版と組で持つために露出する。
+	LatestCompanionPackVersion string `json:"latestCompanionPackVersion"`
+	// Skipped / PostponedToday はこのモジュールの告知抑止状態（スキップ済み・
+	// 「後で」当日）。値は API 層が更新確認設定と突き合わせて設定する
+	//（本パッケージでは判定しない。本体の告知状態とは独立）。
+	Skipped        bool `json:"skipped"`
+	PostponedToday bool `json:"postponedToday"`
 }
 
 // moduleIndexEntry / moduleIndex はサーバーの一括インデックス契約。
@@ -562,6 +570,7 @@ func (s *Service) ModulesUpdateInfo(ctx context.Context, appVersion string) ([]M
 			continue
 		}
 		entry.LatestVersion = idx.Version
+		entry.LatestCompanionPackVersion = idx.CompanionPackVersion
 		if idx.MinAppVersion != "" && semver.IsNewer(idx.MinAppVersion, appVersion) {
 			entry.NeedsAppUpdate = true
 		}

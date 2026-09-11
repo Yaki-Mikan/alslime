@@ -563,7 +563,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
 
             {/* 手動更新確認の結果モーダル（本体・モジュール統合。更新検知時のみ。
-                本体のスキップ設定は無視して常に結果を出す） */}
+                本体・モジュールともスキップ設定は無視して常に結果を出す） */}
             <UpdateModal
                 isOpen={manualUpdateApp !== null || moduleUpdateEntries.length > 0}
                 app={manualUpdateApp}
@@ -571,16 +571,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 uiCatalog={uiCatalog}
                 backendUrl={BACKEND_URL}
                 onModulesChanged={onModulesChanged}
-                onLater={() => {
+                onClose={() => {
                     setManualUpdateApp(null);
                     setModuleUpdateEntries([]);
+                }}
+                onLater={() => {
+                    // 手動確認の「後で」は記録せず本体セクションだけを消す（モジュール行は残す）
+                    setManualUpdateApp(null);
                 }}
                 onSkip={() => {
                     if (manualUpdateApp) {
                         saveUpdateSettings(BACKEND_URL, { skippedVersion: manualUpdateApp.latest }).catch(() => {});
                     }
                     setManualUpdateApp(null);
-                    setModuleUpdateEntries([]);
+                }}
+                onModuleDismiss={(moduleId) => {
+                    setModuleUpdateEntries((prev) => prev.filter((m) => m.id !== moduleId));
                 }}
             />
 

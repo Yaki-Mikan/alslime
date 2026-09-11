@@ -430,14 +430,27 @@ func applyRunnerResult(job *Job, result Result) {
 	}
 }
 
-// activeBySessionLocked は sessionID の pending/processing ジョブを返す（ロック前提）。
+// activeBySessionLocked は sessionID のチャット系（chat / regenerate）pending/processing
+// ジョブを返す（ロック前提）。
+//
+// 同セッション排他はチャット同士に限る。画像系・TTS は DedupeKey（TURN 単位）で
+// 排他しており SessionID は所属の記録に過ぎないため、ここで拾うとチャット投入が
+// 画像ジョブ中に 409 になり、resume の activeJobId も画像ジョブを指してしまう。
 func (q *Queue) activeBySessionLocked(sessionID string) *Job {
 	for _, j := range q.jobs {
-		if j.SessionID == sessionID && (j.Status == StatusPending || j.Status == StatusProcessing) {
+		if j.SessionID != sessionID || !isChatType(j.Type) {
+			continue
+		}
+		if j.Status == StatusPending || j.Status == StatusProcessing {
 			return j
 		}
 	}
 	return nil
+}
+
+// isChatType は同セッション排他の対象となるチャット系種別かを返す。
+func isChatType(t Type) bool {
+	return t == TypeChat || t == TypeRegenerate
 }
 
 func (q *Queue) activeByDedupeKeyLocked(key string) *Job {

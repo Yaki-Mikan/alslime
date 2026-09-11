@@ -190,6 +190,17 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
     const [moduleUpdateEntries, setModuleUpdateEntries] = useState<ModuleUpdateEntry[]>([]);
     const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+    // 更新告知モーダルの本体セクション／モジュール行を個別に消し、残りが無ければ閉じる
+    // （「後で」「スキップ」は本体とモジュールで独立に判断する）。
+    const dismissAppUpdate = () => {
+        setAppUpdateInfo(null);
+        if (moduleUpdateEntries.length === 0) setIsUpdateModalOpen(false);
+    };
+    const dismissModuleUpdate = (moduleId: string) => {
+        const rest = moduleUpdateEntries.filter((m) => m.id !== moduleId);
+        setModuleUpdateEntries(rest);
+        if (!appUpdateInfo && rest.length === 0) setIsUpdateModalOpen(false);
+    };
     // 承認済みモジュール更新の進行バナー（本体更新後の起動時のみ発生。非モーダル）
     const [moduleApplyBanner, setModuleApplyBanner] = useState<'applying' | 'done' | 'partialFailed' | null>(null);
     const t = (key: string) => resolveMessage(
@@ -361,11 +372,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 if (disposed) return;
                 if (!check.autoCheck) return;
                 // 本体・モジュールとも更新のあるものだけを 1 画面の統合モーダルで告知する。
-                // 本体分の表示可否は既存どおり（スキップ済み・「後で」当日は出さない）。
+                // スキップ済み・「後で」当日は出さない（本体と各モジュールで独立に判定）。
                 const appHasUpdate = check.app.enabled && check.app.hasUpdate
                     && !check.app.skipped && !check.app.postponedToday;
                 const moduleEntries = check.modules.filter(
-                    (m) => m.hasUpdate || m.companionPackUpdate,
+                    (m) => (m.hasUpdate || m.companionPackUpdate) && !m.skipped && !m.postponedToday,
                 );
                 if (appHasUpdate || moduleEntries.length > 0) {
                     setAppUpdateInfo(appHasUpdate ? check.app : null);
@@ -593,6 +604,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         handleStop,
         handleRegenerate,
         handleRegenerateWithModel,
+        regenerateClaudeEffort,
+        regenerateAntigravityThinking,
         handleSaveEdit,
         pollJobStatus
     } = useChat({
@@ -1113,8 +1126,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 )}
 
                 {/* 画像生成ジョブの単位（分析と生成をまとめる／分ける）とタグ有効/無効設定。
-                    常時表示。表示条件はタグ判定・ワークフロー設定パネルと同じ。
-                    ドロワーが開くたびに設定を読み直す（他画面での変更を拾う） */}
+                    他のパネルと同じ開閉パネル（デフォルト閉）。表示条件はタグ判定・ワークフロー設定パネルと同じ。
+                    パネルが開いていてドロワーが開くたびに設定を読み直す（他画面での変更を拾う） */}
                 {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
                     <ImageGenDrawerControls
                         backendUrl={BACKEND_URL}
@@ -1208,22 +1221,24 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
                     void refreshFeatures();
                 }}
+                onClose={() => setIsUpdateModalOpen(false)}
                 onLater={() => {
-                    // 「後で」は本体告知の当日中の再表示を抑止する（保存失敗しても閉じる。
-                    // 翌日以降は再表示されるだけで実害なし）。モジュールのみの表示では
-                    // 単に閉じる。
+                    // 本体の「後で」は本体告知の当日中の再表示を抑止し、本体セクションだけを
+                    // 消す（保存失敗しても消す。翌日以降は再表示されるだけで実害なし）。
+                    // モジュール行は残す（行ごとの「後で」「スキップ」で独立に判断する）。
                     if (appUpdateInfo) {
                         saveUpdateSettings(BACKEND_URL, { postponeToday: true }).catch(() => {});
                     }
-                    setIsUpdateModalOpen(false);
+                    dismissAppUpdate();
                 }}
                 onSkip={() => {
                     if (appUpdateInfo) {
-                        // 保存失敗しても閉じる（次回起動時に再表示されるだけで実害なし）
+                        // 保存失敗しても消す（次回起動時に再表示されるだけで実害なし）
                         saveUpdateSettings(BACKEND_URL, { skippedVersion: appUpdateInfo.latest }).catch(() => {});
                     }
-                    setIsUpdateModalOpen(false);
+                    dismissAppUpdate();
                 }}
+                onModuleDismiss={dismissModuleUpdate}
             />
 
             {/* 承認済みモジュール更新の進行バナー（非モーダル。操作をブロックしない） */}
@@ -1698,6 +1713,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onEditChange={(content) => editingState && setEditingState({ ...editingState, content })}
                             onRegenerate={handleRegenerate}
                             onRegenerateWithModel={handleRegenerateWithModel}
+                            regenerateClaudeEffort={regenerateClaudeEffort}
+                            regenerateAntigravityThinking={regenerateAntigravityThinking}
                             models={models}
                             selectedModel={selectedModel}
                             selectedModelProvider={selectedModelProvider}

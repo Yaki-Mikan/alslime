@@ -80,8 +80,8 @@ type ImageLora struct {
 //
 // in-process とサイドカーで同じ Spec になるようここに置く。Kind は ComfyUI 専用枠、
 // DedupeKey は分析ジョブと同じ規則（分析ジョブは完了済みなので重複にならず、生成ジョブが
-// active な間の同一 TURN 再投入だけを弾く）。SessionID を持たせるのはセッション排他を
-// 現行どおり維持するため。
+// active な間の同一 TURN 再投入だけを弾く）。SessionID は所属セッションの記録用で、
+// 同セッション排他（チャット系同士のみ）の対象にはならない。
 func ImageRenderSpec(prepared ImageRenderPayload) jobs.Spec {
 	return jobs.Spec{
 		Type:      jobs.TypeImageRender,

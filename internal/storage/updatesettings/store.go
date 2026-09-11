@@ -34,6 +34,21 @@ type Settings struct {
 	// 本体更新後の起動時に一度だけ適用を試み、成否に関わらずクリアされる
 	//（承認していない更新を起動時に勝手に適用しないための正本）。
 	PendingModuleUpdates []string `json:"pendingModuleUpdates,omitempty"`
+	// ModuleNotices はモジュール（サイドカー）ごとの告知抑止記録（モジュール ID 引き）。
+	// 本体の SkippedVersion / PostponedDate とは独立で、本体側の操作では変化しない。
+	ModuleNotices map[string]ModuleNotice `json:"moduleNotices,omitempty"`
+}
+
+// ModuleNotice はモジュール 1 件分の告知抑止記録。
+type ModuleNotice struct {
+	// SkippedVersion / SkippedCompanionPackVersion は告知をスキップした時点の
+	// 配布側の最新 exe 版と付属パック版。両方が現在の最新と一致する間だけ告知を
+	// 黙らせ、どちらかが上がれば再告知する。
+	SkippedVersion              string `json:"skippedVersion,omitempty"`
+	SkippedCompanionPackVersion string `json:"skippedCompanionPackVersion,omitempty"`
+	// PostponedDate は「後で」を押した日付（ローカル日付 "2006-01-02" 形式）。
+	// 同日中は起動時の告知に含めない（翌日以降は再表示）。
+	PostponedDate string `json:"postponedDate,omitempty"`
 }
 
 // Store は update-settings.json の読み書きを担う。

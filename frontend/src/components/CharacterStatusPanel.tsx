@@ -280,46 +280,76 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
 
     const hasAnyDetail = !!characterDetails && selectedCharacters.some(p => !!characterDetails[p]);
 
+    // セッションへ反映するボタン（埋め込み時は開閉ヘッダの右端、浮遊時は箱のヘッダ内に置く）
+    const applyButton = (isSessionDirty || applyToSessionState === 'done') && onApplyToSession ? (
+        <button
+            onClick={onApplyToSession}
+            disabled={applyToSessionState === 'applying'}
+            className={`p-1.5 rounded transition-colors ${applyToSessionState === 'done'
+                ? 'text-emerald-400'
+                : 'text-emerald-400 hover:text-emerald-300 hover:bg-gray-700 disabled:opacity-60'}`}
+            title={t(CHAT_VIEW_I18N_KEYS.applyToSession)}
+        >
+            <SaveAll size={14} className={applyToSessionState === 'applying' ? 'animate-pulse' : ''} />
+        </button>
+    ) : null;
+
+    const toggleOpen = () => {
+        const next = !isOpen;
+        setIsOpen(next);
+        onOpenChange?.(next);
+    };
+
     return (
-        <div ref={panelRef} data-panel="status" className={embedded ? 'w-full' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} left-4 z-30`}>
-            {!isOpen ? (
+        <div ref={panelRef} data-panel="status" className={embedded ? 'w-full border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} left-4 z-30`}>
+            {embedded ? (
+                /* 埋め込み時はドロワー内の他パネルと同じ器。ヘッダ全体が開閉ボタンで、反映ボタンは右端に置く */
+                <div className="flex items-center">
+                    <button
+                        type="button"
+                        onClick={toggleOpen}
+                        className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                    >
+                        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        <Heart size={14} className={`text-pink-400 ${hasAnyDetail ? 'fill-pink-400/20' : ''}`} />
+                        <span>{t(CHARACTER_STATUS_I18N_KEYS.title)}</span>
+                    </button>
+                    {isOpen && applyButton && (
+                        <div className="flex items-center gap-1 pr-2">{applyButton}</div>
+                    )}
+                </div>
+            ) : !isOpen ? (
                 <button
-                    onClick={() => { setIsOpen(true); onOpenChange?.(true); }}
-                    className={`flex items-center gap-2 bg-gray-800/80 backdrop-blur border border-gray-700 text-pink-400 px-3 py-2 ${embedded ? 'w-full rounded-lg' : 'rounded-full shadow-lg'} hover:bg-gray-700 transition-all font-medium text-sm group`}
+                    onClick={toggleOpen}
+                    className="flex items-center gap-2 bg-gray-800/80 backdrop-blur border border-gray-700 text-pink-400 px-3 py-2 rounded-full shadow-lg hover:bg-gray-700 transition-all font-medium text-sm group"
                 >
                     <Heart size={16} className={`group-hover:scale-110 transition-transform ${hasAnyDetail ? 'fill-pink-400/20' : ''}`} />
                     <span>{t(CHARACTER_STATUS_I18N_KEYS.closedTitle)}</span>
-                    <ChevronRight size={14} className={`text-gray-500 ${embedded ? 'ml-auto' : ''}`} />
+                    <ChevronRight size={14} className="text-gray-500" />
                 </button>
-            ) : (
-                <div className={`bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-xl shadow-2xl ${embedded ? 'w-full' : 'w-96'} overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200`}>
-                    {/* Header */}
-                    <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-pink-400 font-medium">
-                            <Heart size={16} className="fill-pink-400/20" />
-                            <span>{t(CHARACTER_STATUS_I18N_KEYS.title)}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {(isSessionDirty || applyToSessionState === 'done') && onApplyToSession && (
+            ) : null}
+            {isOpen && (
+                <div className={embedded
+                    ? 'border-t border-gray-700/60 flex flex-col'
+                    : 'bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-xl shadow-2xl w-96 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200'}>
+                    {/* Header（浮遊時のみ。埋め込み時は上の開閉ヘッダが兼ねる） */}
+                    {!embedded && (
+                        <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-pink-400 font-medium">
+                                <Heart size={16} className="fill-pink-400/20" />
+                                <span>{t(CHARACTER_STATUS_I18N_KEYS.title)}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                {applyButton}
                                 <button
-                                    onClick={onApplyToSession}
-                                    disabled={applyToSessionState === 'applying'}
-                                    className={`p-1.5 rounded transition-colors ${applyToSessionState === 'done'
-                                        ? 'text-emerald-400'
-                                        : 'text-emerald-400 hover:text-emerald-300 hover:bg-gray-700 disabled:opacity-60'}`}
-                                    title={t(CHAT_VIEW_I18N_KEYS.applyToSession)}
+                                    onClick={toggleOpen}
+                                    className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
                                 >
-                                    <SaveAll size={14} className={applyToSessionState === 'applying' ? 'animate-pulse' : ''} />
+                                    <ChevronDown size={16} />
                                 </button>
-                            )}
-                            <button
-                                onClick={() => { setIsOpen(false); onOpenChange?.(false); }}
-                                className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
-                            >
-                                <ChevronDown size={16} />
-                            </button>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Content: キャラクター毎の状態セクション（開閉可能・デフォルト閉） */}
                     <div className="p-3 space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
