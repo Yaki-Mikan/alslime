@@ -11,6 +11,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Settings as SettingsType } from '../../types/Settings';
 import { parseMultiCharacterResponse } from '../../lib/multiCharacterParser';
+import { splitLinesIntoSegments, type TurnSegment } from '../../lib/imageMarkdownLine';
 import type { Message, Model, ModelProvider, RegenerateModelOptions } from '../../hooks/useChat';
 import { modelDisplayLabel, modelProviderOf } from '../../hooks/useChat';
 import {
@@ -130,6 +131,29 @@ const AuthImg: React.FC<{
     }
     return <img src={src} alt={alt} className={className} onClick={onClick} />;
 };
+
+/**
+ * 本文の画像記法行（![alt](URL)）を表示する外部画像。
+ * 認証は不要なので通常の <img> で読む。読み込み失敗は親へ伝え、親が表示対象から外す
+ * （枠も alt 文字も残さない）。referrerPolicy で外部サイトへアプリの URL を送らない。
+ */
+const ExternalImage: React.FC<{
+    url: string;
+    alt: string;
+    className?: string;
+    onClick?: () => void;
+    onLoadFailed: () => void;
+}> = ({ url, alt, className, onClick, onLoadFailed }) => (
+    <img
+        src={url}
+        alt={alt}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        className={className}
+        onClick={onClick}
+        onError={onLoadFailed}
+    />
+);
 
 /**
  * キャラクターアイコンのフォールバックロジック付きコンポーネント
@@ -353,6 +377,8 @@ interface MessageItemProps {
     onGenerate: (msgId: string, turnId: string | null, turnIndex: number) => void;
     /** turnKey は画像が属するチャットバブルのキー（`${msgId}::${turnId ?? turnIndex}`）。背景の手動選択に使う */
     onOpenImage: (att: ImageAttachment, msgId?: string, turnKey?: string) => void;
+    /** 本文の画像記法行で表示した外部画像の拡大表示 */
+    onOpenExternalImage: (url: string, alt: string) => void;
     uiCatalog: I18NCatalog | null;
     /** TTS 読み上げ機能が有効か（Tier充足かつサイドカー/in-process連携済み） */
     ttsEnabled: boolean;
@@ -417,6 +443,7 @@ const MessageItem = React.memo<MessageItemProps>(({
     selectedModelProvider,
     onGenerate,
     onOpenImage,
+    onOpenExternalImage,
     uiCatalog,
     ttsEnabled,
     ttsEmojiList,
@@ -502,9 +529,22 @@ const MessageItem = React.memo<MessageItemProps>(({
                     return [...acc, line];
                 }, []);
             }
-            return { turn, lines };
+            // 行全体が画像記法の行を区切りに、文章（吹き出し）と画像（吹き出しの外）へ分ける。
+            // 画像行が無ければ文章セグメント 1 つになり、表示は従来と同じ。
+            return { turn, lines, segments: splitLinesIntoSegments(lines) };
         });
     }, [msg.role, text, settings.collapseEmptyLines, ttsEmojiList]);
+
+    // 読み込みに失敗した本文画像の URL。失敗した画像は表示対象から外す（枠も alt も出さない）。
+    const [failedImageUrls, setFailedImageUrls] = useState<ReadonlySet<string>>(() => new Set());
+    const markImageFailed = useCallback((url: string) => {
+        setFailedImageUrls(prev => {
+            if (prev.has(url)) return prev;
+            const next = new Set(prev);
+            next.add(url);
+            return next;
+        });
+    }, []);
 
     // 添付画像を表示先TURNへ解決する（turnId優先→turnIndex→未照合は末尾表示）。
     const { attachmentsByTurn, unresolvedAttachments } = React.useMemo(() => {
@@ -577,7 +617,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                 if (msg.role === 'agent' && processedTurns) {
                     return (
                         <div className="flex flex-col gap-3 w-full">
-                            {processedTurns.map(({ turn, lines }, turnIdx) => {
+                            {processedTurns.map(({ turn, lines, segments }, turnIdx) => {
                                 // 背景画像判定用のバブル識別キー（生成中キーと同じ規約）
                                 const turnKey = msg.id ? `${msg.id}::${turn.turnId ?? turn.index}` : undefined;
                                 // 編集モード判定（editingStateは親でこのメッセージ分のみに絞り込み済み）
@@ -680,8 +720,21 @@ const MessageItem = React.memo<MessageItemProps>(({
                                     </div>
                                 ) : null;
 
-                                const bubble = (
+                                // 編集ボタン（モバイル: 常時表示、デスクトップ: ホバー時表示）。
+                                // 吹き出しでも本文画像でも、TURN の先頭セグメントにだけ置く。
+                                const editButton = (
+                                    <button
+                                        onClick={() => onEditStart(msg.id!, turn.index, turn.content)}
+                                        className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                                        title={t(MESSAGE_LIST_I18N_KEYS.editThisMessage)}
+                                    >
+                                        <Edit2 size={12} />
+                                    </button>
+                                );
+
+                                const renderTextBubble = (bubbleLines: string[], showEditButton: boolean, key: number) => (
                                         <div
+                                            key={key}
                                             className={`group relative p-4 rounded-xl shadow-md border transition-all ${turn.character
                                                 ? 'border-indigo-600/40 text-gray-100'
                                                 : 'border-gray-700 text-gray-200'
@@ -692,15 +745,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     : `rgba(31, 41, 55, ${hasActiveBackground ? (settings.messageBubbleOpacity ?? 0.8) : 0.85})`,
                                             }}
                                         >
-
-                                            {/* 編集ボタン（モバイル: 常時表示、デスクトップ: ホバー時表示） */}
-                                            <button
-                                                onClick={() => onEditStart(msg.id!, turn.index, turn.content)}
-                                                className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white"
-                                                title={t(MESSAGE_LIST_I18N_KEYS.editThisMessage)}
-                                            >
-                                                <Edit2 size={12} />
-                                            </button>
+                                            {showEditButton && editButton}
 
                                             <div
                                                 className="whitespace-pre-wrap leading-relaxed"
@@ -709,7 +754,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     lineHeight: settings.lineHeight || 1.625
                                                 }}
                                             >
-                                                {lines.map((line, idx) => {
+                                                {bubbleLines.map((line, idx) => {
                                                     const isEmpty = line.trim() === '';
                                                     return (
                                                         <div
@@ -726,6 +771,41 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 })}
                                             </div>
                                         </div>
+                                );
+
+                                // 読み込みに失敗した本文画像は表示対象から外す。
+                                // 全セグメントが外れた（画像だけの TURN で全部失敗した）場合は、
+                                // 編集手段を残すため本文全行を従来どおり 1 つの吹き出しで出す。
+                                let displaySegments: TurnSegment[] = segments.filter(
+                                    seg => seg.kind !== 'image' || !failedImageUrls.has(seg.url)
+                                );
+                                if (displaySegments.length === 0) {
+                                    displaySegments = [{ kind: 'text', lines }];
+                                }
+
+                                // 文章は吹き出し、画像は吹き出しの外に、本文の順で縦に並べる。
+                                const segmentColumn = (
+                                    <div className="flex flex-col gap-2">
+                                        {displaySegments.map((seg, segIdx) => {
+                                            const showEditButton = segIdx === 0;
+                                            if (seg.kind === 'text') {
+                                                return renderTextBubble(seg.lines, showEditButton, segIdx);
+                                            }
+                                            const altLabel = seg.alt || t(MESSAGE_LIST_I18N_KEYS.externalImageAlt);
+                                            return (
+                                                <div key={segIdx} className="group relative w-fit max-w-full">
+                                                    <ExternalImage
+                                                        url={seg.url}
+                                                        alt={altLabel}
+                                                        className="max-w-full max-h-[60vh] object-contain rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
+                                                        onClick={() => onOpenExternalImage(seg.url, altLabel)}
+                                                        onLoadFailed={() => markImageFailed(seg.url)}
+                                                    />
+                                                    {showEditButton && editButton}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 );
 
                                 // TURN毎の読み上げ・再生ボタン（要件9.3。作成済みは再作成へ切替、再生ボタンは作成済みのみ）
@@ -835,7 +915,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 <div className="shrink-0">{characterIcon}</div>
                                                 <div className="flex flex-col min-w-0">
                                                     <div className="mb-1">{characterNameLabel}</div>
-                                                    {bubble}
+                                                    {segmentColumn}
                                                 </div>
                                             </div>
                                             {generateButtonRow}
@@ -872,8 +952,8 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             )
                                         )}
 
-                                        {/* メッセージバブル */}
-                                        {bubble}
+                                        {/* メッセージバブル（本文画像の前後で分かれる） */}
+                                        {segmentColumn}
                                         {generateButtonRow}
                                         {turnAttachmentRow}
                                     </div>
@@ -1268,6 +1348,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     const [imageAttachments, setImageAttachments] = useState<Record<string, ImageAttachment[]>>({});
     const [expandedAttachment, setExpandedAttachment] = useState<ImageAttachment | null>(null);
     const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
+    // 本文の画像記法行で表示した外部画像の拡大表示（生成画像の拡大表示とは別。削除や背景設定は持たない）
+    const [expandedExternalImage, setExpandedExternalImage] = useState<{ url: string; alt: string } | null>(null);
     // 拡大表示中の画像が属するバブルキー（背景の手動選択をTURN単位で保存するため）
     const [expandedTurnKey, setExpandedTurnKey] = useState<string | null>(null);
     // 拡大表示中の画像の削除確認モーダル表示・削除実行中
@@ -1789,6 +1871,17 @@ export const MessageList: React.FC<MessageListProps> = ({
     const stableOnRegenerateWithModel = useStableCallback(onRegenerateWithModel);
     const stableOnGenerate = useStableCallback(handleGenerate);
     const stableOnOpenImage = useStableCallback(openExpandedImage);
+    const stableOnOpenExternalImage = useStableCallback((url: string, alt: string) => setExpandedExternalImage({ url, alt }));
+    const closeExternalImage = () => setExpandedExternalImage(null);
+    // 外部画像の拡大表示中は Esc でも閉じる
+    useEffect(() => {
+        if (!expandedExternalImage) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setExpandedExternalImage(null);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [expandedExternalImage]);
     // 1応答全体の読み上げ（P3拡張）: 生成を開始しつつ（生成済み・音声未紐づけTURNは
     // サーバー側スキップ）、応答ひと塊の先頭TURNから通し再生する。全部生成済みで
     // ジョブが立たない場合も通し再生は開始する。TURN単位は従来どおり。
@@ -1876,6 +1969,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                     selectedModelProvider={selectedModelProvider}
                     onGenerate={stableOnGenerate}
                     onOpenImage={stableOnOpenImage}
+                    onOpenExternalImage={stableOnOpenExternalImage}
                     uiCatalog={uiCatalog}
                     ttsEnabled={ttsEnabled}
                     ttsEmojiList={ttsEmojiList}
@@ -1967,6 +2061,35 @@ export const MessageList: React.FC<MessageListProps> = ({
                 onCancel={() => setTtsDeleteTarget(null)}
                 uiCatalog={uiCatalog}
             />
+
+            {/* 本文画像（画像記法行）の拡大表示。閉じる操作はボタン・背景クリック・Esc */}
+            {expandedExternalImage && (
+                <div
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 cursor-pointer"
+                    onClick={closeExternalImage}
+                >
+                    <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                closeExternalImage();
+                            }}
+                            className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-red-500 transition-colors"
+                            title={t(MESSAGE_LIST_I18N_KEYS.close)}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+                    <img
+                        src={expandedExternalImage.url}
+                        alt={expandedExternalImage.alt}
+                        referrerPolicy="no-referrer"
+                        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                        onClick={e => e.stopPropagation()}
+                        onError={closeExternalImage}
+                    />
+                </div>
+            )}
 
             {/* 画像拡大表示モーダル */}
             {expandedAttachment && sessionId && (

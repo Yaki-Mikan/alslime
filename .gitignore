@@ -25,6 +25,10 @@ internal/frontend/dist_release/
 # Sidecar modules (支援者向け配信物の配置先)
 modules/
 
+# AI agent local settings (ルート直下のみ。
+# internal/system/firstrun/defaults/.claude は初回生成用テンプレートのため公開する)
+/.claude/
+
 # Editor / OS
 .vscode/
 .idea/
