@@ -32,6 +32,9 @@ const (
 	TypeConfigGen   Type = "config-generate"
 	// TypeTTS は音声読み上げ（1読み上げ実行 = 1ジョブ。要件9.3）。
 	TypeTTS Type = "tts"
+	// TypeAppearancePrompt はキャラクター容姿プロンプト作成（設定ファイル本文から
+	// 容姿タグを AI に書かせる。1 キャラ 1 ジョブ）。
+	TypeAppearancePrompt Type = "appearance-prompt"
 )
 
 // Status はジョブの状態。

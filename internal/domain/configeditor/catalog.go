@@ -111,28 +111,57 @@ func FindProviderInstruction(id string) (ProviderInstruction, bool) {
 // API 層は FeatureComfyUI の gate を通す。provider 指示と違いパック対象でもある
 // （settingspack の comfyDirectives 種別と同じ実体を指す）。
 type ComfyDirective struct {
-	ID    string // "danbooru" | "natural" | "danbooru_third" | "natural_third" | "natural_short" | "natural_third_short"
+	ID    string // "danbooru" | "natural" | "danbooru_third" | "natural_third" | "natural_short" | "natural_third_short"（API 用は "api_" 接頭辞）
 	Label string
 	File  string // WORKSPACE_ROOT 相対の固定ファイル
+	// Backend は指示ファイルが対象とする画像生成バックエンド（ComfyDirectiveBackend*）。
+	Backend string
 }
+
+// 指示ファイルが対象とする画像生成バックエンド。
+const (
+	ComfyDirectiveBackendComfyUI = "comfyui"
+	ComfyDirectiveBackendAPI     = "api"
+)
 
 // comfyDirectives はタグ判定指示ファイル定義の正本（順序維持。一覧 API と
 // UI のプルダウンはこの順で表示される）。並びは自然文 → Danbooru、
 // それぞれ一人称 → 三人称の順で、自然文は各視点の直後に短縮版を置く。
+// ComfyUI 用の後に API サービス用（NovelAI 等）の同じ 6 形式を置く。
 // ID は互換のため変更しない。
 var comfyDirectives = []ComfyDirective{
-	{ID: "natural", Label: "タグ判定指示（自然文形式・一人称視点）", File: config.ComfyUIDirectiveNaturalFile},
-	{ID: "natural_short", Label: "タグ判定指示（自然文形式・一人称視点・短縮版）", File: config.ComfyUIDirectiveNaturalShortFile},
-	{ID: "natural_third", Label: "タグ判定指示（自然文形式・三人称視点）", File: config.ComfyUIDirectiveNaturalThirdFile},
-	{ID: "natural_third_short", Label: "タグ判定指示（自然文形式・三人称視点・短縮版）", File: config.ComfyUIDirectiveNaturalThirdShortFile},
-	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveDanbooruFile},
-	{ID: "danbooru_third", Label: "タグ判定指示（Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveDanbooruThirdFile},
+	{ID: "natural", Label: "タグ判定指示（自然文形式・一人称視点）", File: config.ComfyUIDirectiveNaturalFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "natural_short", Label: "タグ判定指示（自然文形式・一人称視点・短縮版）", File: config.ComfyUIDirectiveNaturalShortFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "natural_third", Label: "タグ判定指示（自然文形式・三人称視点）", File: config.ComfyUIDirectiveNaturalThirdFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "natural_third_short", Label: "タグ判定指示（自然文形式・三人称視点・短縮版）", File: config.ComfyUIDirectiveNaturalThirdShortFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "danbooru", Label: "タグ判定指示（Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveDanbooruFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "danbooru_third", Label: "タグ判定指示（Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveDanbooruThirdFile, Backend: ComfyDirectiveBackendComfyUI},
+	{ID: "api_natural", Label: "タグ判定指示（APIサービス・自然文形式・一人称視点）", File: config.ComfyUIDirectiveAPINaturalFile, Backend: ComfyDirectiveBackendAPI},
+	{ID: "api_natural_short", Label: "タグ判定指示（APIサービス・自然文形式・一人称視点・短縮版）", File: config.ComfyUIDirectiveAPINaturalShortFile, Backend: ComfyDirectiveBackendAPI},
+	{ID: "api_natural_third", Label: "タグ判定指示（APIサービス・自然文形式・三人称視点）", File: config.ComfyUIDirectiveAPINaturalThirdFile, Backend: ComfyDirectiveBackendAPI},
+	{ID: "api_natural_third_short", Label: "タグ判定指示（APIサービス・自然文形式・三人称視点・短縮版）", File: config.ComfyUIDirectiveAPINaturalThirdShortFile, Backend: ComfyDirectiveBackendAPI},
+	{ID: "api_danbooru", Label: "タグ判定指示（APIサービス・Danbooru形式・一人称視点）", File: config.ComfyUIDirectiveAPIDanbooruFile, Backend: ComfyDirectiveBackendAPI},
+	{ID: "api_danbooru_third", Label: "タグ判定指示（APIサービス・Danbooru形式・三人称視点）", File: config.ComfyUIDirectiveAPIDanbooruThirdFile, Backend: ComfyDirectiveBackendAPI},
 }
 
 // ComfyDirectives は全定義を順序どおり返す（一覧 API 用）。
 func ComfyDirectives() []ComfyDirective {
 	out := make([]ComfyDirective, len(comfyDirectives))
 	copy(out, comfyDirectives)
+	return out
+}
+
+// ComfyDirectivesFor は backend に一致する定義だけを順序どおり返す。空は全部。
+func ComfyDirectivesFor(backend string) []ComfyDirective {
+	if backend == "" {
+		return ComfyDirectives()
+	}
+	out := make([]ComfyDirective, 0, len(comfyDirectives))
+	for _, d := range comfyDirectives {
+		if d.Backend == backend {
+			out = append(out, d)
+		}
+	}
 	return out
 }
 
@@ -176,6 +205,7 @@ const (
 	ConfigGenMethodTwoStep2        = "two_step_2"       // じっくり作成 2段階目（設定作成）
 	ConfigGenMethodOneShot         = "one_shot"         // 一括作成
 	ConfigGenMethodDialog          = "dialog"           // 対話作成（1ターン分の指示）
+	ConfigGenMethodFromSession     = "from_session"     // セッションからの一時キャラクター取り込み
 	ConfigGenMethodSearchTemplate  = "search_template"  // 調査項目テンプレート（{{SEARCH_TEMPLATE_CONTENT}} へ差し込み）
 	ConfigGenMethodSettingTemplate = "setting_template" // 設定ファイルテンプレート（{{SETTING_TEMPLATE_CONTENT}} へ差し込み）
 )
@@ -205,6 +235,7 @@ func buildConfigGenInstructions() []ConfigGenInstruction {
 		{ConfigGenMethodTwoStep2, ConfigGenKindInstruction, "作成指示：じっくり作成 2段階目・設定作成", true},
 		{ConfigGenMethodOneShot, ConfigGenKindInstruction, "作成指示：一括作成", false},
 		{ConfigGenMethodDialog, ConfigGenKindInstruction, "作成指示：対話作成", false},
+		{ConfigGenMethodFromSession, ConfigGenKindInstruction, "作成指示：セッションから取り込み", true},
 	}
 	out := make([]ConfigGenInstruction, 0, len(categories)*len(methods)*len(ConfigGenInstructionLocales))
 	for _, c := range categories {

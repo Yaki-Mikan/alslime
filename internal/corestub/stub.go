@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"alslime/internal/coreapi"
+	"alslime/internal/domain/appearancejobs"
 	"alslime/internal/domain/models"
 	"alslime/internal/i18n"
 	"alslime/internal/jobs"
@@ -33,6 +34,9 @@ func (stub) Features() coreapi.FeatureGate          { return offGate{} }
 func (stub) Comfy() coreapi.ComfyProvider           { return stubComfy{} }
 func (stub) TTS() coreapi.TTSProvider               { return stubTTS{} }
 func (stub) VerifyModuleSig([]byte, string) error {
+	return errors.New(i18n.KeyErrorJobRunnerNotImplemented)
+}
+func (stub) VerifyManifestSig(string, []byte, string) error {
 	return errors.New(i18n.KeyErrorJobRunnerNotImplemented)
 }
 
@@ -71,7 +75,10 @@ func (stubComfy) RegisterRoutes(*http.ServeMux, *jobs.Queue, coreapi.FeatureGate
 func (stubComfy) ImageRunner() jobs.Runner                                        { return jobs.NotImplementedRunner{} }
 func (stubComfy) ImageAnalyzeRunner() jobs.Runner                                 { return jobs.NotImplementedRunner{} }
 func (stubComfy) ImageRenderRunner() jobs.Runner                                  { return jobs.NotImplementedRunner{} }
-func (stubComfy) TagJudgeKind() models.Kind                                       { return models.KindGemini }
+func (stubComfy) AppearancePromptRunner(appearancejobs.SettingReader) jobs.Runner {
+	return jobs.NotImplementedRunner{}
+}
+func (stubComfy) TagJudgeKind() models.Kind { return models.KindGemini }
 func (stubComfy) InProcess() bool                                                 { return false }
 
 // stubTTS は core 未結合ビルドの TTSProvider（in-process 読み上げなし）。

@@ -46,6 +46,11 @@ type Character struct {
 	Tags    []string `json:"tags"`
 	// IconURL は default 表情のアイコン画像 URL（キャラカード用）。無ければ nil。
 	IconURL *string `json:"iconUrl"`
+	// TempCharacterID / OriginalName は、セッションの一時キャラクターからキャラ設定登録された
+	// キャラクターにだけ入る（linked_settings.json の origin）。ID は開いたときの照合に、
+	// OriginalName は置き換え前の名前での登録済み判定に使う。
+	TempCharacterID string `json:"tempCharacterId,omitempty"`
+	OriginalName    string `json:"originalName,omitempty"`
 }
 
 // Filters は works/tags のマスタ。
@@ -104,6 +109,26 @@ func (s *Store) readTagsJSON(settingsLogical string) tagInfo {
 		}
 	}
 	return info
+}
+
+// readLinkedOrigin は設定ディレクトリの linked_settings.json から由来の記録（origin）だけを読む。
+// 未存在・破損・origin 無しは空（登録済みキャラクターの大半は由来を持たない）。
+func (s *Store) readLinkedOrigin(settingsLogical string) (tempID, originalName string) {
+	abs, err := s.resolver.ResolveExisting(settingsLogical + "/" + config.CharacterLinkedSettingsFileName)
+	if err != nil {
+		return "", ""
+	}
+	raw, err := jsonstore.ReadRaw(abs)
+	if err != nil {
+		return "", ""
+	}
+	origin, ok := raw["origin"].(map[string]any)
+	if !ok {
+		return "", ""
+	}
+	tempID, _ = origin["tempCharacterId"].(string)
+	originalName, _ = origin["originalName"].(string)
+	return strings.TrimSpace(tempID), strings.TrimSpace(originalName)
 }
 
 // defaultIconURL は default 表情のアイコンが存在すればその配信 URL を返す。
@@ -220,14 +245,17 @@ func (s *Store) ListCharacters() ([]Character, error) {
 		}
 		info := s.readTagsJSON(settingsLogical)
 		iconURL := s.defaultIconURL(dirName)
+		tempID, originalName := s.readLinkedOrigin(settingsLogical)
 		for _, md := range mdFiles {
 			chars = append(chars, Character{
-				Name:    strings.TrimSuffix(md, ".md"),
-				DirName: dirName,
-				Path:    s.charListDir + "/" + dirName + "/" + settingsDirName + "/" + md,
-				Work:    info.work,
-				Tags:    info.tags,
-				IconURL: iconURL,
+				Name:            strings.TrimSuffix(md, ".md"),
+				DirName:         dirName,
+				Path:            s.charListDir + "/" + dirName + "/" + settingsDirName + "/" + md,
+				Work:            info.work,
+				Tags:            info.tags,
+				IconURL:         iconURL,
+				TempCharacterID: tempID,
+				OriginalName:    originalName,
 			})
 		}
 	}

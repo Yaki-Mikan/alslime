@@ -347,8 +347,9 @@ func handleSaveProviderInstruction(svc *domain.Service) http.HandlerFunc {
 // ---- タグ判定指示ファイル ----
 
 func handleListComfyDirectives(svc *domain.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		list, err := svc.ListComfyDirectives()
+	return func(w http.ResponseWriter, r *http.Request) {
+		// backend（comfyui / api）で絞る。未指定は全部。
+		list, err := svc.ListComfyDirectives(r.URL.Query().Get("backend"))
 		if err != nil {
 			writeError(w, err)
 			return

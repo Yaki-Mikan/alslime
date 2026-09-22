@@ -12,6 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Workflow } from 'lucide-react';
 import { TagJudgeWorkflowPanel } from './TagJudgeWorkflowPanel';
+import type { BackendSelection } from './BackendTabs';
 import { createComfyUIText } from './i18n';
 import type { I18NCatalog } from '../../api/i18n';
 
@@ -20,9 +21,11 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
     // ドロワーが開いているか。true になるたびに中身を再マウントして設定を読み直す（未指定なら常に有効）。
     active?: boolean;
+    // 画像生成バックエンドの選択が確定するたびに親へ通知する（残高パネルの表示切替用）。
+    onBackendChange?: (selection: BackendSelection) => void;
 }
 
-export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true }) => {
+export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true, onBackendChange }) => {
     const { SECTION_NAMES } = createComfyUIText(uiCatalog);
     const [isOpen, setIsOpen] = useState(false);
     // ドロワーが開くたびに増やし、開いたままのパネル中身を再マウントさせる
@@ -39,7 +42,7 @@ export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCat
             >
                 {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <Workflow size={14} className="text-green-400" />
-                <span>{SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}</span>
+                <span>{SECTION_NAMES.TAG_JUDGE_GENERATION_SETTINGS}</span>
             </button>
             {isOpen && (
                 <div className="p-3 border-t border-gray-700/60">
@@ -49,6 +52,8 @@ export const TagJudgeWorkflowDrawerPanel: React.FC<Props> = ({ backendUrl, uiCat
                         uiCatalog={uiCatalog}
                         showHeading={false}
                         stacked
+                        showBackendTabs
+                        onBackendChange={onBackendChange}
                     />
                 </div>
             )}

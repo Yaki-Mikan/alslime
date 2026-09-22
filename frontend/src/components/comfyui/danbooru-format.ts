@@ -10,6 +10,36 @@ export function formatAnima(value: string): string {
         .replace(/\\?([()])/g, '\\$1');
 }
 
+/**
+ * キャラクター名・作品名（ComfyUI 用と API サービス用で共用の値）を、ComfyUI 用の
+ * Danbooru タグ形式の設定に合わせた表記へ変換する。サーバー側の出力時変換と同じ規則で、
+ * 画面の出力表示に使う。カンマ区切りの複数タグは要素ごとに変換する。
+ */
+export function formatIdentityForComfyUI(value: string, format: DanbooruTagFormat): string {
+    return value
+        .split(',')
+        .map((part) => part.replace(/\\+([()])/g, '$1').replace(/_/g, ' ').trim().split(/\s+/).filter(Boolean))
+        .filter((words) => words.length > 0)
+        .map((words) => {
+            if (format === 'space') return words.join(' ');
+            if (format === 'anima') return words.join(' ').replace(/([()])/g, '\\$1');
+            return words.join('_');
+        })
+        .join(', ');
+}
+
+/**
+ * API サービス（NovelAI）の送信時変換と同じ規則（括弧のエスケープを外し、_ を半角スペースへ）。
+ * 画面の出力表示に使う。
+ */
+export function formatForApiService(value: string): string {
+    return value
+        .split(',')
+        .map((part) => part.replace(/\\+([()])/g, '$1').replace(/_/g, ' ').replace(/[ \t]{2,}/g, ' ').trim())
+        .filter(Boolean)
+        .join(', ');
+}
+
 export function formatDanbooruTag(value: string, format: DanbooruTagFormat): string {
     if (format === 'anima') return formatAnima(value);
     return format === 'space' ? value.replace(/_/g, ' ') : value;

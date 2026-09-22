@@ -7,26 +7,38 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Trash2, Loader2, Save, Search, Users, RefreshCw } from 'lucide-react';
+import { X, Trash2, Loader2, Save, Search, Users, RefreshCw, Sparkles } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import {
     getCharacterImageGenConfig,
     saveCharacterImageGenConfig,
     getLoraTriggerWords,
     searchDanbooruTags,
+    getComfyUIConfig,
+    addCharacterReferenceImage,
+    deleteCharacterReferenceImage,
+    emptyCharacterApiServiceConfig,
+    forgetAuthedUrl,
+    getCharacterReferenceImageUrl,
 } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
 import { LoraUnreachableNotice } from './LoraUnreachableNotice';
 import { LoraStrengthInput } from './LoraStrengthInput';
 import { withTrailingEmptyLora } from './loraEntries';
-import type { CharacterImageGenConfig, DanbooruTagFormat, DanbooruTagResult } from '../../api/comfyui';
+import { CharacterApiServiceFields } from './apiservice/CharacterApiServiceFields';
+import { normalizeApiService, normalizeImageBackend } from './apiservice/services';
+import { useApiReferenceDisabledNote } from './apiservice/useApiReferenceSupport';
+import type { ApiServiceId, CharacterImageGenConfig, DanbooruTagFormat, DanbooruTagResult, ImageBackend, ReferenceImage } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
 import { formatDanbooruTag, formatTriggerLine, appendTriggerLineDedup } from './danbooru-format';
 import { useDanbooruTagFormat } from './useDanbooruTagFormat';
+import { IdentityOutputPreview } from './IdentityOutputPreview';
 import { useTriggerWordFormat } from './useTriggerWordFormat';
 import { createComfyUIText } from './i18n';
 import type { I18NCatalog } from '../../api/i18n';
+import { AppearancePromptPanel } from './AppearancePromptPanel';
+import { useAppearancePromptGen } from '../../hooks/useAppearancePromptGen';
 
 interface Props {
     isOpen: boolean;
@@ -72,6 +84,23 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
 
     // 設定値
     const [config, setConfig] = useState<CharacterImageGenConfig>({ ...DEFAULT_CONFIG });
+
+    // 内部タブ（ComfyUI 用 / API サービス用）。開いたときは全画面共用の選択に従う。
+    const [tab, setTab] = useState<ImageBackend>('comfyui');
+    const [apiService, setApiService] = useState<ApiServiceId>('novelai');
+    useEffect(() => {
+        if (!isOpen) return;
+        (async () => {
+            try {
+                const cfg = await getComfyUIConfig(backendUrl);
+                setTab(normalizeImageBackend(cfg.imageBackend));
+                setApiService(normalizeApiService(cfg.apiService));
+            } catch { /* 既定（ComfyUI）のまま */ }
+        })();
+    }, [isOpen, backendUrl]);
+    const apiConfig = config.apiService?.[apiService] ?? emptyCharacterApiServiceConfig();
+    // 参照画像が使えないモデル（V5 系）のときの注記（共通プリセットのモデルで判定）
+    const referenceDisabledNote = useApiReferenceDisabledNote(backendUrl, apiService, isOpen && tab === 'api', uiCatalog);
 
     // LoRA一覧
     // LoRA一覧（未接続時の扱いは useComfyLoras に集約）
@@ -217,10 +246,14 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
             return;
         }
         if (initialCharacterAppliedRef.current) return;
-        if (!initialSelectedCharacter || characters.length === 0) return;
-        const resolvedName = resolveCharacterName(initialSelectedCharacter);
+        if (characters.length === 0) return;
+        const resolvedName = initialSelectedCharacter ? resolveCharacterName(initialSelectedCharacter) : '';
         if (resolvedName && selectedCharacter !== resolvedName) {
             handleCharacterChange(resolvedName);
+        } else if (selectedCharacter && !isDirty) {
+            // 同じキャラで開き直したときも読み直す（閉じている間に別の画面で保存された内容を出すため）。
+            // 未保存の編集があるときは、それを残す。
+            loadConfig(selectedCharacter);
         }
         initialCharacterAppliedRef.current = true;
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -232,6 +265,13 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         setIsDirty(true);
         setSaveMessage(null);
     };
+    const updateApiConfig = (next: typeof apiConfig) => {
+        updateField('apiService', { ...(config.apiService ?? {}), [apiService]: next });
+    };
+    const referenceImageUrl = useCallback(
+        (ref: ReferenceImage) => getCharacterReferenceImageUrl(backendUrl, getCharDirName(selectedCharacter), apiService, ref.id),
+        [backendUrl, getCharDirName, selectedCharacter, apiService]
+    );
 
     // LoRA操作
     const [loraDetailMode, setLoraDetailMode] = useState<Record<number, boolean>>({});
@@ -312,6 +352,41 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
         updateField('lora', newLora);
     }, [config.lora, effectiveTriggerWordFormat, updateField]);
 
+    // 容姿プロンプト作成の小窓。状態はこの画面で持つ（閉じても分析は続き、開き直せば結果が残る）。
+    const appearancePrompt = useAppearancePromptGen(backendUrl);
+
+    // 小窓の「追加」：タグ行をキャラクタープロンプト欄の末尾へ追記（ワード単位で重複除去）。
+    // 書き込み先は開いているタブ側。
+    const appendAppearanceLine = (line: string) => {
+        if (tab === 'api') {
+            updateApiConfig({ ...apiConfig, characterPrompt: appendTriggerLineDedup(apiConfig.characterPrompt || '', line, 'space') });
+            return;
+        }
+        updateField('characterPrompt', appendTriggerLineDedup(config.characterPrompt || '', line, effectiveTriggerWordFormat));
+    };
+
+    const openAppearancePrompt = () => {
+        if (!selectedCharacter) return;
+        appearancePrompt.open(
+            { dirName: getCharDirName(selectedCharacter), fileName: selectedCharacter, displayName: selectedCharacter },
+            tab === 'api'
+                ? { characterPrompt: apiConfig.characterPrompt || '', physicalFeatures: apiConfig.physicalFeatures || '' }
+                : { characterPrompt: config.characterPrompt || '', physicalFeatures: config.physicalFeatures || '' },
+        );
+    };
+    const canOpenAppearancePrompt = !!selectedCharacter && !appearancePrompt.running;
+    const appearancePromptButton = (
+        <button
+            type="button"
+            onClick={openAppearancePrompt}
+            disabled={!canOpenAppearancePrompt}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-pink-900/60 hover:bg-pink-800/70 text-pink-200 border border-pink-700/60 disabled:opacity-40 transition-colors"
+        >
+            <Sparkles size={12} />
+            {CHARACTER.BUTTONS.APPEARANCE_PROMPT}
+        </button>
+    );
+
     // LoRA選択時に空行を自動追加
     const selectLora = (index: number, loraName: string) => {
         // 名前を差し替えたうえで、末尾が埋まっていれば新しい空行を追加
@@ -376,12 +451,12 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
     };
 
     // 保存
-    const handleSave = async () => {
-        if (!selectedCharacter) return;
+    const handleSave = async (): Promise<boolean> => {
+        if (!selectedCharacter) return false;
         setIsSaving(true);
         try {
             // 保存時に空行のLoRAを除外
-            const cleanConfig = {
+            const cleanConfig: CharacterImageGenConfig = {
                 ...config,
                 lora: config.lora.filter(l => l.name),
                 outfits: config.outfits
@@ -393,13 +468,25 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                     }))
                     .filter(outfit => outfit.name || outfit.prompt || outfit.lora.length > 0),
             };
+            if (config.apiService) {
+                cleanConfig.apiService = Object.fromEntries(
+                    Object.entries(config.apiService).map(([id, api]) => [id, {
+                        ...api,
+                        outfits: (api.outfits ?? [])
+                            .map(o => ({ name: o.name.trim(), prompt: o.prompt.trim() }))
+                            .filter(o => o.name || o.prompt),
+                    }])
+                );
+            }
             await saveCharacterImageGenConfig(backendUrl, getCharDirName(selectedCharacter), cleanConfig);
             setIsDirty(false);
             setSaveMessage(COMMON.MESSAGES.SAVED);
             setTimeout(() => setSaveMessage(null), 3000);
+            return true;
         } catch (error) {
             console.error('[ComfyUICharacterSettingsModal] save failed:', error);
             setSaveMessage(COMMON.MESSAGES.SAVE_FAILED);
+            return false;
         } finally {
             setIsSaving(false);
         }
@@ -520,6 +607,14 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                         />
                                     </div>
                                 </div>
+                                <IdentityOutputPreview
+                                    backendUrl={backendUrl}
+                                    active={isOpen}
+                                    characterName={config.characterName}
+                                    workName={config.workName}
+                                    danbooruTagFormat={effectiveDanbooruTagFormat}
+                                    uiCatalog={uiCatalog}
+                                />
                             </div>
 
                             {/* Danbooruタグ検索 */}
@@ -604,12 +699,60 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                 <p className="text-xs text-gray-600">{CHARACTER.HELP.ALIASES_DESC}</p>
                             </div>
 
+                            {/* 内部タブ: プロンプト系は ComfyUI 用 / API サービス用で別の値を持つ */}
+                            <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-1" role="tablist">
+                                {([
+                                    { value: 'comfyui', label: CHARACTER.LABELS.BACKEND_TAB_COMFYUI },
+                                    { value: 'api', label: CHARACTER.LABELS.BACKEND_TAB_API },
+                                ] as { value: ImageBackend; label: string }[]).map((t) => (
+                                    <button
+                                        key={t.value}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={tab === t.value}
+                                        onClick={() => setTab(t.value)}
+                                        className={`flex-1 px-3 py-1.5 text-sm rounded transition-colors ${
+                                            tab === t.value ? 'bg-pink-700 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                        }`}
+                                    >
+                                        {t.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {tab === 'api' ? (
+                                <CharacterApiServiceFields
+                                    uiCatalog={uiCatalog}
+                                    value={apiConfig}
+                                    onChange={updateApiConfig}
+                                    description={CHARACTER.HELP.API_PROMPT_DESC}
+                                    promptAction={appearancePromptButton}
+                                    referenceImages={{
+                                        imageUrl: referenceImageUrl,
+                                        onAdd: async (file) => {
+                                            if (isDirty && !(await handleSave())) return;
+                                            await addCharacterReferenceImage(backendUrl, getCharDirName(selectedCharacter), apiService, file, { kind: 'character', strength: 0.6, fidelity: 0.5 });
+                                            await loadConfig(selectedCharacter);
+                                        },
+                                        onRemove: async (id) => {
+                                            if (isDirty && !(await handleSave())) return;
+                                            forgetAuthedUrl(getCharacterReferenceImageUrl(backendUrl, getCharDirName(selectedCharacter), apiService, id));
+                                            await deleteCharacterReferenceImage(backendUrl, getCharDirName(selectedCharacter), apiService, id);
+                                            await loadConfig(selectedCharacter);
+                                        },
+                                        disabledNote: referenceDisabledNote,
+                                    }}
+                                />
+                            ) : (<>
                             {/* キャラクタープロンプト */}
                             <div className="space-y-1">
-                                <label className="text-sm font-medium text-gray-400">
-                                    {CHARACTER.LABELS.CHARACTER_PROMPT}
-                                    <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
-                                </label>
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="text-sm font-medium text-gray-400">
+                                        {CHARACTER.LABELS.CHARACTER_PROMPT}
+                                        <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
+                                    </label>
+                                    {appearancePromptButton}
+                                </div>
                                 <textarea
                                     value={config.characterPrompt}
                                     onChange={(e) => updateField('characterPrompt', e.target.value)}
@@ -991,6 +1134,7 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
                                 />
                             </div>
+                            </>)}
                         </>
                     ) : (
                         <p className="text-sm text-gray-600 text-center py-4">
@@ -1036,6 +1180,14 @@ export const ComfyUICharacterSettingsModal: React.FC<Props> = ({
                     </div>
                 </div>
             </div>
+            <AppearancePromptPanel
+                backendUrl={backendUrl}
+                handle={appearancePrompt}
+                isDirty={isDirty}
+                triggerWordFormat={effectiveTriggerWordFormat}
+                onAppendLine={appendAppearanceLine}
+                uiCatalog={uiCatalog}
+            />
         </div>
     );
 };

@@ -23,6 +23,8 @@ const (
 	ModuleImageGenerateRoute = "/module/image-generate"
 	// ModuleImageAnalyzeRoute は画像生成の分析段（タグ判定→タグ解決）だけを実行する内部 RPC ルート。
 	ModuleImageAnalyzeRoute = "/module/image-analyze"
+	// ModuleAppearancePromptRoute はキャラクター容姿プロンプト作成ジョブ実行の内部 RPC ルート。
+	ModuleAppearancePromptRoute = "/module/appearance-prompt"
 )
 
 // ModuleImageGenerateRequest は画像生成ジョブの RPC リクエスト。
@@ -58,6 +60,22 @@ type ModuleImageAnalyzeRequest struct {
 type ModuleImageAnalyzeResponse struct {
 	Success bool            `json:"success"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+	// Error は失敗時の messageKey（i18n キー方式）。
+	Error string `json:"error,omitempty"`
+}
+
+// ModuleAppearancePromptRequest はキャラクター容姿プロンプト作成ジョブの RPC リクエスト。
+// Payload は appearancejobs.Payload の JSON 表現をそのまま持つ（本体は再解釈しない）。
+type ModuleAppearancePromptRequest struct {
+	JobID   string          `json:"jobId"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// ModuleAppearancePromptResponse はキャラクター容姿プロンプト作成ジョブの RPC レスポンス。
+// Output は appearancejobs.Result の JSON 表現（本体はそのまま jobs.Result.Output に載せる）。
+type ModuleAppearancePromptResponse struct {
+	Success bool   `json:"success"`
+	Output  string `json:"output,omitempty"`
 	// Error は失敗時の messageKey（i18n キー方式）。
 	Error string `json:"error,omitempty"`
 }

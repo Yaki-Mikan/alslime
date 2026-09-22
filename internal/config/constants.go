@@ -77,6 +77,10 @@ const (
 	GlobalSettingsFile = "roleplay/global/defaults/defaults.json"
 	// CharacterListDir はキャラクター設定・画像のルート。
 	CharacterListDir = "roleplay/characters"
+	// TempCharacterListDir はセッション内だけで使う一時キャラクターの仮想パスの接頭辞。
+	// 会話設定の characters 配列にキャラクターと同じ形式のパスを入れるための予約名で、
+	// 実ディレクトリは作らない。設定パックの入出力対象からも除外する。
+	TempCharacterListDir = "roleplay/temp_characters"
 	// CharacterSettingsDirName はキャラディレクトリ配下の設定ディレクトリ名。
 	CharacterSettingsDirName = "settings"
 	// CharacterImageGenConfigFileName はキャラ別画像生成設定ファイル名。
@@ -218,6 +222,9 @@ const (
 	// 生成プロファイル（profiles。タグ判定AI連動の機構的注入）とは別系統で、
 	// こちらはテスト生成のプレースホルダ直指定を UI から保存・選択するためのもの。
 	ComfyUIPlaceholderPresetDir = ComfyUIDir + "/placeholder_presets"
+	// ComfyUIAPIPresetDir は画像生成 API サービスの生成プリセットのルート。
+	// 配下にサービス ID ごとのディレクトリ（novelai 等）を持ち、「1 プリセット = 1 JSON」で並べる。
+	ComfyUIAPIPresetDir = ComfyUIDir + "/api_presets"
 	// ComfyUILoraDirectoriesFile は LoRA ディレクトリ設定の正本。
 	ComfyUILoraDirectoriesFile = ComfyUIDir + "/lora_directories.json"
 	// ComfyUITagMappingDir は TURNタグとプロンプト/LoRAの対応設定ディレクトリ。
@@ -237,12 +244,22 @@ const (
 	ComfyUIDirectiveNaturalShortFile = ComfyUIDir + "/image_gen_directive_natural_short.md"
 	// ComfyUIDirectiveNaturalThirdShortFile は自然文指示ファイルの短縮版（三人称視点）。
 	ComfyUIDirectiveNaturalThirdShortFile = ComfyUIDir + "/image_gen_directive_natural_third_short.md"
+	// 画像生成 API サービス（NovelAI 等）用のタグ判定指示ファイル。形式 ID は ComfyUI 用と共用し、
+	// 選択中のバックエンドが API サービスのときはこちらを読む。
+	ComfyUIDirectiveAPIDanbooruFile          = ComfyUIDir + "/image_gen_directive_api_danbooru_only.md"
+	ComfyUIDirectiveAPINaturalFile           = ComfyUIDir + "/image_gen_directive_api_natural_language.md"
+	ComfyUIDirectiveAPIDanbooruThirdFile     = ComfyUIDir + "/image_gen_directive_api_danbooru_third_person.md"
+	ComfyUIDirectiveAPINaturalThirdFile      = ComfyUIDir + "/image_gen_directive_api_natural_language_third_person.md"
+	ComfyUIDirectiveAPINaturalShortFile      = ComfyUIDir + "/image_gen_directive_api_natural_language_short.md"
+	ComfyUIDirectiveAPINaturalThirdShortFile = ComfyUIDir + "/image_gen_directive_api_natural_language_third_person_short.md"
 	// ComfyUIDebugDir は ComfyUI 連携のデバッグ出力ルート。
 	ComfyUIDebugDir = ComfyUIDir + "/debug"
 	// ComfyUITagJudgeResponsesDir はタグ判定AIの応答ログ格納先。
 	ComfyUITagJudgeResponsesDir = ComfyUIDebugDir + "/tag_judge_responses"
 	// ComfyUITagExtractionFailuresDir はタグ抽出失敗ログの格納先。
 	ComfyUITagExtractionFailuresDir = ComfyUIDebugDir + "/tag_extraction_failures"
+	// ComfyUIAppearanceResponsesDir はキャラクター容姿プロンプト作成 AI の応答ログ格納先。
+	ComfyUIAppearanceResponsesDir = ComfyUIDebugDir + "/appearance_prompt_responses"
 )
 
 // ディレクトリ列挙型プリセットのベースディレクトリ。
@@ -314,6 +331,10 @@ const (
 	// Windows は OS 資格ストアのため、この定数は使わない（GOOS 分岐）。
 	AuthHomeAntigravityFile = ".gemini/antigravity-cli/antigravity-oauth-token"
 
+	// ImageAPISecretsFile は画像生成 API サービス（NovelAI 等）のトークン置き場（AuthDir 相対・0600）。
+	// 接続先の秘密情報（secrets.json）とは別ファイルにして、書込元を一つに保つ
+	//（内蔵モードは本体、サイドカーモードは画像生成モジュールだけが書く）。
+	ImageAPISecretsFile = AuthDir + "/image_api_secrets.json"
 	// AuthWorkspaceGeminiFile は配置運用時の Gemini 認証ファイル（AuthDir 相対）。
 	AuthWorkspaceGeminiFile = AuthDir + "/gemini/oauth_creds.json"
 	// AuthWorkspaceClaudeFile は配置運用時の Claude 認証ファイル（AuthDir 相対）。
@@ -339,6 +360,11 @@ const (
 	// Lightsail 配備先（2026-08-01 独自ドメインへ切替。旧 Duck DNS は互換用に併存）。
 	// dev ビルドに限り環境変数 ALSLIME_ENTITLEMENT_SERVER で上書き可（ローカル検証用）。
 	EntitlementServerURL = "https://enti.alslime.com"
+	// DownloadBaseURL はサイドカーモジュール・付属パック・支援者向けパックの配信用ドメイン
+	//（本体埋め込み）。差し替えられても、一覧ファイルの署名検証（公開鍵埋め込み）と
+	// ハッシュ照合を通らない配布物は配置されない。
+	// dev ビルドに限り環境変数 ALSLIME_DL_BASE_URL で上書き可（確認用の配信先向け）。
+	DownloadBaseURL = "https://dl.alslime.com"
 )
 
 // 本体アップデート確認・直接アップデート（ファイル自動更新、確認 01番 4章・5章）。
@@ -394,6 +420,10 @@ const (
 	// のルート。配下は <locale>/<対象種別>/<方式>.md（同梱デフォルトを firstrun が
 	// 配置し、設定ファイルエディタから書き換える。無ければ実行時に同梱デフォルトへ戻る）。
 	ConfigGenPromptsDir = "roleplay/global/prompts/configgen"
+	// AppearancePromptsDir はキャラクター容姿プロンプト作成で AI へ渡す依頼文のルート。
+	// 配下は <locale>/character.md（同梱デフォルトを firstrun が配置。無ければ実行時に
+	// 同梱デフォルトへ戻る。編集画面は無い）。
+	AppearancePromptsDir = "roleplay/global/prompts/appearance"
 	// OpenAICompatInstructionMaxBytes は API 指示本文（共通・プリセット・接続別）
 	// 1 ファイルのサイズ上限。上限超過は書き込み前に拒否する。
 	OpenAICompatInstructionMaxBytes = 1 << 20
@@ -427,6 +457,12 @@ func OpenAICompatPresetPromptFile(preset, locale string) string {
 // locale は "ja"｜"en"）。
 func ConfigGenInstructionFile(target, method, locale string) string {
 	return ConfigGenPromptsDir + "/" + locale + "/" + target + "/" + method + ".md"
+}
+
+// AppearanceInstructionFile はキャラクター容姿プロンプト作成の依頼文の論理パスを返す
+// （locale は "ja"｜"en"）。
+func AppearanceInstructionFile(locale string) string {
+	return AppearancePromptsDir + "/" + locale + "/character.md"
 }
 
 // ConfigGenTemplateDefaultsFile は設定自動生成テンプレート（入力項目・設定ファイル）の

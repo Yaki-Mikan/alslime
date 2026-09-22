@@ -69,6 +69,17 @@ func (s *Service) CleanModule(ctx context.Context, moduleID string, reinstall bo
 		return ModuleInstallResult{}, ErrModuleUnknown
 	}
 
+	// 0. 再導入する場合は、削除の前に一覧ファイルの取得と導入バージョンの確定を済ませる。
+	//    一覧ファイルが取れない・対応バージョンが無い状態で削除を始めると、
+	//    配布物だけが消えて入れ直せなくなるため。
+	var plan moduleInstallPlan
+	if reinstall {
+		var err error
+		if plan, err = s.planModuleInstall(ctx, moduleID); err != nil {
+			return ModuleInstallResult{}, err
+		}
+	}
+
 	// 1. workflow テンプレートの削除（レシート記録分のみ。名前は safename 検証を
 	//    通ったものだけを使い、削除先の組み立てにパス走査が混じらないようにする）。
 	if receipt, receiptOK := s.readReceipt(target.ReceiptPath); receiptOK &&
@@ -106,11 +117,11 @@ func (s *Service) CleanModule(ctx context.Context, moduleID string, reinstall bo
 	}
 	logging.Info("sponsor: module %s cleaned", moduleID)
 
-	// 4. 再導入（最新版の取得・検証・配置・レシート再作成）。
+	// 4. 再導入（手順 0 で確定したバージョンの取得・検証・配置・レシート再作成）。
 	// ロック取得済みのため内部実体を直接呼ぶ（公開 InstallModule 経由だと
 	// TryLock が自分のロックと競合して常に ErrModuleBusy になる）。
 	if !reinstall {
 		return ModuleInstallResult{}, nil
 	}
-	return s.installModuleLocked(ctx, moduleID)
+	return s.applyModuleInstall(ctx, plan)
 }

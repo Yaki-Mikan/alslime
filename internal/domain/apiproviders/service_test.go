@@ -224,6 +224,11 @@ func TestStartupCheck_孤児回収と欠落再生成(t *testing.T) {
 	if err := svc.secrets.Set("conn-orphan", apistorage.ConnectionSecret{APIKey: "sk-orphan"}); err != nil {
 		t.Fatalf("孤児 secret の準備に失敗: %v", err)
 	}
+	// 旧配置（secrets.json の imageapi: 接頭辞）の画像生成トークンは接続先一覧に載らない別系統。
+	// 回収の対象外であること（新しい置き場へ移す前の環境を壊さない）。
+	if err := svc.secrets.Set("imageapi:novelai", apistorage.ConnectionSecret{APIKey: "pst-image"}); err != nil {
+		t.Fatalf("画像生成トークンの準備に失敗: %v", err)
+	}
 	orphanDir, err := resolver.ResolveForCreateMkdirAll(config.OpenAICompatConnectionPromptFile("conn-ghost", "ja"), config.DirPerm)
 	if err != nil {
 		t.Fatalf("孤児指示の準備に失敗: %v", err)
@@ -249,6 +254,9 @@ func TestStartupCheck_孤児回収と欠落再生成(t *testing.T) {
 
 	if has, _ := svc.secrets.HasAPIKey("conn-orphan"); has {
 		t.Fatalf("孤児 secret は自動削除されるべき")
+	}
+	if has, _ := svc.secrets.HasAPIKey("imageapi:novelai"); !has {
+		t.Fatalf("旧配置の画像生成トークンは起動時点検で消えてはならない")
 	}
 	if _, err := resolver.ResolveExisting(config.OpenAICompatConnectionPromptDir("conn-ghost")); err == nil {
 		t.Fatalf("孤児の接続別追加指示は自動削除されるべき")

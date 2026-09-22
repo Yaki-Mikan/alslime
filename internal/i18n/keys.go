@@ -98,6 +98,35 @@ const (
 	KeyErrorTTSLatentEncodeFailed     = "error.ttsLatentEncodeFailed"
 	KeyErrorTTSLatentInputInvalid     = "error.ttsLatentInputInvalid"
 	KeyErrorImageGenerateFailed       = "error.imageGenerateFailed"
+	KeyErrorImageBackendUnavailable   = "error.imageBackendUnavailable"
+	// 画像生成 API サービス（NovelAI）。
+	KeyErrorNAITokenMissing           = "error.nai.tokenMissing"
+	KeyErrorNAIBadRequest             = "error.nai.badRequest"
+	KeyErrorNAITrialNotSupported      = "error.nai.trialNotSupported"
+	KeyErrorNAIUnauthorized           = "error.nai.unauthorized"
+	KeyErrorNAIInsufficientAnlas      = "error.nai.insufficientAnlas"
+	KeyErrorNAIConflict               = "error.nai.conflict"
+	KeyErrorNAIBusy                   = "error.nai.busy"
+	KeyErrorNAIServerError            = "error.nai.serverError"
+	KeyErrorNAITimeout                = "error.nai.timeout"
+	KeyErrorNAIUsageExhausted         = "error.nai.usageExhausted"
+	KeyErrorNAIPresetNotFound         = "error.nai.presetNotFound"
+	KeyErrorNAIPresetNameInvalid      = "error.nai.presetNameInvalid"
+	KeyErrorNAIInvalidResponse        = "error.nai.invalidResponse"
+	KeyErrorNAIReferenceImageInvalid  = "error.nai.referenceImageInvalid"
+	KeyWarningNAIFreeTierExceeded     = "warning.nai.freeTierExceeded"
+	KeyWarningNAIJapaneseOnV45        = "warning.nai.japaneseOnV45"
+	KeyWarningNAIPromptTooLong        = "warning.nai.promptTooLong"
+	KeyWarningNAIReferenceIgnoredOnV5 = "warning.nai.referenceIgnoredOnV5"
+	KeyWarningNAIPersonsTruncated     = "warning.nai.personsTruncated"
+	KeyErrorNAITextSpecTooLong        = "error.nai.textSpecTooLong"
+	KeyErrorNAITextSpecConflict       = "error.nai.textSpecConflict"
+	KeyWarningNAISoundEffectsTrimmed  = "warning.nai.soundEffectsTrimmed"
+	KeyWarningNAISoundEffectsRejected = "warning.nai.soundEffectsRejected"
+	KeyLabelNAITierPaper              = "label.nai.tier.paper"
+	KeyLabelNAITierTablet             = "label.nai.tier.tablet"
+	KeyLabelNAITierScroll             = "label.nai.tier.scroll"
+	KeyLabelNAITierOpus               = "label.nai.tier.opus"
 	KeyErrorImagePayloadInvalid       = "error.imagePayloadInvalid"
 	KeyErrorProviderEngineMissing     = "error.providerEngineMissing"
 	KeyErrorChatEngineMissing         = "error.chatEngineMissing"
@@ -137,6 +166,22 @@ const (
 	KeyErrorConfigGenOutputEmpty          = "error.configgen.outputEmpty"
 	KeyErrorConfigGenMethodNotAllowed     = "error.configgen.methodNotAllowed"
 	KeyConfigGenProgressDialogTurn        = "configgen.progress.dialogTurn"
+	// セッションからの一時キャラクター取り込み。
+	KeyErrorTempCharSessionNotFound   = "error.tempchar.sessionNotFound"
+	KeyErrorTempCharNotFound          = "error.tempchar.notFound"
+	KeyErrorTempCharInvalidName       = "error.tempchar.invalidName"
+	KeyErrorTempCharAlreadyExists     = "error.tempchar.alreadyExists"
+	KeyErrorTempCharContentTooLarge   = "error.tempchar.contentTooLarge"
+	KeyConfigGenProgressFromSession   = "configgen.progress.fromSessionStarted"
+	KeyConfigGenProgressTempCharAdded = "configgen.progress.tempCharacterRegistered"
+	KeyLabelTempCharacterImport       = "label.tempCharacterImport"
+	// キャラクター容姿プロンプト作成。
+	KeyErrorAppearanceSettingNotFound = "error.appearance.settingNotFound"
+	KeyErrorAppearanceInvalidProvider = "error.appearance.invalidProvider"
+	KeyErrorAppearanceInvalidPayload  = "error.appearance.invalidPayload"
+	KeyErrorAppearanceParseFailed     = "error.appearance.parseFailed"
+	KeyErrorAppearanceNoTags          = "error.appearance.noTags"
+	KeyLabelAppearancePrompt          = "label.appearancePrompt"
 
 	// Antigravity Method C テンプレートの自動復旧。
 	KeyErrorAntigravityTemplateExplicitInvalid = "error.antigravity.templateExplicitInvalid"
@@ -181,6 +226,9 @@ const (
 	KeyErrorSponsorModuleBusy          = "error.sponsorModuleBusy"
 	KeyErrorSponsorModuleNeedsNewerApp = "error.sponsorModuleNeedsNewerApp"
 	KeyErrorSponsorModuleIncompatible  = "error.sponsorModuleIncompatible"
+	// 配布ファイルの一覧（配信用ドメイン）の取得失敗・検証失敗。
+	KeyErrorSponsorDownloadListUnavailable = "error.sponsorDownloadListUnavailable"
+	KeyErrorSponsorDownloadListInvalid     = "error.sponsorDownloadListInvalid"
 
 	// 本体の直接アップデート（ファイル自動更新、確認 01番 5章・8章）。
 	KeyErrorUpdateApplyFailed      = "error.updateApplyFailed"
@@ -252,4 +300,11 @@ const (
 	// プロンプト文言（API 経路専用。PromptLocale＝ja/en）。
 	KeyPromptParametersAPIInstruction   = "prompt.parameters.apiInstruction"
 	KeyPromptWritingStyleAPIInstruction = "prompt.writingStyle.apiInstruction"
+)
+
+// 入力の不備の文面へ差し込む入力欄の名前（識別子は comfyui の NovelAIInputField* と同じ綴り）。
+const (
+	KeyLabelNAIInputFieldBasePrompt     = "label.nai.inputField.basePrompt"
+	KeyLabelNAIInputFieldExtraPrompt    = "label.nai.inputField.extraPrompt"
+	KeyLabelNAIInputFieldPromptTemplate = "label.nai.inputField.promptTemplate"
 )

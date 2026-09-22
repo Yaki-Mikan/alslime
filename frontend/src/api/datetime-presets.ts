@@ -167,9 +167,26 @@ export async function deleteDateTimeGroupPreset(backendUrl: string, name: string
 
 import type { DateTimeSettingsState as DTSettings } from '../types/datetime';
 
+/**
+ * 一時キャラクター（実ファイルを持たず、会話設定の中に設定本文を抱えるキャラクター）。
+ * キーは characters 配列に入れる仮想パス（roleplay/temp_characters/<id>/settings/<名前>.md）。
+ */
+export interface TempCharacter {
+    id: string;
+    name: string;
+    content: string;
+    createdAt: string;
+    sourceSessionId: string;
+    templateName?: string;
+    /** キャラ設定登録後に入る実ファイルのパス（未登録なら空） */
+    registeredPath?: string;
+}
+
 // SSRP全体プリセットの型定義
 export interface SSRPAllPreset {
     characters: string[];
+    /** 一時キャラクター（仮想パス → 本文等）。プリセットにも本文ごと保存される */
+    tempCharacters?: Record<string, TempCharacter>;
     situations: string[];
     users: string[];
     worlds: string[];
@@ -192,8 +209,12 @@ export interface SSRPAllPreset {
     imageGenerationNotes?: string;
     /** 画像生成設定: 使用ワークフロー（''/未設定 = グローバル設定に従う） */
     imageGenWorkflowId?: string;
+    /** 画像生成設定: API サービスの生成プリセット（''/未設定 = グローバル設定に従う） */
+    imageGenApiPresetId?: string;
     /** 画像生成設定: 分析指示の directiveMode 値（''/未設定 = グローバル設定に従う） */
     imageGenDirectiveMode?: string;
+    /** 画像生成設定: API サービス用の分析指示（ComfyUI 用とは別に持つ。''/未設定 = グローバル設定に従う） */
+    imageGenApiDirectiveMode?: string;
     additionalSituationEnabled?: boolean;
     additionalSituationText?: string;
     additionalUserEnabled?: boolean;
@@ -297,6 +318,8 @@ export interface SSRPParamPreset {
     // 追加性格設定
     additionalPersonalityEnabled?: boolean;
     additionalPersonalityText?: string;
+    // 応答時の自動画像生成でこのキャラクターを対象にするか（未指定は対象）
+    autoImageGenEnabled?: boolean;
 }
 
 /**

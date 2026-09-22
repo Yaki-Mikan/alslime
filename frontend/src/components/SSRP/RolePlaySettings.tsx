@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Check, Save, Plus, ChevronDown, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Search, Image, MessageSquare, FolderOpen, SlidersHorizontal, Users, Globe, FileText, AudioLines } from 'lucide-react';
+import { X, Check, Save, Plus, ChevronDown, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Search, Image, MessageSquare, FolderOpen, SlidersHorizontal, Users, Globe, FileText, AudioLines, UserPlus, FolderPlus } from 'lucide-react';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { GridSelectionModal } from '../common/GridSelectionModal';
+import { ConfirmDialog } from '../ConfirmDialog';
+import { TempCharacterImportModal } from './TempCharacterImportModal';
+import { TempCharacterEditorModal } from './TempCharacterEditorModal';
+import { isTempCharacterPath } from '../../lib/characterName';
+import type { SpeakerSourceMessage } from '../../lib/tempCharacterSpeakers';
+import type { TempCharacterImportHandle } from '../../hooks/useTempCharacterImport';
+import type { TempCharacter } from '../../api/datetime-presets';
+import { updateTempCharacter, removeTempCharacter, registerTempCharacter } from '../../api/temp-characters';
 import { listFiles, getCharacterTags, getCharacterFilters } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
 import {
@@ -93,6 +101,14 @@ interface RolePlaySettingsProps {
      * （引数は保存先ディレクトリ名と設定ファイル名）。未指定ならアイコンを出さない。
      */
     onOpenCharacterEditor?: (target: { dirName: string; fileName: string }) => void;
+    /** セッションからの一時キャラクター取り込み用：現在のセッション ID（無ければ取り込み不可） */
+    sessionId?: string | null;
+    /** 同上：会話のメッセージ（話者一覧の作成に使う） */
+    messages?: SpeakerSourceMessage[];
+    /** 同上：取り込みの進行状態と操作（Chat 側で保持し、小窓を閉じても続く） */
+    tempImport?: TempCharacterImportHandle;
+    /** サーバー側で会話設定が更新されたとき（一時キャラの本文更新・削除・キャラ設定登録）に Chat 側の保持値を差し替える */
+    onSessionSettingsUpdated?: (ssrpSettings: any) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -219,6 +235,9 @@ interface CharacterDetail {
     // 追加性格設定
     additionalPersonalityEnabled?: boolean;
     additionalPersonalityText?: string;
+    // 応答時の自動画像生成でこのキャラクターのチャットバブルを対象にするか。
+    // 未指定は対象（過去のセッション・プリセットは項目を持たないため）。
+    autoImageGenEnabled?: boolean;
 }
 
 // 選択リスト操作の共通ヘルパー（最後の要素を選択したら空スロットを追加、最大5件）
@@ -328,6 +347,8 @@ interface CharacterDetailPanelProps {
     onFetchRelationshipOptions: () => void;
     onSelectRelation: (charPath: string, targetIdx: number) => void;
     onOpenImageSettings: (charPath: string) => void;
+    // 自動画像生成の対象トグルを出すか（画像生成設定と同じ表示条件）
+    imageGenSettingsVisible: boolean;
     // キャラクター側の設定紐づけ（追加設定の追記／置換バッジ表示用。プリセットには保存しない）
     linkedSettings?: LinkedSettings;
     // 設定ファイルエディタでこのキャラクター本体を開く（未指定ならアイコンを出さない）
@@ -362,6 +383,7 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
     onParamPresetsChange,
     onFetchRelationshipOptions,
     onSelectRelation,
+    imageGenSettingsVisible,
     linkedSettings,
     canUseTTS,
     presetVoiceDesign,
@@ -421,6 +443,7 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
             additionalBackgroundText: detail.additionalBackgroundText,
             additionalPersonalityEnabled: detail.additionalPersonalityEnabled,
             additionalPersonalityText: detail.additionalPersonalityText,
+            autoImageGenEnabled: detail.autoImageGenEnabled,
         };
         await saveSSRPParamPreset(backendUrl, name, preset);
         onParamPresetsChange(await listSSRPParamPresets(backendUrl));
@@ -483,6 +506,7 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                                             additionalBackgroundText: preset.additionalBackgroundText ?? d.additionalBackgroundText,
                                             additionalPersonalityEnabled: preset.additionalPersonalityEnabled ?? d.additionalPersonalityEnabled,
                                             additionalPersonalityText: preset.additionalPersonalityText ?? d.additionalPersonalityText,
+                                            autoImageGenEnabled: preset.autoImageGenEnabled ?? d.autoImageGenEnabled,
                                             correlations: d.correlations.map(c => {
                                                 if (c.targetId === 'user') {
                                                     return {
@@ -755,6 +779,21 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
                         />
                     )}
 
+                    {/* 自動画像生成の対象（ドロワーの自動画像生成が ON のとき、このキャラのバブルへ予約するか） */}
+                    {imageGenSettingsVisible && (
+                        <div className="space-y-1">
+                            <ToggleSwitch
+                                checked={detail.autoImageGenEnabled !== false}
+                                onChange={value => onUpdateDetail(charPath, d => ({ ...d, autoImageGenEnabled: value }))}
+                                label={t(SSRP_I18N_KEYS.autoImageGenTarget)}
+                                labelPosition="right"
+                                accent="green"
+                                size="sm"
+                            />
+                            <p className="text-[10px] text-gray-500 pl-11">{t(SSRP_I18N_KEYS.autoImageGenTargetHint)}</p>
+                        </div>
+                    )}
+
                     {/* キャラクター画像管理パネル */}
                     <CharacterImagePanel
                         characterName={characterDirName}
@@ -787,6 +826,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     ttsSettingsVisible = false,
     onOpenIntegratedTTSSettings,
     onOpenCharacterEditor,
+    sessionId,
+    messages,
+    tempImport,
+    onSessionSettingsUpdated,
     uiCatalog
 }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
@@ -819,6 +862,13 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [filterWorks, setFilterWorks] = useState<string[]>([]);
     const [filterTags, setFilterTags] = useState<string[]>([]);
     const [characterTagMap, setCharacterTagMap] = useState<Record<string, { work: string | null; tags: string[] }>>({});
+
+    // 一時キャラクター（実ファイルを持たず会話設定に本文を抱える。キーは characters に入れる仮想パス）
+    const [tempCharacters, setTempCharacters] = useState<Record<string, TempCharacter>>({});
+    const [isTempImportOpen, setIsTempImportOpen] = useState(false);
+    const [tempEditorPath, setTempEditorPath] = useState<string | null>(null);
+    const [tempRegisterPath, setTempRegisterPath] = useState<string | null>(null);
+    const [tempToast, setTempToast] = useState('');
 
     // 選択状態
     const [selectedCharacters, setSelectedCharacters] = useState<string[]>(['']);
@@ -1060,6 +1110,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         setUserName(restoredUserName);
 
         setVoiceDesignByCharacter(settings.voiceDesignByCharacter || {});
+        setTempCharacters(settings.tempCharacters && typeof settings.tempCharacters === 'object' ? settings.tempCharacters : {});
 
         if (settings.characterDetails) {
             const details = { ...settings.characterDetails };
@@ -1107,7 +1158,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         setImageGenerationNotes(settings.imageGenerationNotes || '');
         setImageGenSettings({
             workflowId: settings.imageGenWorkflowId || '',
+            apiPresetId: settings.imageGenApiPresetId || '',
             directiveMode: settings.imageGenDirectiveMode || '',
+            apiDirectiveMode: settings.imageGenApiDirectiveMode || '',
         });
         if (settings.additionalSituationEnabled !== undefined) setAdditionalSituationEnabled(settings.additionalSituationEnabled);
         if (settings.additionalSituationText !== undefined) setAdditionalSituationText(settings.additionalSituationText);
@@ -1535,6 +1588,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
             return {
                 characters: selectedCharacters.filter(Boolean),
+                tempCharacters,
                 characterDetails,
                 voiceDesignByCharacter,
                 situations: selectedSituations.filter(Boolean),
@@ -1556,7 +1610,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 additionalWritingStyleText,
                 imageGenerationNotes,
                 imageGenWorkflowId: imageGenSettings.workflowId,
+                imageGenApiPresetId: imageGenSettings.apiPresetId,
                 imageGenDirectiveMode: imageGenSettings.directiveMode,
+                imageGenApiDirectiveMode: imageGenSettings.apiDirectiveMode,
                 additionalSituationEnabled,
                 additionalSituationText,
                 additionalUserEnabled,
@@ -1579,6 +1635,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
         onStartSession({
             characters: selectedCharacters.filter(Boolean),
+            tempCharacters,
             characterDetails,
             voiceDesignByCharacter,
             situations: selectedSituations.filter(Boolean),
@@ -1605,7 +1662,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             additionalWritingStyleText,
             imageGenerationNotes,
             imageGenWorkflowId: imageGenSettings.workflowId,
+            imageGenApiPresetId: imageGenSettings.apiPresetId,
             imageGenDirectiveMode: imageGenSettings.directiveMode,
+            imageGenApiDirectiveMode: imageGenSettings.apiDirectiveMode,
             additionalSituationEnabled,
             additionalSituationText,
             additionalUserEnabled,
@@ -1665,6 +1724,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         try {
             const preset: SSRPAllPreset = {
                 characters: selectedCharacters.filter(c => c),
+                tempCharacters,
                 situations: selectedSituations.filter(s => s),
                 users: selectedUsers.filter(u => u),
                 worlds: selectedWorlds.filter(w => w),
@@ -1685,7 +1745,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 additionalWritingStyleText,
                 imageGenerationNotes,
                 imageGenWorkflowId: imageGenSettings.workflowId,
+                imageGenApiPresetId: imageGenSettings.apiPresetId,
                 imageGenDirectiveMode: imageGenSettings.directiveMode,
+                imageGenApiDirectiveMode: imageGenSettings.apiDirectiveMode,
                 additionalSituationEnabled,
                 additionalSituationText,
                 additionalUserEnabled,
@@ -1701,6 +1763,64 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             setSelectedSSRPAllPreset(savedName);
         } finally {
             setIsSavingSSRPAllPreset(false);
+        }
+    };
+
+    // ---- 一時キャラクター（セッションからの取り込み） ----
+    const showTempToast = (msg: string) => {
+        setTempToast(msg);
+        setTimeout(() => setTempToast(''), 3000);
+    };
+    // サーバー側で会話設定が更新された結果を UI と Chat 側の保持値へ反映する
+    const applyServerSettings = (saved: any) => {
+        if (!saved) return;
+        applySettings(saved);
+        onSessionSettingsUpdated?.(saved);
+    };
+    const canImportTempCharacters = !!sessionId && !!messages && messages.some(m => m.role === 'agent' && !m.errorType);
+    const handleTempEditorSave = async (content: string) => {
+        if (!tempEditorPath) return;
+        if (!sessionId) {
+            // セッション未開始（プリセットから読み込んだ一時キャラ）は UI 内だけで更新する
+            setTempCharacters(prev => prev[tempEditorPath] ? { ...prev, [tempEditorPath]: { ...prev[tempEditorPath], content } } : prev);
+            return;
+        }
+        const res = await updateTempCharacter(backendUrl, sessionId, tempEditorPath, content);
+        applyServerSettings(res.ssrpSettings);
+    };
+    const handleTempRemove = async (idx: number, charPath: string) => {
+        if (!sessionId) {
+            setSelectedCharacters(prev => listWithDelete(idx, prev));
+            setTempCharacters(prev => {
+                const next = { ...prev };
+                delete next[charPath];
+                return next;
+            });
+            return;
+        }
+        try {
+            const res = await removeTempCharacter(backendUrl, sessionId, charPath);
+            applyServerSettings(res.ssrpSettings);
+        } catch (error) {
+            console.error('[RolePlaySettings] Failed to remove temp character:', error);
+            showTempToast(t(SSRP_I18N_KEYS.tempCharacterRemoveFailed));
+        }
+    };
+    const handleTempRegister = async () => {
+        const charPath = tempRegisterPath;
+        setTempRegisterPath(null);
+        if (!sessionId || !charPath) return;
+        const name = tempCharacters[charPath]?.name || getCharacterSettingNameFromPath(charPath);
+        try {
+            const res = await registerTempCharacter(backendUrl, sessionId, charPath);
+            // 登録したキャラクターを一覧に載せる（キャッシュ破棄 → 購読で取り直し）
+            invalidateSSRPOptionsCache();
+            applyServerSettings(res.ssrpSettings);
+            showTempToast(formatText(t(SSRP_I18N_KEYS.tempCharacterRegisterDone), { name }));
+        } catch (error: any) {
+            const key = error?.response?.data?.messageKey || error?.response?.data?.error || '';
+            const reason = key ? resolveMessage(uiCatalog, key, key) : String(error?.message || '');
+            showTempToast(formatText(t(SSRP_I18N_KEYS.tempCharacterRegisterFailed), { reason }));
         }
     };
 
@@ -2085,19 +2205,32 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                     <div className="space-y-4">
                         {/* キャラクター設定（開閉可能、デフォルト開） */}
                         <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
-                            <button
-                                onClick={() => setIsCharacterSectionOpen(!isCharacterSectionOpen)}
-                                className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50 transition-colors"
-                            >
-                                <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-                                    {isCharacterSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                    <Users size={16} className="text-pink-400" />
-                                    {t(SSRP_I18N_KEYS.characterSectionTitle)}
-                                </h3>
-                                <span className="text-xs text-gray-500">
-                                    {formatText(t(SSRP_I18N_KEYS.selectedCount), { count: selectedCharacters.filter(c => c).length })}
-                                </span>
-                            </button>
+                            {/* 見出し行：開閉ボタンと、右端に「セッションからキャラクターを取り込む」 */}
+                            <div className="flex items-center">
+                                <button
+                                    onClick={() => setIsCharacterSectionOpen(!isCharacterSectionOpen)}
+                                    className="flex-1 min-w-0 flex items-center justify-between p-3 hover:bg-gray-800/50 transition-colors"
+                                >
+                                    <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                                        {isCharacterSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                        <Users size={16} className="text-pink-400" />
+                                        {t(SSRP_I18N_KEYS.characterSectionTitle)}
+                                    </h3>
+                                    <span className="text-xs text-gray-500">
+                                        {formatText(t(SSRP_I18N_KEYS.selectedCount), { count: selectedCharacters.filter(c => c).length })}
+                                    </span>
+                                </button>
+                                {tempImport && (
+                                    <button
+                                        onClick={() => setIsTempImportOpen(true)}
+                                        disabled={!canImportTempCharacters}
+                                        className="p-3 text-gray-400 hover:text-orange-300 hover:bg-gray-800/50 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"
+                                        title={t(SSRP_I18N_KEYS.tempImportOpen)}
+                                    >
+                                        <UserPlus size={16} />
+                                    </button>
+                                )}
+                            </div>
                             {isCharacterSectionOpen && (
                                 <div className="p-3 pt-0 border-t border-gray-800/50 space-y-2">
                                     {selectedCharacters.map((val, idx) => {
@@ -2151,7 +2284,26 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                 {/* アイコンバー：キャラ設定・画像設定・TTS 設定・削除（選択欄の上の一行） */}
                                                 {(val || (idx !== selectedCharacters.length - 1 && selectedCharacters.length > 1)) && (
                                                     <div className="flex items-center justify-end gap-0.5 bg-blue-950/60 border border-blue-900/60 rounded-md px-1.5 py-0.5">
-                                                        {val && onOpenCharacterEditor && (
+                                                        {/* 一時キャラクターだけ：キャラ設定登録（設定アイコンの左。枠と同じ橙色） */}
+                                                        {val && isTempCharacterPath(val) && !tempCharacters[val]?.registeredPath && (
+                                                            <button
+                                                                onClick={() => setTempRegisterPath(val)}
+                                                                disabled={!sessionId}
+                                                                className="p-1.5 text-orange-400 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors disabled:opacity-40"
+                                                                title={t(SSRP_I18N_KEYS.tempCharacterRegisterTitle)}
+                                                            >
+                                                                <FolderPlus size={14} />
+                                                            </button>
+                                                        )}
+                                                        {val && isTempCharacterPath(val) ? (
+                                                            <button
+                                                                onClick={() => setTempEditorPath(val)}
+                                                                className="p-1.5 text-gray-400 hover:text-green-300 hover:bg-gray-700/50 rounded transition-colors"
+                                                                title={t(SSRP_I18N_KEYS.tempCharacterEditorTitle)}
+                                                            >
+                                                                <FileText size={14} />
+                                                            </button>
+                                                        ) : val && onOpenCharacterEditor && (
                                                             <button
                                                                 onClick={() => onOpenCharacterEditor({
                                                                     dirName: characterDirNameMap.get(val) || getCharacterNameFromPath(val),
@@ -2163,7 +2315,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                                 <FileText size={14} />
                                                             </button>
                                                         )}
-                                                        {val && (
+                                                        {/* 画像生成設定・音声設定は一時キャラクターでは使わない（キャラ設定登録後に通常の手順で設定する） */}
+                                                        {val && !isTempCharacterPath(val) && (
                                                             <button
                                                                 onClick={() => openImageSettingsForCharacter(val)}
                                                                 className="p-1.5 text-gray-400 hover:text-pink-300 hover:bg-gray-700/50 rounded transition-colors"
@@ -2172,7 +2325,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                                 <Image size={14} />
                                                             </button>
                                                         )}
-                                                        {val && ttsSettingsVisible && (
+                                                        {val && !isTempCharacterPath(val) && ttsSettingsVisible && (
                                                             <button
                                                                 onClick={() => openTTSSettingsForCharacter(val)}
                                                                 className="p-1.5 text-gray-400 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors"
@@ -2182,7 +2335,14 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                             </button>
                                                         )}
                                                         <button
-                                                            onClick={() => setSelectedCharacters(prev => listWithDelete(idx, prev))}
+                                                            onClick={() => {
+                                                                if (val && isTempCharacterPath(val)) {
+                                                                    // 一時キャラクターは会話設定内の本文も消す（サーバー側で削除）
+                                                                    void handleTempRemove(idx, val);
+                                                                    return;
+                                                                }
+                                                                setSelectedCharacters(prev => listWithDelete(idx, prev));
+                                                            }}
                                                             className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700/50 rounded transition-colors"
                                                         >
                                                             <Trash2 size={14} />
@@ -2196,10 +2356,12 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                         {(() => {
                                                             // キャラカード：default 表情の画像を選択欄の背景いっぱいに敷き、名前を重ねる
                                                             const cardUrl = val ? characterIconMap.get(val) : undefined;
+                                                            // 一時キャラクター（キャラ設定登録前）は枠線を橙色にして区別する
+                                                            const isTemp = !!val && isTempCharacterPath(val) && !tempCharacters[val]?.registeredPath;
                                                             return (
                                                                 <div
                                                                     onClick={() => setCharDropdownOpenIdx(idx)}
-                                                                    className={`relative overflow-hidden w-full bg-gray-800 border border-gray-700 rounded-md text-sm cursor-pointer hover:border-blue-500 transition-colors flex items-center justify-between ${cardUrl ? 'h-20' : 'p-2'}`}
+                                                                    className={`relative overflow-hidden w-full bg-gray-800 border rounded-md text-sm cursor-pointer transition-colors flex items-center justify-between ${isTemp ? 'border-orange-500 hover:border-orange-400' : 'border-gray-700 hover:border-blue-500'} ${cardUrl ? 'h-20' : 'p-2'}`}
                                                                 >
                                                                     {cardUrl && (
                                                                         <>
@@ -2212,7 +2374,12 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                                         </>
                                                                     )}
                                                                     <span className={`relative z-10 truncate flex-1 ${cardUrl ? 'px-3 font-semibold text-base text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]' : (val ? 'text-gray-200' : 'text-gray-500')}`}>
-                                                                        {val ? (characterLabelMap.get(val) || val) : t(SSRP_I18N_KEYS.characterSelect)}
+                                                                        {val ? (characterLabelMap.get(val) || tempCharacters[val]?.name || val) : t(SSRP_I18N_KEYS.characterSelect)}
+                                                                        {isTemp && (
+                                                                            <span className="ml-2 align-middle text-[10px] font-normal px-1 py-0.5 rounded bg-orange-900/70 text-orange-200 border border-orange-600/60">
+                                                                                {t(SSRP_I18N_KEYS.tempCharacterBadge)}
+                                                                            </span>
+                                                                        )}
                                                                     </span>
                                                                     <Search size={12} className={`relative z-10 shrink-0 ml-1 ${cardUrl ? 'mr-3 text-gray-200 drop-shadow' : 'text-gray-500'}`} />
                                                                 </div>
@@ -2241,6 +2408,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                         onFetchRelationshipOptions={fetchRelationshipOptions}
                                                         onSelectRelation={handleSelectRelation}
                                                         onOpenImageSettings={openImageSettingsForCharacter}
+                                                        imageGenSettingsVisible={imageGenSettingsVisible && !isTempCharacterPath(val)}
                                                         linkedSettings={linkedSettingsByChar[val]}
                                                         onOpenEditor={onOpenCharacterEditor
                                                             ? charPath => onOpenCharacterEditor({
@@ -2248,10 +2416,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                                                 fileName: getCharacterSettingNameFromPath(charPath),
                                                             })
                                                             : undefined}
-                                                        canUseTTS={ttsSettingsVisible}
-                                                        onOpenTTSSettings={ttsSettingsVisible ? openTTSSettingsForCharacter : undefined}
+                                                        canUseTTS={ttsSettingsVisible && !isTempCharacterPath(val)}
+                                                        onOpenTTSSettings={ttsSettingsVisible && !isTempCharacterPath(val) ? openTTSSettingsForCharacter : undefined}
                                                         presetVoiceDesign={voiceDesignByCharacter[val]}
-                                                        onPresetVoiceDesignChange={ttsSettingsVisible ? updateVoiceDesignForCharacter : undefined}
+                                                        onPresetVoiceDesignChange={ttsSettingsVisible && !isTempCharacterPath(val) ? updateVoiceDesignForCharacter : undefined}
                                                         onUpdateCorrelation={updateCorrelation}
                                                         onUpdateParamGroup={updateCharacterParamGroup}
                                                         onUpdateParamValue={updateCharacterParamValue}
@@ -2533,6 +2701,46 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 initialSelectedCharacter={ttsSettingsTargetCharacter}
                 uiCatalog={uiCatalog}
             />
+
+            {/* セッションからの一時キャラクター取り込み */}
+            {tempImport && (
+                <TempCharacterImportModal
+                    isOpen={isTempImportOpen}
+                    onClose={() => setIsTempImportOpen(false)}
+                    backendUrl={backendUrl}
+                    sessionId={sessionId || null}
+                    messages={messages || []}
+                    tempCharacters={tempCharacters}
+                    userName={userName}
+                    tempImport={tempImport}
+                    uiCatalog={uiCatalog}
+                />
+            )}
+            <TempCharacterEditorModal
+                key={tempEditorPath || 'closed'}
+                isOpen={tempEditorPath !== null}
+                characterName={tempEditorPath ? (tempCharacters[tempEditorPath]?.name || getCharacterSettingNameFromPath(tempEditorPath)) : ''}
+                initialContent={tempEditorPath ? (tempCharacters[tempEditorPath]?.content || '') : ''}
+                onSave={handleTempEditorSave}
+                onClose={() => setTempEditorPath(null)}
+                uiCatalog={uiCatalog}
+            />
+            <ConfirmDialog
+                isOpen={tempRegisterPath !== null}
+                title={t(SSRP_I18N_KEYS.tempCharacterRegisterConfirmTitle)}
+                message={formatText(t(SSRP_I18N_KEYS.tempCharacterRegisterConfirm), {
+                    name: tempRegisterPath ? (tempCharacters[tempRegisterPath]?.name || getCharacterSettingNameFromPath(tempRegisterPath)) : '',
+                })}
+                onYes={() => { void handleTempRegister(); }}
+                onNo={() => setTempRegisterPath(null)}
+                onCancel={() => setTempRegisterPath(null)}
+                uiCatalog={uiCatalog}
+            />
+            {tempToast && (
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] bg-gray-800 border border-orange-600/70 text-sm text-gray-100 px-4 py-2 rounded shadow-lg">
+                    {tempToast}
+                </div>
+            )}
         </>
     );
 });

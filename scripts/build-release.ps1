@@ -3,6 +3,11 @@ param(
     # Entitlement token verification keys embedded into the app (Phase D).
     # Format: "kid:hexPublicKey,kid2:hexPublicKey" (genkey output of alslime-server).
     [string]$EntitlementKeys = "",
+    # Download-manifest verification keys embedded into the app (same format as
+    # EntitlementKeys, but a separate key table: the manifest signing key lives on
+    # the publishing PC and must never be able to sign entitlement tokens).
+    # Required: without it the app cannot verify the download list, so the script stops before building.
+    [string]$ManifestKeys = "",
     # Optional source revision supplied by the caller. The build script never runs git.
     [ValidatePattern('^$|^[0-9A-Fa-f]{7,64}$')]
     [string]$Commit = "",
@@ -54,6 +59,41 @@ if ($Package) {
     if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') {
         throw "-Package requires Version in X.Y.Z form (no leading 'v', no path characters). Got: '$Version'"
     }
+}
+
+# 検証鍵の指定（kid:hex 公開鍵のカンマ区切り）の前提もビルド前に検証する。
+#
+# 配布ファイル一覧の検証鍵（ManifestKeys）は常に必須。release ビルドは検証鍵を環境変数から
+# 読まないため、埋め込みが無い本体は一覧の署名確認に必ず失敗し、サイドカーの導入・更新・
+# クリーン再導入と支援者向けパックの取得がすべて使えなくなる。このスクリプトの成果物は
+# どの指定でも配布物と同じ名前の release ビルドになり、鍵なしで作られたかどうかを後から
+# 見分けられないため、鍵なしで通る経路は設けない。
+#
+# 同じ kid の重複は、公開鍵が同じでも拒否する。本体は後ろの指定で黙って上書きするため、
+# 鍵の入れ替えで kid を変え忘れると、片方の鍵しか埋め込まれない本体ができてしまう。
+function Assert-NoDuplicateKeyId([string]$ParameterName, [string]$Spec) {
+    $seen = @{}
+    foreach ($entry in $Spec.Split(',')) {
+        $parts = $entry.Trim().Split(':', 2)
+        if ($parts.Count -lt 2) { continue }
+        $kid = $parts[0].Trim()
+        if ($kid -eq '') { continue }
+        if ($seen.ContainsKey($kid)) {
+            throw "-$ParameterName lists the key id '$kid' more than once. Each key id must appear exactly once (the app silently keeps only the last one)."
+        }
+        $seen[$kid] = $true
+    }
+}
+$ManifestKeySpecPattern = '^[0-9A-Za-z._-]+:[0-9A-Fa-f]{64}(,[0-9A-Za-z._-]+:[0-9A-Fa-f]{64})*$'
+if ($ManifestKeys -eq "") {
+    throw "-ManifestKeys is required. Without it the app cannot verify the download list, so sidecar install/update/clean-reinstall and sponsor packs all fail."
+}
+if ($ManifestKeys -notmatch $ManifestKeySpecPattern) {
+    throw "-ManifestKeys must be comma-separated 'kid:hexPublicKey' pairs (64 hex chars each, no spaces)."
+}
+Assert-NoDuplicateKeyId 'ManifestKeys' $ManifestKeys
+if ($EntitlementKeys -ne "") {
+    Assert-NoDuplicateKeyId 'EntitlementKeys' $EntitlementKeys
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -292,6 +332,9 @@ if ($EntitlementKeys -ne "") {
     # Tier is no longer build-embedded; features unlock via signed entitlement tokens.
     $ldflags += @("-X", "alslime/core/featuresimpl.embeddedPublicKeys=$EntitlementKeys")
 }
+if ($ManifestKeys -ne "") {
+    $ldflags += @("-X", "alslime/core/featuresimpl.embeddedManifestPublicKeys=$ManifestKeys")
+}
 $ldflagsText = $ldflags -join " "
 $outputPath = Get-OutputPath
 
@@ -328,21 +371,36 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "go list -deps failed (exit $LASTEXITCODE)"
     }
-    $comfyDeps = $appDeps | Select-String -SimpleMatch "alslime/core/comfyui"
-    $ttsDeps = $appDeps | Select-String -SimpleMatch "alslime/core/tts"
+    # 判定は go list が返す import path の完全一致で行う（部分一致は別パッケージを巻き込む）。
+    # 画像生成の in-process 実装: ComfyUI 連携本体・その API・タグ判定・容姿プロンプト作成。
+    $imageGenPackages = @(
+        "alslime/core/comfyui",
+        "alslime/core/comfyuiapi",
+        "alslime/core/providers/tagjudge",
+        "alslime/core/providers/appearance"
+    )
+    # 読み上げの in-process 実装。
+    $ttsPackages = @(
+        "alslime/core/tts",
+        "alslime/core/tts/latentpre"
+    )
+    $comfyDeps = @($appDeps | Where-Object { $imageGenPackages -contains $_ })
+    $ttsDeps = @($appDeps | Where-Object { $ttsPackages -contains $_ })
     if ($Public) {
-        if (-not $comfyDeps) {
-            throw "public (Lightsail) build must embed in-process image generation, but alslime/core/comfyui is missing from the dependency graph (comfyembed tag lost?)"
+        $comfyMissing = @($imageGenPackages | Where-Object { $comfyDeps -notcontains $_ })
+        if ($comfyMissing.Count -gt 0) {
+            throw "public (Lightsail) build must embed in-process image generation, but the dependency graph lacks: $($comfyMissing -join ', ') (comfyembed tag lost?)"
         }
-        if (-not $ttsDeps) {
-            throw "public (Lightsail) build must embed in-process TTS, but alslime/core/tts is missing from the dependency graph (ttsembed tag lost?)"
+        $ttsMissing = @($ttsPackages | Where-Object { $ttsDeps -notcontains $_ })
+        if ($ttsMissing.Count -gt 0) {
+            throw "public (Lightsail) build must embed in-process TTS, but the dependency graph lacks: $($ttsMissing -join ', ') (ttsembed tag lost?)"
         }
     } else {
-        if ($comfyDeps) {
-            throw "distribution build must NOT embed in-process image generation, but the dependency graph contains: $(($comfyDeps | ForEach-Object { $_.Line }) -join ', ')"
+        if ($comfyDeps.Count -gt 0) {
+            throw "distribution build must NOT embed in-process image generation, but the dependency graph contains: $($comfyDeps -join ', ')"
         }
-        if ($ttsDeps) {
-            throw "distribution build must NOT embed in-process TTS, but the dependency graph contains: $(($ttsDeps | ForEach-Object { $_.Line }) -join ', ')"
+        if ($ttsDeps.Count -gt 0) {
+            throw "distribution build must NOT embed in-process TTS, but the dependency graph contains: $($ttsDeps -join ', ')"
         }
     }
     if ($useGarble) {

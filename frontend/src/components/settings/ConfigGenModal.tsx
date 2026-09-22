@@ -461,6 +461,11 @@ export const ConfigGenModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, u
     };
 
     const handleComplete = async (result: ConfigGenResultFile) => {
+        if (result.kind === 'tempCharacter') {
+            // セッションからの一時キャラクター取り込み（同じジョブ種別）は会話設定へ登録済みで、
+            // 設定ファイルは無い。実行中ジョブへの再接続で拾った場合はここでは何もしない。
+            return;
+        }
         if (result.kind === 'research') {
             try {
                 const memo = await getResearchMemo(backendUrl, result.categoryId, result.dirName, result.fileName.replace(/_設定作成前メモ$/, ''));

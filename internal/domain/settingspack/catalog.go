@@ -72,6 +72,9 @@ var forbiddenRoots = []string{
 	config.SettingsPackInboxDir,
 	// 設定自動生成の専用ワークスペース（作業コピー・対話セッション履歴）は生成物。
 	configgenjobs.WorkspaceDir,
+	// 一時キャラクターの仮想パス接頭辞。実ディレクトリは存在しないが、
+	// パックに同名ディレクトリを仕込まれても取り込まないよう予約する。
+	config.TempCharacterListDir,
 }
 
 // envFiles は E 分類（環境依存。入出力とも常に除外）の単一ファイル。
@@ -181,6 +184,10 @@ func kinds() []Kind {
 				config.ComfyUIDirectiveDanbooruFile, config.ComfyUIDirectiveNaturalFile,
 				config.ComfyUIDirectiveDanbooruThirdFile, config.ComfyUIDirectiveNaturalThirdFile,
 				config.ComfyUIDirectiveNaturalShortFile, config.ComfyUIDirectiveNaturalThirdShortFile,
+				// 画像生成 API サービス（NovelAI 等）用の同じ 6 形式。
+				config.ComfyUIDirectiveAPIDanbooruFile, config.ComfyUIDirectiveAPINaturalFile,
+				config.ComfyUIDirectiveAPIDanbooruThirdFile, config.ComfyUIDirectiveAPINaturalThirdFile,
+				config.ComfyUIDirectiveAPINaturalShortFile, config.ComfyUIDirectiveAPINaturalThirdShortFile,
 			},
 		},
 		Kind{ID: "comfyProfiles", Label: "生成プロファイル", Class: ClassImageGen, Roots: []string{config.ComfyUIProfileDir}},

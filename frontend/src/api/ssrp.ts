@@ -16,7 +16,9 @@ export interface SSRPSettings {
     dateTimeSettings?: any; // 日付時刻設定（セッション時刻、インクリメント設定など）
     imageGenerationNotes?: string; // 画像生成時の分析に渡す補足事項
     imageGenWorkflowId?: string; // 画像生成設定: 使用ワークフロー（''/未設定 = グローバルに従う）
+    imageGenApiPresetId?: string; // 画像生成設定: API サービスの生成プリセット（''/未設定 = グローバルに従う）
     imageGenDirectiveMode?: string; // 画像生成設定: 分析指示のdirectiveMode（''/未設定 = グローバルに従う）
+    imageGenApiDirectiveMode?: string; // 画像生成設定: API サービス用の分析指示（ComfyUI 用とは別に持つ。''/未設定 = グローバルに従う）
 }
 
 // SSRP設定のセッション反映APIのレスポンス

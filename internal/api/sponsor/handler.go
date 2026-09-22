@@ -84,6 +84,10 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 			switch {
 			case errors.Is(err, sponsorsvc.ErrModuleBusy):
 				apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorSponsorModuleBusy))
+			case errors.Is(err, sponsorsvc.ErrManifestUnavailable):
+				apierror.Write(w, apierror.WrapKey(http.StatusServiceUnavailable, i18n.KeyErrorSponsorDownloadListUnavailable, err))
+			case errors.Is(err, sponsorsvc.ErrManifestInvalid):
+				apierror.Write(w, apierror.WrapKey(http.StatusBadGateway, i18n.KeyErrorSponsorDownloadListInvalid, err))
 			case errors.Is(err, sponsorsvc.ErrModuleNeedsNewerApp):
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleNeedsNewerApp))
 			case errors.Is(err, sponsorsvc.ErrModuleIncompatible):
@@ -143,6 +147,10 @@ func Register(mux *http.ServeMux, svc *sponsorsvc.Service) {
 			switch {
 			case errors.Is(err, sponsorsvc.ErrModuleBusy):
 				apierror.Write(w, apierror.NewKey(http.StatusConflict, i18n.KeyErrorSponsorModuleBusy))
+			case errors.Is(err, sponsorsvc.ErrManifestUnavailable):
+				apierror.Write(w, apierror.WrapKey(http.StatusServiceUnavailable, i18n.KeyErrorSponsorDownloadListUnavailable, err))
+			case errors.Is(err, sponsorsvc.ErrManifestInvalid):
+				apierror.Write(w, apierror.WrapKey(http.StatusBadGateway, i18n.KeyErrorSponsorDownloadListInvalid, err))
 			case errors.Is(err, sponsorsvc.ErrModuleNeedsNewerApp):
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorModuleNeedsNewerApp))
 			case errors.Is(err, sponsorsvc.ErrModuleIncompatible):

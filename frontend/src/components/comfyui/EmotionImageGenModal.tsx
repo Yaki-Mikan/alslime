@@ -21,14 +21,15 @@ import { IntegratedCharacterSection } from './integrated/IntegratedCharacterSect
 import { useCharacterImageGenEditor } from './useCharacterImageGenEditor';
 import { EmotionPromptSection } from './EmotionPromptSection';
 import { GeneratedImageGrid, type GeneratedImageResult } from './GeneratedImageGrid';
-import { generateImage, getComfyUIConfig, listComfyUITemplates } from '../../api/comfyui';
-import type { DanbooruTagFormat, TemplateInfo } from '../../api/comfyui';
+import { generateImage, getComfyUIConfig, listComfyUITemplates, listApiServicePresets } from '../../api/comfyui';
+import type { DanbooruTagFormat, ImageBackend, NovelAIPreset, TemplateInfo } from '../../api/comfyui';
+import { normalizeApiService, normalizeImageBackend } from './apiservice/services';
 import { getCharacterTags } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
 import { getEmotionCatalog } from '../../api/emotion-catalog';
 import type { EmotionCatalogEntry } from '../../api/emotion-catalog';
 import { getEmotionPrompts, saveEmotionPrompts, createEmptyEmotionPrompts, type EmotionPrompts } from '../../api/characters';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { resolveBackendError, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { notifyCharacterImagesUpdated } from '../../lib/characterImageEvents';
 import {
     fetchCharacterImages,
@@ -101,6 +102,13 @@ export const EmotionImageGenModal: React.FC<Props> = ({
     // 表情画像生成として保持しているワークフロー（emotion_prompts.json の workflow）。
     // 画像生成統合設定の既定（defaultTemplateId）は、こちらが未設定のときの初期値にだけ使う。
     const preferredWorkflowRef = useRef('');
+    // 画像生成バックエンド（全画面共用の選択）。API サービスではワークフローの代わりに
+    // 生成プリセット（emotion_prompts.json の apiPreset）を選ぶ。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const [selectedPreset, setSelectedPreset] = useState('');
+    const preferredPresetRef = useRef('');
+    const isApi = imageBackend === 'api';
     const reloadTemplates = useCallback(async () => {
         try {
             const [templateList, config] = await Promise.all([listComfyUITemplates(backendUrl), getComfyUIConfig(backendUrl)]);
@@ -114,6 +122,20 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                 if (savedDefault && templateList.some(x => x.name === savedDefault)) return savedDefault;
                 return templateList.length > 0 ? templateList[0].name : '';
             });
+            const backend = normalizeImageBackend(config.imageBackend);
+            setImageBackend(backend);
+            if (backend === 'api') {
+                const presets = await listApiServicePresets(backendUrl, normalizeApiService(config.apiService));
+                setApiPresets(presets);
+                setSelectedPreset(prev => {
+                    if (prev && presets.some(p => p.name === prev)) return prev;
+                    const preferred = preferredPresetRef.current;
+                    if (preferred && presets.some(p => p.name === preferred)) return preferred;
+                    const savedDefault = config.apiPresetDefault || '';
+                    if (savedDefault && presets.some(p => p.name === savedDefault)) return savedDefault;
+                    return presets.length > 0 ? presets[0].name : '';
+                });
+            }
         } catch (error) {
             console.error('[EmotionImageGenModal] template reload failed:', error);
         }
@@ -139,6 +161,21 @@ export const EmotionImageGenModal: React.FC<Props> = ({
         setSelectedTemplate(name);
         void persistWorkflow(name);
     }, [persistWorkflow]);
+
+    // 生成プリセットの選択も表情画像生成の設定として保存する（API サービスのとき）
+    const persistPreset = useCallback(async (name: string) => {
+        preferredPresetRef.current = name;
+        try {
+            const saved = await saveEmotionPrompts(backendUrl, { ...prompts, apiPreset: name });
+            setPrompts(saved);
+        } catch (error) {
+            console.error('[EmotionImageGenModal] preset save failed:', error);
+        }
+    }, [backendUrl, prompts]);
+    const handlePresetChange = useCallback((name: string) => {
+        setSelectedPreset(name);
+        void persistPreset(name);
+    }, [persistPreset]);
 
     // ===== キャラクター画像生成設定 =====
     const editor = useCharacterImageGenEditor(backendUrl, selectedDirName || null, isOpen);
@@ -192,8 +229,9 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                 setCharacters(tags.characters);
                 setEmotions(catalog.emotions || []);
                 setPrompts(loadedPrompts);
-                // 表情画像生成として保持しているワークフローを初期選択にするため、一覧の取得はこの後に行う
+                // 表情画像生成として保持しているワークフロー・プリセットを初期選択にするため、一覧の取得はこの後に行う
                 preferredWorkflowRef.current = loadedPrompts.workflow || '';
+                preferredPresetRef.current = loadedPrompts.apiPreset || '';
             } catch (error) {
                 console.error('[EmotionImageGenModal] initial load failed:', error);
             }
@@ -201,7 +239,8 @@ export const EmotionImageGenModal: React.FC<Props> = ({
         })();
     }, [isOpen, backendUrl, initialCharacterDirName, initialEmotion, reloadTemplates]);
 
-    const canRun = !!selectedTemplate && !!selectedDirName && !editor.isDirty && !isGenerating && !isApplying;
+    // API サービスではワークフローは不要（プリセットが空でも共通プリセットへ落ちる）
+    const canRun = (isApi || !!selectedTemplate) && !!selectedDirName && !editor.isDirty && !isGenerating && !isApplying;
 
     const handleRun = useCallback(async () => {
         if (!canRun) return;
@@ -216,15 +255,18 @@ export const EmotionImageGenModal: React.FC<Props> = ({
             const id = `gen-${++resultSeq}`;
             try {
                 const res = await generateImage(backendUrl, {
-                    templateName: selectedTemplate,
+                    templateName: isApi ? '' : selectedTemplate,
                     characterName: selectedDirName,
                     tagSelections: {},
                     ...(expression ? { directTags: { emotion: expression } } : {}),
+                    ...(isApi ? { presetName: selectedPreset, backend: 'api' as ImageBackend } : {}),
                 });
                 if (cancelledRef.current) break;
+                // 生成側からの注意（無料枠超過・日本語・参照画像無視・人数超過など）は文言に解決して結果へ添える。
+                const warnings = (res.warnings ?? []).map(key => resolveMessage(uiCatalog, key, key));
                 setResults(prev => [...prev, res.success && res.imageBase64
-                    ? { id, base64: res.imageBase64, mimeType: res.mimeType || 'image/png', positivePrompt: res.resolvedPrompt?.positive }
-                    : { id, error: res.error || t(EMOTION_IMAGE_GEN_I18N_KEYS.failed) }]);
+                    ? { id, base64: res.imageBase64, mimeType: res.mimeType || 'image/png', positivePrompt: res.resolvedPrompt?.positive, ...(warnings.length > 0 ? { warnings } : {}) }
+                    : { id, error: resolveBackendError(uiCatalog, res.error) || t(EMOTION_IMAGE_GEN_I18N_KEYS.failed) }]);
             } catch (error) {
                 console.error('[EmotionImageGenModal] generate failed:', error);
                 setResults(prev => [...prev, { id, error: t(EMOTION_IMAGE_GEN_I18N_KEYS.failed) }]);
@@ -233,7 +275,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
         }
         setIsGenerating(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canRun, count, expressionText, backendUrl, selectedTemplate, selectedDirName]);
+    }, [canRun, count, expressionText, backendUrl, selectedTemplate, selectedDirName, isApi, selectedPreset]);
 
     const selectedResult = results.find(r => r.id === selectedResultId && r.base64);
 
@@ -363,6 +405,9 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                                     onFetchTriggerWords={editor.fetchTriggerWords}
                                     triggerWordFormat={editor.triggerWordFormat}
                                     uiCatalog={uiCatalog}
+                                    characterDirName={selectedDirName}
+                                    onReloadConfig={editor.reload}
+                                    referenceRefreshKey={apiPresets}
                                 />
                             </div>
                         </div>
@@ -386,6 +431,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                                     expressionText={expressionText}
                                     onExpressionTextChange={setExpressionText}
                                     uiCatalog={uiCatalog}
+                                    backend={imageBackend}
                                 />
                             </div>
                         </div>
@@ -393,16 +439,37 @@ export const EmotionImageGenModal: React.FC<Props> = ({
 
                     {/* 右：生成 */}
                     <div className={`${isWideScreen ? 'flex-1 min-w-0 overflow-y-auto' : 'shrink-0'} p-4 space-y-4 custom-scrollbar`} style={{ scrollbarGutter: 'stable' }}>
-                        <IntegratedWorkflowSection
-                            backendUrl={backendUrl}
-                            templates={templates}
-                            selectedTemplate={selectedTemplate}
-                            onTemplateChange={handleTemplateChange}
-                            onTemplatesReload={reloadTemplates}
-                            uiCatalog={uiCatalog}
-                            title={t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionWorkflow)}
-                            onSaveDefault={() => persistWorkflow(selectedTemplate)}
-                        />
+                        {isApi ? (
+                            <div className="space-y-2">
+                                <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                                    <Palette size={16} className="text-green-400" />
+                                    {t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionPreset)}
+                                </label>
+                                <select
+                                    value={selectedPreset}
+                                    onChange={e => handlePresetChange(e.target.value)}
+                                    className="w-full bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                                >
+                                    {selectedPreset && !apiPresets.some(p => p.name === selectedPreset) && (
+                                        <option value={selectedPreset}>{selectedPreset}</option>
+                                    )}
+                                    {apiPresets.map(p => (
+                                        <option key={p.name} value={p.name}>{p.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : (
+                            <IntegratedWorkflowSection
+                                backendUrl={backendUrl}
+                                templates={templates}
+                                selectedTemplate={selectedTemplate}
+                                onTemplateChange={handleTemplateChange}
+                                onTemplatesReload={reloadTemplates}
+                                uiCatalog={uiCatalog}
+                                title={t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionWorkflow)}
+                                onSaveDefault={() => persistWorkflow(selectedTemplate)}
+                            />
+                        )}
 
                         <div>
                             <div className="text-sm font-medium text-gray-400 mb-2">{t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionResults)}</div>
@@ -412,6 +479,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                                 onSelect={setSelectedResultId}
                                 emptyLabel={t(EMOTION_IMAGE_GEN_I18N_KEYS.noResults)}
                                 hintLabel={t(EMOTION_IMAGE_GEN_I18N_KEYS.selectHint)}
+                                warningsLabel={t(EMOTION_IMAGE_GEN_I18N_KEYS.warnings)}
                             />
                         </div>
 

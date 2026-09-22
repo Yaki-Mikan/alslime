@@ -87,11 +87,16 @@ type Service struct {
 	serverURL string
 	client    *http.Client
 
-	// modules / verifySig はサイドカーモジュール取得の依存
-	//（ConfigureModules で注入。未設定の間は InstallModule がエラーを返す）。
-	modules   map[string]ModuleTarget
-	moduleIDs []string
-	verifySig func(payload []byte, sigB64 string) error
+	// dlBaseURL は配布ファイルの配信用ドメイン（末尾スラッシュなし）。
+	dlBaseURL string
+	// modules / verifyManifestSig はサイドカーモジュール・パック取得の依存
+	//（ConfigureModules で注入。未設定の間は取得がエラーを返す）。
+	modules           map[string]ModuleTarget
+	moduleIDs         []string
+	verifyManifestSig func(kid string, payload []byte, sigB64 string) error
+	// dlMu / lastManifestAt は直近に受理した一覧ファイルの作成時刻（巻き戻しの記録用）。
+	dlMu           sync.Mutex
+	lastManifestAt string
 	// moduleOpMu はモジュール変更操作（install / clean）の排他。UI の抑止は
 	// ブラウザ内に閉じるため、API 並行実行による配置物・レシートの破損を
 	// サーバー側で防ぐ（TryLock で競合時は ErrModuleBusy。交換日記 005-3）。
@@ -136,11 +141,11 @@ type ModuleTarget struct {
 // ConfigureModules はサイドカーモジュール取得・配置の依存を注入する（複数対応）。
 //
 // ids は一覧の表示順（module.IDs()）、targets はモジュールID→配置依存、
-// verifySig は core 側の署名検証（coreapi.Core.VerifyModuleSig）。
-func (s *Service) ConfigureModules(ids []string, targets map[string]ModuleTarget, verifySig func(payload []byte, sigB64 string) error) {
+// verifyManifestSig は core 側の配布ファイル一覧の署名検証（coreapi.Core.VerifyManifestSig）。
+func (s *Service) ConfigureModules(ids []string, targets map[string]ModuleTarget, verifyManifestSig func(kid string, payload []byte, sigB64 string) error) {
 	s.moduleIDs = ids
 	s.modules = targets
-	s.verifySig = verifySig
+	s.verifyManifestSig = verifyManifestSig
 }
 
 // ConfigureNotice は開発者お知らせの保存先と表示言語の解決口を注入する（14番）。
@@ -168,14 +173,18 @@ type LoginStart struct {
 
 // New は Service を生成する。
 //
-// サーバー URL は本体埋め込み定数を正本とし、dev ビルドに限り環境変数
-// ALSLIME_ENTITLEMENT_SERVER で上書きできる（ローカル検証用。release は見ない）。
+// サーバー URL と配信用ドメインは本体埋め込み定数を正本とし、dev ビルドに限り環境変数
+// ALSLIME_ENTITLEMENT_SERVER / ALSLIME_DL_BASE_URL で上書きできる（ローカル検証用。release は見ない）。
 // clock は時刻巻き戻し検出記録のリセット口（nil 可）。
 func New(store TokenStore, gate coreapi.FeatureGate, clock ClockResetter) *Service {
 	url := config.EntitlementServerURL
+	dlURL := config.DownloadBaseURL
 	if !buildinfo.IsRelease() {
 		if v := strings.TrimSpace(os.Getenv("ALSLIME_ENTITLEMENT_SERVER")); v != "" {
 			url = v
+		}
+		if v := strings.TrimSpace(os.Getenv("ALSLIME_DL_BASE_URL")); v != "" {
+			dlURL = v
 		}
 	}
 	return &Service{
@@ -183,6 +192,7 @@ func New(store TokenStore, gate coreapi.FeatureGate, clock ClockResetter) *Servi
 		gate:      gate,
 		clock:     clock,
 		serverURL: strings.TrimRight(url, "/"),
+		dlBaseURL: strings.TrimRight(dlURL, "/"),
 		client:    &http.Client{Timeout: 30 * time.Second},
 	}
 }

@@ -3,7 +3,7 @@
  *
  * 設定インポートエクスポート_設計.md §9 のタブ統合＋レビュー002対応 1章のタブ新設。
  * 「設定ファイル」「設定自動生成」は全ユーザー、「画像生成統合設定」は
- * 支援者（FeatureComfyUI 有効）のみ表示する。
+ * 支援者（FeatureComfyUI 有効）かつ ComfyUI 連携済みのときのみ表示する。
  * 各子モーダルは常時マウントされるため、設定自動生成のジョブポーリングは
  * モーダルを閉じても継続する（レビュー002対応 7.2 の裏実行）。
  */
@@ -17,6 +17,7 @@ import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSett
 import { TTSIntegratedSettingsModal } from '../tts/TTSIntegratedSettingsModal';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { useIsWideScreen } from '../../hooks/useIsWideScreen';
+import { useAppearancePromptGen } from '../../hooks/useAppearancePromptGen';
 import type { ApiProviderInstructionTarget } from '../../api/api-providers';
 
 // ConfigEditorTab は Hub のタブ識別子（開き元が初期タブを指定する際にも使う）。
@@ -27,7 +28,8 @@ interface Props {
     onClose: () => void;
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
-    // FeatureComfyUI の有効状態（Chat が保持する enabledFeatures 由来）。
+    // FeatureComfyUI 有効かつ ComfyUI 実体（サイドカー / in-process）連携済みの状態。
+    // false のときは画像生成タブ・画像生成統合設定・容姿プロンプト作成を一切描画しない。
     imageGenEnabled: boolean;
     // FeatureTTS 有効かつ TTS 実体（サイドカー / in-process）連携済みの状態。
     // 要件（07 の4章）により、両方が揃わなければタブ・モーダルとも一切表示しない。
@@ -85,9 +87,23 @@ export const ConfigEditorHub: React.FC<Props> = ({
         setPrevIsOpen(isOpen);
         if (isOpen) setTab(initialTab);
     }
+    // 開いている途中で画像生成が使えなくなった（権利失効・モジュール停止）ときは
+    // 何も描画されない画像生成タブに留まらず、設定ファイルタブへ戻す。
+    if (!imageGenEnabled && tab === 'imageGen') {
+        setTab('config');
+    }
+    // TTS も同じく、開いている途中で使えなくなった（権利失効・モジュール停止）ときは
+    // 何も描画されない TTS タブに留まらず、設定ファイルタブへ戻す。
+    if (!ttsEnabled && tab === 'tts') {
+        setTab('config');
+    }
 
     const t = (key: string, fallback: string) => resolveMessage(uiCatalog, key, fallback);
     const isWideScreen = useIsWideScreen();
+    // キャラクター容姿プロンプト作成の小窓の状態。設定ファイルエディタ（画像生成設定区画）と
+    // 画像生成統合設定の両方から同じものを使う。Hub は常時マウントなので、区画の開閉や
+    // タブ切替、小窓を閉じても分析は続く。
+    const appearancePrompt = useAppearancePromptGen(backendUrl);
 
     const tabButton = (target: Tab, icon: React.ReactNode, label: string, activeCls: string) => (
         <button
@@ -142,6 +158,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
                 comfyDirectiveVisible={comfyDirectiveVisible}
                 imageGenEnabled={imageGenEnabled}
                 ttsEnabled={ttsEnabled}
+                appearancePrompt={imageGenEnabled ? appearancePrompt : undefined}
             />
             <ConfigGenModal
                 isOpen={isOpen && tab === 'configGen'}
@@ -168,6 +185,7 @@ export const ConfigEditorHub: React.FC<Props> = ({
                     uiCatalog={uiCatalog}
                     headerTabs={headerTabs}
                     initialSelectedCharacter={integratedInitialCharacter || undefined}
+                    appearancePrompt={appearancePrompt}
                     onOpenDirectiveInEditor={comfyDirectiveVisible
                         ? directiveId => {
                             // 設定ファイルタブへ切り替え、画像生成分析指示種別の該当ファイルを開く

@@ -38,13 +38,25 @@ type LinkedGroup struct {
 	Additional LinkedAdditional `json:"additional"`
 }
 
+// LinkedOrigin は、セッションの一時キャラクターからキャラ設定登録されたことを示す由来の記録。
+// 一時キャラ ID はセッション・会話設定プリセットを開いたときの照合に使い、
+// OriginalName はフォルダ名に使えない文字を置き換える前の元のキャラクター名
+// （登録済み判定の照合対象に含める）。
+type LinkedOrigin struct {
+	TempCharacterID string `json:"tempCharacterId"`
+	OriginalName    string `json:"originalName"`
+	SourceSessionID string `json:"sourceSessionId,omitempty"`
+	RegisteredAt    string `json:"registeredAt,omitempty"`
+}
+
 // LinkedSettings はキャラクターに紐づける設定の正本
 // （roleplay/characters/<dirName>/settings/linked_settings.json）。
 type LinkedSettings struct {
-	Version       int         `json:"version"`
-	Personalities LinkedGroup `json:"personalities"`
-	Outfits       LinkedGroup `json:"outfits"`
-	Backgrounds   LinkedGroup `json:"backgrounds"`
+	Version       int           `json:"version"`
+	Personalities LinkedGroup   `json:"personalities"`
+	Outfits       LinkedGroup   `json:"outfits"`
+	Backgrounds   LinkedGroup   `json:"backgrounds"`
+	Origin        *LinkedOrigin `json:"origin,omitempty"`
 }
 
 // DefaultLinkedSettings は未作成時の既定値（全て空・追記）。
@@ -144,6 +156,7 @@ func normalizeLinkedSettings(in LinkedSettings) LinkedSettings {
 		Personalities: normalizeLinkedGroup(in.Personalities),
 		Outfits:       normalizeLinkedGroup(in.Outfits),
 		Backgrounds:   normalizeLinkedGroup(in.Backgrounds),
+		Origin:        in.Origin,
 	}
 }
 

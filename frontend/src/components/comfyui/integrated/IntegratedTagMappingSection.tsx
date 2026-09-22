@@ -16,6 +16,9 @@ import {
     saveLoraDirConfig,
     getLoraTriggerWords,
     searchDanbooruTags,
+    getComfyUIConfig,
+    listApiServicePresets,
+    tagTargetsOf,
 } from '../../../api/comfyui';
 import type {
     DanbooruTagResult,
@@ -27,7 +30,10 @@ import type {
     TagLoraEntry,
     LoraDirConfig,
     TemplateInfo,
+    ImageBackend,
+    NovelAIPreset,
 } from '../../../api/comfyui';
+import { normalizeImageBackend } from '../apiservice/services';
 import { createComfyUIText, formatComfyText } from '../i18n';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { formatDanbooruTag, formatTriggerLine } from '../danbooru-format';
@@ -65,6 +71,12 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
     const [mappingData, setMappingData] = useState<TagMappingFile | null>(null);
     const [selectedTagIndex, setSelectedTagIndex] = useState<number | null>(null);
     const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+
+    // 画像生成バックエンド（全画面共用の選択）。API サービス側では LoRA・LoRA ディレクトリ・
+    // 優先ワークフローを隠し、優先プリセットを出す。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const isComfyBackend = imageBackend === 'comfyui';
 
     // LoRA（一覧取得と未接続時の扱いは useComfyLoras に集約）
     const {
@@ -106,15 +118,19 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
     useEffect(() => {
         (async () => {
             try {
-                const [def, dirConfig, templateList] = await Promise.all([
+                const [def, dirConfig, templateList, cfg, presets] = await Promise.all([
                     getTagCategories(backendUrl),
                     getLoraDirConfig(backendUrl),
                     listComfyUITemplates(backendUrl),
+                    getComfyUIConfig(backendUrl).catch(() => null),
+                    listApiServicePresets(backendUrl).catch(() => [] as NovelAIPreset[]),
                 ]);
                 setCategories(def.categories || []);
                 setLoraDirConfig(dirConfig);
                 setTemplates(templateList);
                 setLoraDirDirty(false);
+                if (cfg) setImageBackend(normalizeImageBackend(cfg.imageBackend));
+                setApiPresets(presets);
                 if (def.categories.length > 0 && !selectedCategoryId) {
                     setSelectedCategoryId(def.categories[0].id);
                 }
@@ -231,6 +247,18 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
         setIsDirty(true);
     }, []);
 
+    // 適用先（一覧行のチェック。両方付いた状態は項目を持たない形へ揃え、保存時に省略される）
+    const setTagTargetAt = useCallback((idx: number, key: 'comfyui' | 'api', checked: boolean) => {
+        setMappingData(prev => {
+            if (!prev) return prev;
+            const newTags = [...prev.tags];
+            const next = { ...tagTargetsOf(newTags[idx]), [key]: checked };
+            newTags[idx] = { ...newTags[idx], targets: next.comfyui && next.api ? undefined : next };
+            return { ...prev, tags: newTags };
+        });
+        setIsDirty(true);
+    }, []);
+
     // Danbooru検索
     const handleDanbooruSearch = useCallback(async () => {
         const q = danbooruQuery.trim();
@@ -325,6 +353,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                 tags: mappingData.tags.map(tag => ({
                     ...tag,
                     workflowTemplateId: tag.workflowTemplateId?.trim() || undefined,
+                    apiPresetId: tag.apiPresetId?.trim() || undefined,
                     lora: tag.lora.filter(l => l.name),
                 })),
             };
@@ -366,8 +395,8 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                 </select>
             </div>
 
-            {/* LoRAディレクトリ */}
-            {loraDirConfig && selectedCategoryId && (
+            {/* LoRAディレクトリ（ComfyUI 側のみ） */}
+            {isComfyBackend && loraDirConfig && selectedCategoryId && (
                 <div className="space-y-1">
                     <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.LORA_DIRECTORY}</label>
                     <input
@@ -400,13 +429,16 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                     {sortOrder === 'asc' ? <ArrowUp size={10} /> : sortOrder === 'desc' ? <ArrowDown size={10} /> : <ArrowUpDown size={10} className="opacity-40" />}
                                 </button>
                                 <span className="flex-1">{TAG_MAPPING.LABELS.DANBOORU_PROMPT_SHORT}</span>
-                                <span className="w-16 text-center">{TAG_MAPPING.LABELS.LORA}</span>
+                                {isComfyBackend && <span className="w-16 text-center">{TAG_MAPPING.LABELS.LORA}</span>}
+                                <span className="w-14 text-center">{TAG_MAPPING.LABELS.TARGET_COMFYUI}</span>
+                                <span className="w-12 text-center">{TAG_MAPPING.LABELS.TARGET_API}</span>
                                 <span className="w-14 text-center">{TAG_MAPPING.LABELS.ENABLED}</span>
                                 <span className="w-8" />
                             </div>
                             <div className="max-h-40 overflow-y-auto custom-scrollbar">
                                 {sortedIndices.map((idx) => {
                                     const tag = mappingData.tags[idx];
+                                    const targets = tagTargetsOf(tag);
                                     return (
                                         <div
                                             key={idx}
@@ -417,8 +449,20 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                         >
                                             <span className="flex-1 truncate">{tag.key || TAG_MAPPING.MESSAGES.NOT_SET}</span>
                                             <span className="flex-1 truncate text-gray-400">{tag.prompt || COMMON.EMPTY_MARKER}</span>
-                                            <span className="w-16 text-center text-xs">
-                                                {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                            {isComfyBackend && (
+                                                <span className="w-16 text-center text-xs">
+                                                    {tag.lora.filter(l => l.name).length > 0 ? COMMON.HAS_LORA : COMMON.EMPTY_MARKER}
+                                                </span>
+                                            )}
+                                            <span className="w-14 flex justify-center" onClick={e => e.stopPropagation()}>
+                                                <input type="checkbox" checked={targets.comfyui}
+                                                    onChange={e => setTagTargetAt(idx, 'comfyui', e.target.checked)}
+                                                    className="accent-cyan-500 cursor-pointer" title={TAG_MAPPING.LABELS.TARGET_COMFYUI} />
+                                            </span>
+                                            <span className="w-12 flex justify-center" onClick={e => e.stopPropagation()}>
+                                                <input type="checkbox" checked={targets.api}
+                                                    onChange={e => setTagTargetAt(idx, 'api', e.target.checked)}
+                                                    className="accent-cyan-500 cursor-pointer" title={TAG_MAPPING.LABELS.TARGET_API} />
                                             </span>
                                             <span className="w-14 flex justify-center" onClick={e => e.stopPropagation()}>
                                                 <ToggleSwitch size="sm" accent="cyan" checked={tag.enabled !== false}
@@ -531,7 +575,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-cyan-500 resize-y" rows={1} />
                             </div>
 
-                            {selectedCategoryId === 'pose' && (
+                            {selectedCategoryId === 'pose' && isComfyBackend && (
                                 <div className="space-y-1">
                                     <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.PRIORITY_WORKFLOW}</label>
                                     <select
@@ -547,7 +591,24 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                 </div>
                             )}
 
-                            {/* LoRA */}
+                            {selectedCategoryId === 'pose' && !isComfyBackend && (
+                                <div className="space-y-1">
+                                    <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.PRIORITY_PRESET}</label>
+                                    <select
+                                        value={selectedTag.apiPresetId || ''}
+                                        onChange={e => updateTagField('apiPresetId', e.target.value)}
+                                        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-cyan-500"
+                                    >
+                                        <option value="">{TAG_MAPPING.MESSAGES.USE_CURRENT_PRESET}</option>
+                                        {apiPresets.map(preset => (
+                                            <option key={preset.name} value={preset.name}>{preset.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* LoRA（ComfyUI 側のみ） */}
+                            {isComfyBackend && (
                             <div className="space-y-1" ref={loraDropdownRef}>
                                     <div className="flex items-center justify-between">
                                         <label className="text-xs text-gray-500">{TAG_MAPPING.LABELS.LORA}</label>
@@ -665,6 +726,7 @@ export const IntegratedTagMappingSection: React.FC<Props> = ({ backendUrl, danbo
                                         );
                                     })}
                             </div>
+                            )}
                         </div>
                     )}
                 </>

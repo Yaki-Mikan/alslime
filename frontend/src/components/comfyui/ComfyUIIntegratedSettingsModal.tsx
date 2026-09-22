@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, ChevronDown, ChevronRight, Users, Tag, Palette, FileText, Workflow } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, Users, Tag, Palette, FileText, Workflow, User } from 'lucide-react';
 import { useIsWideScreen } from '../../hooks/useIsWideScreen';
 import { CollapsibleSectionHeader } from '../common/CollapsibleSectionHeader';
 import {
@@ -17,10 +17,16 @@ import {
     getComfyUIConfig,
     saveComfyUIConfig,
     listComfyUITemplates,
+    listApiServicePresets,
 } from '../../api/comfyui';
 import { useComfyLoras } from './useComfyLoras';
 import { withTrailingEmptyLora } from './loraEntries';
-import type { CharacterImageGenConfig, TemplateInfo } from '../../api/comfyui';
+import type { CharacterImageGenConfig, TemplateInfo, ApiServiceId, ImageBackend, NovelAIPreset } from '../../api/comfyui';
+import { BackendTabs, type BackendSelection } from './BackendTabs';
+import { UserAppearanceSection } from './apiservice/UserAppearanceSection';
+import { NovelAIPresetSection } from './apiservice/NovelAIPresetSection';
+import { ApiServiceModelSelect } from './apiservice/ApiServiceModelSelect';
+import { AutoSoundEffectsToggle } from './apiservice/AutoSoundEffectsToggle';
 import type { DanbooruTagFormat, TriggerWordFormat } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
 import type { CharacterTagInfo } from '../../api/files';
@@ -37,6 +43,7 @@ import { CollapsibleSection } from '../settings/CollapsibleSection';
 import { resolveMessage } from '../../api/i18n';
 import { useDanbooruTagFormat } from './useDanbooruTagFormat';
 import { useTriggerWordFormat } from './useTriggerWordFormat';
+import { useAppearancePromptGen, type AppearancePromptHandle } from '../../hooks/useAppearancePromptGen';
 
 interface Props {
     isOpen: boolean;
@@ -51,6 +58,8 @@ interface Props {
     // タグ判定指示ファイルを設定ファイルエディタで開く（Hub が config タブへ切り替えて
     // 該当ファイルを開いた状態にする。未指定ならボタンは表示しない）。
     onOpenDirectiveInEditor?: (directiveId: string) => void;
+    // キャラクター容姿プロンプト作成の小窓の状態（Hub が持つ。キャラクター画像生成設定へ流す）。
+    appearancePrompt?: AppearancePromptHandle;
 }
 
 const DEFAULT_CONFIG: CharacterImageGenConfig = {
@@ -74,6 +83,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
     uiCatalog = null,
     headerTabs,
     onOpenDirectiveInEditor,
+    appearancePrompt,
 }) => {
     const { INTEGRATED_SETTINGS_TITLE, COMMON, DANBOORU, SECTION_NAMES } = createComfyUIText(uiCatalog);
     // ===== セクション開閉 =====
@@ -91,6 +101,10 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
     const [charConfig, setCharConfig] = useState<CharacterImageGenConfig>({ ...DEFAULT_CONFIG });
     const [charIsDirty, setCharIsDirty] = useState(false);
     const [charIsLoading, setCharIsLoading] = useState(false);
+    // 容姿プロンプト作成の小窓の状態。親から渡されない開き方（ロールプレイ設定から直接開く等）では
+    // この画面で持つ。
+    const ownAppearancePrompt = useAppearancePromptGen(backendUrl);
+    const effectiveAppearancePrompt = appearancePrompt ?? ownAppearancePrompt;
 
     // ===== LoRA一覧（未接続時の扱いは useComfyLoras に集約） =====
     const {
@@ -103,6 +117,32 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
 
     // ===== テスト生成連動 =====
     const [useLeftCharacter, setUseLeftCharacter] = useState(true);
+
+    // ===== 画像生成バックエンド（全画面共用・即時保存）と API サービス側の状態 =====
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiService, setApiService] = useState<ApiServiceId>('novelai');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const [selectedPreset, setSelectedPreset] = useState('');
+    // 使用モデル（全体の設定の値。モデル選択の部品が読み書きし、ここは表示と連動のために持つ）
+    const [apiModelId, setApiModelId] = useState('');
+    const [isApiModelSaving, setIsApiModelSaving] = useState(false);
+    const [isUserAppearanceOpen, setIsUserAppearanceOpen] = useState(true);
+    const isApi = imageBackend === 'api';
+    const handleBackendChange = useCallback((selection: BackendSelection) => {
+        setImageBackend(selection.imageBackend);
+        setApiService(selection.apiService);
+    }, []);
+    const reloadApiPresets = useCallback(async () => {
+        try {
+            setApiPresets(await listApiServicePresets(backendUrl, apiService));
+        } catch (error) {
+            console.error('[ComfyUIIntegratedSettingsModal] api presets load failed:', error);
+        }
+    }, [backendUrl, apiService]);
+    useEffect(() => {
+        if (!isOpen || !isApi) return;
+        void reloadApiPresets();
+    }, [isOpen, isApi, reloadApiPresets]);
 
     // ===== ワークフロー選択（独立セクション。テスト生成と共有） =====
     const [templates, setTemplates] = useState<TemplateInfo[]>([]);
@@ -236,13 +276,17 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
             return;
         }
         if (initialCharacterAppliedRef.current) return;
-        if (!initialSelectedCharacter || characters.length === 0) return;
-        const resolvedName = resolveCharacterName(initialSelectedCharacter);
+        if (characters.length === 0) return;
+        const resolvedName = initialSelectedCharacter ? resolveCharacterName(initialSelectedCharacter) : '';
         if (resolvedName && selectedCharacter !== resolvedName) {
             handleCharacterChange(resolvedName);
+        } else if (selectedCharacter && !charIsDirty) {
+            // 同じキャラで開き直したときも読み直す（閉じている間に別の画面で保存された内容を出すため）。
+            // 未保存の編集があるときは、それを残す。
+            loadCharConfig(selectedCharacter);
         }
         initialCharacterAppliedRef.current = true;
-    }, [isOpen, initialSelectedCharacter, characters, resolveCharacterName, selectedCharacter, handleCharacterChange]);
+    }, [isOpen, initialSelectedCharacter, characters, resolveCharacterName, selectedCharacter, handleCharacterChange, charIsDirty, loadCharConfig]);
 
     const updateCharConfig = useCallback(<K extends keyof CharacterImageGenConfig>(
         key: K,
@@ -319,11 +363,24 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                     </button>
                 </div>
 
+                {/* 画像生成バックエンドの切替（全画面共用・即時保存）。API 側は直下にサービスの選択 */}
+                <div className="px-6 py-2 border-b border-gray-700 bg-gray-800/60 shrink-0">
+                    <BackendTabs
+                        backendUrl={backendUrl}
+                        uiCatalog={uiCatalog}
+                        active={isOpen}
+                        onChange={handleBackendChange}
+                        initial={{ imageBackend, apiService }}
+                        compact
+                    />
+                </div>
+
                 {/* メインコンテンツ: 左右分割（狭画面では縦積み） */}
                 <div className={isWideScreen ? 'flex flex-1 overflow-hidden' : 'flex flex-col flex-1 overflow-y-auto'}>
                     {/* ===== 左側: 設定エリア（スクロール可） ===== */}
                     <div className={isWideScreen ? 'w-1/2 overflow-y-auto custom-scrollbar border-r border-gray-700 p-5 space-y-4' : 'shrink-0 border-b border-gray-700 p-5 space-y-4'}>
-                        {/* タグ・トリガーワード形式設定（即時保存） */}
+                        {/* タグ・トリガーワード形式設定（即時保存。API サービスでは区切りが固定のため非表示） */}
+                        {!isApi && (
                         <div className="border border-gray-700 rounded-lg p-4 bg-gray-800/30 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-medium text-gray-400">
                                 <Tag size={16} className="text-green-400" />
@@ -406,6 +463,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                 {COMMON.MESSAGES.FORMAT_AUTO_SAVE_DESC}
                             </p>
                         </div>
+                        )}
 
                         {/* タグ検索（常時表示） */}
                         <IntegratedDanbooruSearch backendUrl={backendUrl} danbooruTagFormat={effectiveDanbooruTagFormat} uiCatalog={uiCatalog} />
@@ -429,6 +487,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                         onCharacterChange={handleCharacterChange}
                                         config={charConfig}
                                         onUpdateConfig={updateCharConfig}
+                                        danbooruTagFormat={effectiveDanbooruTagFormat}
                                         isLoading={charIsLoading}
                                         isDirty={charIsDirty}
                                         onSave={handleSaveCharConfig}
@@ -439,6 +498,16 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                         onFetchTriggerWords={handleFetchTriggerWords}
                                         triggerWordFormat={effectiveTriggerWordFormat}
                                         uiCatalog={uiCatalog}
+                                        backendUrl={backendUrl}
+                                        appearancePrompt={effectiveAppearancePrompt}
+                                        appearanceTarget={selectedCharacter
+                                            ? { dirName: getCharDirName(selectedCharacter), fileName: selectedCharacter, displayName: selectedCharacter }
+                                            : null}
+                                        characterDirName={selectedCharacter ? getCharDirName(selectedCharacter) : undefined}
+                                        onReloadConfig={() => loadCharConfig(selectedCharacter)}
+                                        imageBackend={imageBackend}
+                                        apiService={apiService}
+                                        referenceRefreshKey={apiModelId}
                                     />
                                 </div>
                             )}
@@ -454,7 +523,7 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                             >
                                 {isDirectiveOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                                 <Workflow size={16} className="text-amber-400" />
-                                {SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
+                                {isApi ? SECTION_NAMES.TAG_JUDGE_GENERATION_SETTINGS : SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
                             </button>
                             {isDirectiveOpen && (
                                 <div className="p-4 space-y-3">
@@ -468,7 +537,9 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                             </>
                                         }
                                     >
+                                        {/* バックエンドの切替で読み直す（切替後の側の対応表を出す） */}
                                         <TagJudgeWorkflowPanel
+                                            key={imageBackend}
                                             backendUrl={backendUrl}
                                             uiCatalog={uiCatalog}
                                             templates={templates}
@@ -488,9 +559,11 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                                         }
                                     >
                                         <IntegratedDirectiveSection
+                                            key={imageBackend}
                                             backendUrl={backendUrl}
                                             uiCatalog={uiCatalog}
                                             onOpenInEditor={onOpenDirectiveInEditor}
+                                            backend={imageBackend}
                                         />
                                     </CollapsibleSection>
                                 </div>
@@ -509,10 +582,36 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                             </button>
                             {isTagMappingOpen && (
                                 <div className="p-4">
-                                    <IntegratedTagMappingSection backendUrl={backendUrl} danbooruTagFormat={effectiveDanbooruTagFormat} triggerWordFormat={effectiveTriggerWordFormat} uiCatalog={uiCatalog} />
+                                    <IntegratedTagMappingSection key={imageBackend} backendUrl={backendUrl} danbooruTagFormat={effectiveDanbooruTagFormat} triggerWordFormat={effectiveTriggerWordFormat} uiCatalog={uiCatalog} />
                                 </div>
                             )}
                         </div>
+
+                        {/* ユーザーの容姿設定（API サービスのみ。呼び名・容姿・服装・参照画像。即時保存） */}
+                        {isApi && (
+                            <div className="border border-green-600/40 rounded-lg overflow-hidden">
+                                <button
+                                    onClick={() => setIsUserAppearanceOpen(!isUserAppearanceOpen)}
+                                    className="w-full flex items-center gap-2 px-4 py-3 bg-gray-800/80 hover:bg-gray-800 text-sm font-medium text-green-300 transition-colors"
+                                >
+                                    {isUserAppearanceOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                    <User size={16} className="text-green-400" />
+                                    {SECTION_NAMES.USER_APPEARANCE}
+                                </button>
+                                {isUserAppearanceOpen && (
+                                    <div className="p-4">
+                                        <UserAppearanceSection
+                                            backendUrl={backendUrl}
+                                            uiCatalog={uiCatalog}
+                                            service={apiService}
+                                            active={isOpen}
+                                            hideHeading
+                                            referenceRefreshKey={apiModelId}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* ===== 右側: ワークフロー選択 + テスト生成（sticky固定。狭画面では開閉見出し付きで下に積む） ===== */}
@@ -526,23 +625,66 @@ export const ComfyUIIntegratedSettingsModal: React.FC<Props> = ({
                         )}
                         {showRight && (
                         <div className={isWideScreen ? 'sticky top-0 space-y-4' : 'p-5 space-y-4'}>
-                            <IntegratedWorkflowSection
-                                backendUrl={backendUrl}
-                                templates={templates}
-                                selectedTemplate={selectedTemplate}
-                                onTemplateChange={setSelectedTemplate}
-                                onTemplatesReload={reloadTemplates}
-                                uiCatalog={uiCatalog}
-                            />
+                            {/* 右 1: ComfyUI ではテスト生成用ワークフロー、API サービスでは生成プリセット */}
+                            {isApi ? (
+                                <div className="space-y-3">
+                                    {/* 使用モデル（生成プリセットとは別に選ぶ。切り替えたら即時保存） */}
+                                    <ApiServiceModelSelect
+                                        backendUrl={backendUrl}
+                                        uiCatalog={uiCatalog}
+                                        service={apiService}
+                                        active={isOpen}
+                                        onModelChange={setApiModelId}
+                                        onSavingChange={setIsApiModelSaving}
+                                    />
+                                    {/* 自動効果音描画（全体で 1 つの値。切り替えたら即時保存） */}
+                                    <AutoSoundEffectsToggle
+                                        modelId={apiModelId}
+                                        backendUrl={backendUrl}
+                                        uiCatalog={uiCatalog}
+                                        service={apiService}
+                                        active={isOpen}
+                                        showHelp
+                                        size="sm"
+                                    />
+                                    <h3 className="flex items-center gap-2 text-sm font-semibold text-green-300">
+                                        <Palette size={16} className="text-green-400" />
+                                        {SECTION_NAMES.API_SERVICE_PRESET}
+                                    </h3>
+                                    <NovelAIPresetSection
+                                        backendUrl={backendUrl}
+                                        uiCatalog={uiCatalog}
+                                        service={apiService}
+                                        active={isOpen}
+                                        presets={apiPresets}
+                                        modelId={apiModelId}
+                                        onPresetsChanged={reloadApiPresets}
+                                        onSelectedChange={setSelectedPreset}
+                                        hideHeading
+                                    />
+                                </div>
+                            ) : (
+                                <IntegratedWorkflowSection
+                                    backendUrl={backendUrl}
+                                    templates={templates}
+                                    selectedTemplate={selectedTemplate}
+                                    onTemplateChange={setSelectedTemplate}
+                                    onTemplatesReload={reloadTemplates}
+                                    uiCatalog={uiCatalog}
+                                />
+                            )}
                             <IntegratedGenerateTestSection
+                                key={imageBackend}
                                 backendUrl={backendUrl}
                                 selectedTemplate={selectedTemplate}
+                                selectedPreset={isApi ? selectedPreset : undefined}
                                 useLeftCharacter={useLeftCharacter}
                                 onToggleUseLeftCharacter={() => setUseLeftCharacter(prev => !prev)}
                                 leftCharacterName={getCharDirName(selectedCharacter)}
                                 leftCharConfig={charConfig}
                                 characters={characters}
                                 uiCatalog={uiCatalog}
+                                generateDisabled={isApi && isApiModelSaving}
                             />
                         </div>
                         )}

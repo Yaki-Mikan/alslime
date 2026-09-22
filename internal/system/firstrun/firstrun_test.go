@@ -61,6 +61,13 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		"roleplay/global/ComfyUI/image_gen_directive_natural_third.md",
 		"roleplay/global/ComfyUI/image_gen_directive_natural_short.md",
 		"roleplay/global/ComfyUI/image_gen_directive_natural_third_short.md",
+		// 画像生成 API サービス（NovelAI 等）用のタグ判定指示（形式 ID ごとに 1 本）。
+		"roleplay/global/ComfyUI/image_gen_directive_api_danbooru_only.md",
+		"roleplay/global/ComfyUI/image_gen_directive_api_natural_language.md",
+		"roleplay/global/ComfyUI/image_gen_directive_api_danbooru_third_person.md",
+		"roleplay/global/ComfyUI/image_gen_directive_api_natural_language_third_person.md",
+		"roleplay/global/ComfyUI/image_gen_directive_api_natural_language_short.md",
+		"roleplay/global/ComfyUI/image_gen_directive_api_natural_language_third_person_short.md",
 		"roleplay/global/writing_styles/一人称視点_標準.md",
 		// openai_compat の API 共通基本指示と固定 3 プリセット基本指示（ja/en）。
 		"roleplay/global/prompts/openai-compat/system.ja.md",
@@ -84,6 +91,11 @@ func TestEnsure_空ワークスペースに一式を生成する(t *testing.T) {
 		"roleplay/global/prompts/configgen/en/character/setting_template.md",
 		"roleplay/global/prompts/configgen/ja/character/dialog.md",
 		"roleplay/global/prompts/configgen/en/character/dialog.md",
+		"roleplay/global/prompts/configgen/ja/character/from_session.md",
+		"roleplay/global/prompts/configgen/en/character/from_session.md",
+		// キャラクター容姿プロンプト作成の依頼文（ja/en）。
+		"roleplay/global/prompts/appearance/ja/character.md",
+		"roleplay/global/prompts/appearance/en/character.md",
 		// 設定自動生成テンプレート（言語 → 対象 → 種類 → 名前）の同梱「標準」と既定ファイル。
 		"roleplay/global/prompts/configgen/_defaults.json",
 		"roleplay/global/prompts/configgen/ja/character/search_templates/標準.md",

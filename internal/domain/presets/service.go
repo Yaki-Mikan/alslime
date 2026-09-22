@@ -43,17 +43,29 @@ const (
 // ミリ秒付き UTC（例: 2026-06-27T13:55:11.123Z）。replacement-config と同形式。
 const isoMillisUTC = "2006-01-02T15:04:05.000Z07:00"
 
+// AfterGetFunc は Get 直後に系統専用の書き換えを行う後処理。
+// data を書き換えて真を返すと、そのまま保存し直す（メタは更新しない）。
+// 会話設定プリセットを開いたときの一時キャラクターの照合に使う。
+type AfterGetFunc func(name string, data map[string]any) bool
+
 // Service は 1 系統のプリセットのユースケースを提供する。
 type Service struct {
 	store *presetstore.Store
 	meta  MetaPolicy
 	// now はテスト用に差し替え可能な時刻取得。通常は time.Now。
-	now func() time.Time
+	now      func() time.Time
+	afterGet AfterGetFunc
 }
 
 // New は store とメタ付与方針を束ねた Service を生成する。
 func New(store *presetstore.Store, meta MetaPolicy) *Service {
 	return &Service{store: store, meta: meta, now: time.Now}
+}
+
+// WithAfterGet は Get 直後の後処理を設定して自身を返す。
+func (s *Service) WithAfterGet(fn AfterGetFunc) *Service {
+	s.afterGet = fn
+	return s
 }
 
 // List はプリセット名一覧（表示名）を返す。
@@ -75,6 +87,12 @@ func (s *Service) Get(name string) (string, any, error) {
 	data, err := s.store.Get(normalized)
 	if err != nil {
 		return "", nil, err
+	}
+	if s.afterGet != nil && data != nil && s.afterGet(normalized, data) {
+		// 書き換えは正本へ保存し直す。updatedAt は利用者の編集ではないため触らない。
+		if err := s.store.Save(normalized, data); err != nil {
+			return "", nil, err
+		}
 	}
 	return normalized, data, nil
 }

@@ -319,12 +319,27 @@ func TestProviderInstructions_一覧と読み書き(t *testing.T) {
 func TestComfyDirectives_一覧と読み書き(t *testing.T) {
 	svc, root := newService(t)
 
-	list, err := svc.ListComfyDirectives()
+	list, err := svc.ListComfyDirectives("")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 6 {
-		t.Fatalf("6 件（一人称・三人称 × Danbooru・自然文 ＋ 自然文短縮版 2 件）のはず: %d", len(list))
+	if len(list) != 12 {
+		t.Fatalf("12 件（ComfyUI 用 6 件 ＋ API サービス用 6 件）のはず: %d", len(list))
+	}
+	// バックエンドで絞ると各 6 件（一人称・三人称 × Danbooru・自然文 ＋ 自然文短縮版 2 件）。
+	for _, backend := range []string{ComfyDirectiveBackendComfyUI, ComfyDirectiveBackendAPI} {
+		filtered, err := svc.ListComfyDirectives(backend)
+		if err != nil {
+			t.Fatalf("List(%s): %v", backend, err)
+		}
+		if len(filtered) != 6 {
+			t.Fatalf("%s は 6 件のはず: %d", backend, len(filtered))
+		}
+		for _, d := range filtered {
+			if d.Backend != backend {
+				t.Fatalf("%s の一覧に %s が混ざっている: %#v", backend, d.Backend, d)
+			}
+		}
 	}
 
 	// 未作成の読み取りは空文字。
@@ -378,10 +393,10 @@ func TestConfigGenInstructions_一覧と読み書き(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	// キャラクター: テンプレート 2 種＋作成指示 4 種（二段階 2・一括・対話）× ja/en = 12。
+	// キャラクター: テンプレート 2 種＋作成指示 5 種（二段階 2・一括・対話・セッションから取り込み）× ja/en = 14。
 	// それ以外の 9 カテゴリ: テンプレート 2 種＋作成指示 2 種（一括・対話）× ja/en = 8 ずつ。
-	if len(list) != 12+9*8 {
-		t.Fatalf("84 件のはず: %d", len(list))
+	if len(list) != 14+9*8 {
+		t.Fatalf("86 件のはず: %d", len(list))
 	}
 	sawCharacter := false
 	for _, item := range list {

@@ -113,6 +113,10 @@ func handleDownloadEmotionPromptsSample(svc *charsvc.EmotionPromptsService, fetc
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, sponsorsvc.ErrManifestUnavailable):
+				apierror.Write(w, apierror.WrapKey(http.StatusServiceUnavailable, i18n.KeyErrorSponsorDownloadListUnavailable, err))
+			case errors.Is(err, sponsorsvc.ErrManifestInvalid):
+				apierror.Write(w, apierror.WrapKey(http.StatusBadGateway, i18n.KeyErrorSponsorDownloadListInvalid, err))
 			case errors.Is(err, sponsorsvc.ErrModuleNoToken):
 				apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSponsorNoToken))
 			case errors.Is(err, sponsorsvc.ErrModuleRejected):

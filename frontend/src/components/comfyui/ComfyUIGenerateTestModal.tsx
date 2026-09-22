@@ -12,8 +12,13 @@ import {
     getTagCategories,
     getTagMapping,
     generateImage,
+    generateApiServiceTest,
+    imageDataUrlFromBase64,
     getCharacterImageGenConfig,
     saveCharacterImageGenConfig,
+    getComfyUIConfig,
+    listApiServicePresets,
+    emptyCharacterApiServiceConfig,
 } from '../../api/comfyui';
 import { getCharacterTags } from '../../api/files';
 import type {
@@ -22,10 +27,15 @@ import type {
     TagMappingFile,
     GenerateResult,
     CharacterImageGenConfig,
+    ImageBackend,
+    ApiServiceId,
+    NovelAIPreset,
 } from '../../api/comfyui';
 import type { CharacterTagInfo } from '../../api/files';
-import { createComfyUIText } from './i18n';
-import type { I18NCatalog } from '../../api/i18n';
+import { createComfyUIText, formatComfyText } from './i18n';
+import { resolveBackendError, type I18NCatalog } from '../../api/i18n';
+import { normalizeApiService, normalizeImageBackend } from './apiservice/services';
+import { ApiGenerateResultDetails } from './apiservice/ApiGenerateResultDetails';
 
 interface ComfyUIGenerateTestModalProps {
     isOpen: boolean;
@@ -46,6 +56,25 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
     // テンプレート
     const [templates, setTemplates] = useState<TemplateInfo[]>([]);
     const [selectedTemplate, setSelectedTemplate] = useState('');
+    // 画像生成バックエンド（全画面共用の選択）。API サービスではテンプレートの代わりに生成プリセットを選ぶ。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiService, setApiService] = useState<ApiServiceId>('novelai');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const [selectedPreset, setSelectedPreset] = useState('');
+    const [intermediateStep, setIntermediateStep] = useState<number | null>(null);
+    // その回の生成にだけ使う追加プロンプト（API サービス用のテスト生成のみ）
+    const [extraPrompt, setExtraPrompt] = useState('');
+    const isApi = imageBackend === 'api';
+    // キャラクタープロンプトの読み書き先。API サービスでは API 側ブロック（NAI が読む方）を使う。
+    const charPromptOf = useCallback((cfg: CharacterImageGenConfig | null): string => {
+        if (!cfg) return '';
+        return isApi ? (cfg.apiService?.[apiService]?.characterPrompt || '') : (cfg.characterPrompt || '');
+    }, [isApi, apiService]);
+    const withCharPrompt = useCallback((cfg: CharacterImageGenConfig, prompt: string): CharacterImageGenConfig => {
+        if (!isApi) return { ...cfg, characterPrompt: prompt };
+        const current = cfg.apiService?.[apiService] ?? emptyCharacterApiServiceConfig();
+        return { ...cfg, apiService: { ...(cfg.apiService ?? {}), [apiService]: { ...current, characterPrompt: prompt } } };
+    }, [isApi, apiService]);
 
     // キャラクター
     const [characters, setCharacters] = useState<CharacterTagInfo[]>([]);
@@ -85,10 +114,11 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
         if (!isOpen) return;
         (async () => {
             try {
-                const [templateList, charResult, catDef] = await Promise.all([
+                const [templateList, charResult, catDef, config] = await Promise.all([
                     listComfyUITemplates(backendUrl),
                     getCharacterTags(),
                     getTagCategories(backendUrl),
+                    getComfyUIConfig(backendUrl).catch(() => null),
                 ]);
                 setTemplates(templateList);
                 if (templateList.length > 0 && !selectedTemplate) {
@@ -96,6 +126,21 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                 }
                 setCharacters(charResult.characters);
                 setCategories(catDef.categories || []);
+                if (config) {
+                    const backend = normalizeImageBackend(config.imageBackend);
+                    const service = normalizeApiService(config.apiService);
+                    setImageBackend(backend);
+                    setApiService(service);
+                    if (backend === 'api') {
+                        try {
+                            const presets = await listApiServicePresets(backendUrl, service);
+                            setApiPresets(presets);
+                            setSelectedPreset(prev => (prev && presets.some(p => p.name === prev)) ? prev : (config.apiPresetDefault || presets[0]?.name || ''));
+                        } catch (e) {
+                            console.error('[ComfyUIGenerateTestModal] api presets load failed:', e);
+                        }
+                    }
+                }
 
                 // 全カテゴリのタグマッピングを一括取得
                 const mappings: Record<string, TagMappingFile> = {};
@@ -130,26 +175,26 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                 setCharConfig(config);
                 setEditCharName(config.characterName || '');
                 setEditWorkName(config.workName || '');
-                setEditCharPrompt(config.characterPrompt || '');
+                setEditCharPrompt(charPromptOf(config));
                 setIsCharConfigEditing(false);
             } catch (e) {
                 console.error('[ComfyUIGenerateTestModal] character config load failed:', e);
                 setCharConfig(null);
             }
         })();
-    }, [selectedCharacter, backendUrl, getCharDirName]);
+    }, [selectedCharacter, backendUrl, getCharDirName, charPromptOf]);
 
     // キャラ設定保存
     const handleSaveCharConfig = useCallback(async () => {
         if (!charConfig || !selectedCharacter) return;
         setIsSavingCharConfig(true);
         try {
-            const updated = {
+            // キャラ名・作品名は共用、容姿プロンプトは選択中のバックエンド側へ書く。
+            const updated = withCharPrompt({
                 ...charConfig,
                 characterName: editCharName,
                 workName: editWorkName,
-                characterPrompt: editCharPrompt,
-            };
+            }, editCharPrompt);
             await saveCharacterImageGenConfig(backendUrl, getCharDirName(selectedCharacter), updated);
             setCharConfig(updated);
             setIsCharConfigEditing(false);
@@ -158,7 +203,7 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
         } finally {
             setIsSavingCharConfig(false);
         }
-    }, [charConfig, selectedCharacter, editCharName, editWorkName, editCharPrompt, backendUrl, getCharDirName]);
+    }, [charConfig, selectedCharacter, editCharName, editWorkName, editCharPrompt, backendUrl, getCharDirName, withCharPrompt]);
 
     // 外側クリックでキャラドロップダウン閉じる
     useEffect(() => {
@@ -181,30 +226,44 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
         setTagSelections(prev => ({ ...prev, [categoryId]: value }));
     }, []);
 
-    // 生成
+    // 生成（API サービスでは途中経過を受けて画像を差し替え、final で確定する）
     const handleGenerate = useCallback(async () => {
-        if (!selectedTemplate) return;
+        if (!isApi && !selectedTemplate) return;
         setIsGenerating(true);
         setResult(null);
         setGeneratedImage(null);
+        setIntermediateStep(null);
         try {
             const directReplacements = parseDirectReplacements(directPlaceholdersText);
-            const res = await generateImage(backendUrl, {
-                templateName: selectedTemplate,
+            const request = {
+                templateName: isApi ? '' : selectedTemplate,
                 characterName: getCharDirName(selectedCharacter),
                 tagSelections,
                 ...(directReplacements ? { directReplacements } : {}),
-            });
+                ...(isApi ? { presetName: selectedPreset, backend: 'api' as ImageBackend } : {}),
+                // 自由入力は API サービス用のテスト生成の、その回にだけ使う。
+                ...(isApi && extraPrompt.trim() ? { extraPrompt } : {}),
+            };
+            const res = isApi
+                ? await generateApiServiceTest(backendUrl, request, (stepIx, image) => {
+                    setIntermediateStep(stepIx);
+                    setGeneratedImage(imageDataUrlFromBase64(image));
+                })
+                : await generateImage(backendUrl, request);
             setResult(res);
+            setIntermediateStep(null);
             if (res.success && res.imageBase64 && res.mimeType) {
                 setGeneratedImage(`data:${res.mimeType};base64,${res.imageBase64}`);
+            } else if (!res.success) {
+                setGeneratedImage(null);
             }
         } catch (e: any) {
             setResult({ success: false, error: e.message || GENERATE_TEST.MESSAGES.GENERATE_FAILED });
+            setGeneratedImage(null);
         } finally {
             setIsGenerating(false);
         }
-    }, [backendUrl, selectedTemplate, selectedCharacter, tagSelections, directPlaceholdersText, getCharDirName]);
+    }, [backendUrl, isApi, selectedTemplate, selectedPreset, selectedCharacter, tagSelections, directPlaceholdersText, getCharDirName, extraPrompt]);
 
     // 再生成（seed違い）
     const handleRegenerate = useCallback(() => {
@@ -233,19 +292,35 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                 {/* 本体 */}
                 <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
 
-                    {/* テンプレート選択 */}
-                    <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.TEMPLATE}</label>
-                        <select
-                            value={selectedTemplate}
-                            onChange={e => setSelectedTemplate(e.target.value)}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
-                        >
-                            {templates.map(t => (
-                                <option key={t.name} value={t.name}>{t.name}</option>
-                            ))}
-                        </select>
-                    </div>
+                    {/* テンプレート選択（API サービスでは生成プリセット選択） */}
+                    {isApi ? (
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.PRESET}</label>
+                            <select
+                                value={selectedPreset}
+                                onChange={e => setSelectedPreset(e.target.value)}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
+                            >
+                                <option value="">{GENERATE_TEST.MESSAGES.COMMON_PRESET_OPTION}</option>
+                                {apiPresets.map(p => (
+                                    <option key={p.name} value={p.name}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.TEMPLATE}</label>
+                            <select
+                                value={selectedTemplate}
+                                onChange={e => setSelectedTemplate(e.target.value)}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
+                            >
+                                {templates.map(t => (
+                                    <option key={t.name} value={t.name}>{t.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     {/* キャラクター選択（検索付きインライン展開） */}
                     <div className="space-y-1" ref={charDropdownRef}>
@@ -326,7 +401,7 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                                                 onClick={() => {
                                                     setEditCharName(charConfig.characterName || '');
                                                     setEditWorkName(charConfig.workName || '');
-                                                    setEditCharPrompt(charConfig.characterPrompt || '');
+                                                    setEditCharPrompt(charPromptOf(charConfig));
                                                     setIsCharConfigEditing(false);
                                                 }}
                                                 className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300 transition-colors"
@@ -388,7 +463,7 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                                     <div className="space-y-0.5">
                                         <span className="text-gray-500">{CHARACTER.LABELS.CHARACTER_PROMPT}</span>
                                         <p className="text-gray-300 text-xs break-all bg-gray-800/50 rounded px-2 py-1">
-                                            {charConfig.characterPrompt || GENERATE_TEST.PLACEHOLDERS.NOT_SET}
+                                            {charPromptOf(charConfig) || GENERATE_TEST.PLACEHOLDERS.NOT_SET}
                                         </p>
                                     </div>
                                 </div>
@@ -438,17 +513,34 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                         />
                     </div>
 
+                    {/* 追加プロンプト（自由入力。API サービス用のテスト生成のみ） */}
+                    {isApi && (
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium text-gray-400" htmlFor="generate-test-extra-prompt">{GENERATE_TEST.LABELS.EXTRA_PROMPT}</label>
+                            <textarea
+                                id="generate-test-extra-prompt"
+                                value={extraPrompt}
+                                onChange={e => setExtraPrompt(e.target.value)}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y transition-colors"
+                                rows={3}
+                            />
+                            <p className="text-xs text-gray-500">{GENERATE_TEST.MESSAGES.EXTRA_PROMPT_DESC}</p>
+                        </div>
+                    )}
+
                     {/* 生成ボタン */}
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handleGenerate}
-                            disabled={isGenerating || !selectedTemplate}
+                            disabled={isGenerating || (!isApi && !selectedTemplate)}
                             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
                         >
                             {isGenerating ? (
                                 <>
                                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                                    {GENERATE_TEST.MESSAGES.GENERATING}
+                                    {intermediateStep !== null
+                                        ? formatComfyText(GENERATE_TEST.MESSAGES.INTERMEDIATE, { step: intermediateStep + 1 })
+                                        : GENERATE_TEST.MESSAGES.GENERATING}
                                 </>
                             ) : (
                                 <>
@@ -473,7 +565,7 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                     {/* エラー表示 */}
                     {result && !result.success && (
                         <div className="bg-red-900/30 border border-red-700 rounded-lg px-3 py-2 text-sm text-red-300">
-                            {result.error}
+                            {resolveBackendError(uiCatalog, result.error)}
                         </div>
                     )}
 
@@ -526,22 +618,29 @@ export const ComfyUIGenerateTestModal: React.FC<ComfyUIGenerateTestModalProps> =
                                     </div>
                                 )}
 
-                                {/* LoRA */}
-                                <button
-                                    onClick={() => setShowLoras(!showLoras)}
-                                    className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
-                                >
-                                    {showLoras ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                                    {GENERATE_TEST.MESSAGES.APPLIED_LORA} ({result.resolvedPrompt.lorasApplied.length}{COMMON.MESSAGES.COUNT_SUFFIX})
-                                </button>
-                                {showLoras && (
-                                    <div className="px-3 py-2 text-gray-300 bg-gray-800/30 break-all">
-                                        {result.resolvedPrompt.lorasApplied.length > 0
-                                            ? result.resolvedPrompt.lorasApplied.join(', ')
-                                            : GENERATE_TEST.PLACEHOLDERS.NONE}
-                                    </div>
+                                {/* LoRA（ComfyUI 連携のみ） */}
+                                {result.backend !== 'api' && (
+                                    <>
+                                        <button
+                                            onClick={() => setShowLoras(!showLoras)}
+                                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
+                                        >
+                                            {showLoras ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                            {GENERATE_TEST.MESSAGES.APPLIED_LORA} ({result.resolvedPrompt.lorasApplied.length}{COMMON.MESSAGES.COUNT_SUFFIX})
+                                        </button>
+                                        {showLoras && (
+                                            <div className="px-3 py-2 text-gray-300 bg-gray-800/30 break-all">
+                                                {result.resolvedPrompt.lorasApplied.length > 0
+                                                    ? result.resolvedPrompt.lorasApplied.join(', ')
+                                                    : GENERATE_TEST.PLACEHOLDERS.NONE}
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
+                            {result.backend === 'api' && (
+                                <ApiGenerateResultDetails result={result} uiCatalog={uiCatalog} />
+                            )}
                         </div>
                     )}
                 </div>

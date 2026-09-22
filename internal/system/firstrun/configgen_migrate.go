@@ -40,6 +40,7 @@ func MigrateConfigGenLayout(workspaceRoot string) error {
 		configeditor.ConfigGenMethodTwoStep2,
 		configeditor.ConfigGenMethodOneShot,
 		configeditor.ConfigGenMethodDialog,
+		configeditor.ConfigGenMethodFromSession,
 	}
 	templateDirs := []string{"search_templates", "setting_templates"}
 

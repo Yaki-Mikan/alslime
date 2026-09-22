@@ -410,6 +410,10 @@ func (s *Service) StartupCheck() {
 			if known[id] {
 				continue
 			}
+			// 画像生成 API サービスのトークンは接続先一覧に載らない別系統。回収の対象外。
+			if apistorage.IsImageAPITokenID(id) {
+				continue
+			}
 			logging.Warn("apiproviders: 孤児 secret を削除する (id=%s)", id)
 			if err := s.secrets.Delete(id); err != nil {
 				logging.Warn("apiproviders: 孤児 secret の削除に失敗 (id=%s): %v", id, err)

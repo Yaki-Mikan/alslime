@@ -44,7 +44,8 @@ export interface ConfigGenProgressEntry {
 }
 
 export interface ConfigGenResultFile {
-    kind: 'research' | 'setting';
+    /** tempCharacter はセッションからの取り込み（会話設定へ一時キャラクターとして登録済み。relPath は仮想パス） */
+    kind: 'research' | 'setting' | 'tempCharacter';
     categoryId: string;
     dirName: string;
     fileName: string;
@@ -84,6 +85,30 @@ export const getConfigGenStatus = async (
 
 export const cancelConfigGen = async (backendUrl: string, jobId: string): Promise<void> => {
     await axios.post(`${backendUrl}/api/config-gen/cancel/${encodeURIComponent(jobId)}`);
+};
+
+/** セッションからの一時キャラクター取り込み（1 キャラ 1 ジョブ）の投入 */
+export interface ConfigGenFromSessionRequest {
+    sessionId: string;
+    /** 抽出時の表示名（置き換え前の元のまま） */
+    targetCharacter: string;
+    /** AI 用の設定ファイルテンプレート名（設定自動生成と同じ置き場）。manualTemplate と排他 */
+    settingTemplate?: string;
+    /** 手動作成用の雛形名。settingTemplate と排他。両方空なら AI 用の既定 */
+    manualTemplate?: string;
+    model?: string;
+    claudeEffort?: string;
+    antigravityThinking?: string;
+    timeoutMinutes?: number;
+    locale?: string;
+}
+
+export const submitConfigGenFromSession = async (
+    backendUrl: string,
+    req: ConfigGenFromSessionRequest
+): Promise<{ jobId: string }> => {
+    const response = await axios.post(`${backendUrl}/api/config-gen/from-session`, req);
+    return response.data;
 };
 
 export interface ConfigGenActive {

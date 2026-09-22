@@ -81,8 +81,9 @@ export interface ComfyDirective {
     exists: boolean;
 }
 
-export async function listComfyDirectives(backendUrl: string): Promise<ComfyDirective[]> {
-    const res = await axios.get(`${backendUrl}/api/config-editor/comfy-directives`);
+// backend（comfyui / api）を指定するとその側の指示ファイルだけを返す。未指定は全部。
+export async function listComfyDirectives(backendUrl: string, backend?: 'comfyui' | 'api'): Promise<ComfyDirective[]> {
+    const res = await axios.get(`${backendUrl}/api/config-editor/comfy-directives`, backend ? { params: { backend } } : undefined);
     return res.data;
 }
 

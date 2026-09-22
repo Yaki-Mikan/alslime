@@ -11,6 +11,7 @@ import (
 	"alslime/internal/api/apiresponse"
 	"alslime/internal/config"
 	sessiondom "alslime/internal/domain/sessions"
+	"alslime/internal/domain/tempcharacters"
 	jobsvc "alslime/internal/jobs"
 )
 
@@ -37,6 +38,9 @@ type Deps struct {
 	NativeSweeper NativeSessionSweeper // nil 可（ネイティブ掃除なし）
 	Sidecars      SidecarRemover       // nil 可（sidecar 削除なし）
 	TTSAudio      TTSAudioRemover      // nil 可（生成音声の連動削除なし）
+	// RegisteredTempCharacters は登録済みキャラクターの「一時キャラ ID → 設定ファイルのパス」を返す。
+	// セッション復元時に一時キャラクターを照合し、登録済みへ書き換えるために使う。nil 可（照合なし）。
+	RegisteredTempCharacters func() map[string]string
 }
 
 // Register は session / history 系 API を登録する。
@@ -150,7 +154,13 @@ func handleResume(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		session, err := deps.Sessions.Read(req.SessionID)
+		// 一時キャラクターの照合: 登録済みキャラクターと ID が一致すれば、その場で書き換えて保存する。
+		session, err := deps.Sessions.ReadReconciled(req.SessionID, func(s *sessiondom.UnifiedSession) bool {
+			if deps.RegisteredTempCharacters == nil || s.SSRPSettings == nil {
+				return false
+			}
+			return tempcharacters.Reconcile(s.SSRPSettings, deps.RegisteredTempCharacters())
+		})
 		if err != nil {
 			writeReadError(w, err)
 			return

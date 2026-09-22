@@ -15,6 +15,49 @@ func newSecretStore(t *testing.T) (*SecretStore, *paths.Resolver) {
 	return NewSecretStore(resolver), resolver
 }
 
+func TestSecretStore_順に更新する別ストアの変更を取り込んでから書く(t *testing.T) {
+	// 同じファイルを別々のストアが順に更新する状況（同時ではない）で、古いキャッシュで
+	// 相手の変更を上書きしないことを確かめる。同時保存の排他は担わない（画像生成トークンは
+	// 別ファイルに分けて書込元を一つにしている）。
+	resolver := paths.NewResolver(t.TempDir())
+	first := NewSecretStore(resolver)
+	second := NewSecretStore(resolver)
+
+	// 両方が先に読み込む（キャッシュを持つ）。
+	if _, err := first.IDs(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.IDs(); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Set("conn-a", ConnectionSecret{APIKey: "sk-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Set("conn-b", ConnectionSecret{APIKey: "sk-b"}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewSecretStore(resolver)
+	for _, id := range []string{"conn-a", "conn-b"} {
+		if has, _ := reloaded.HasAPIKey(id); !has {
+			t.Fatalf("順に更新した相手のキーが消えている: %s", id)
+		}
+	}
+	// 古いキャッシュを持つ側からも、相手の保存が見える。
+	if has, _ := first.HasAPIKey("conn-b"); !has {
+		t.Fatal("相手の更新が見えない")
+	}
+	// 削除も取り込む（削除済みのキーが古いキャッシュで復活しない）。
+	if err := first.Delete("conn-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Set("conn-c", ConnectionSecret{APIKey: "sk-c"}); err != nil {
+		t.Fatal(err)
+	}
+	if has, _ := NewSecretStore(resolver).HasAPIKey("conn-a"); has {
+		t.Fatal("削除済みのキーが古いキャッシュで復活している")
+	}
+}
+
 func TestSecretStore_未存在は空として正常(t *testing.T) {
 	store, _ := newSecretStore(t)
 	if has, err := store.HasAPIKey("conn-x"); err != nil || has {

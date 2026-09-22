@@ -38,7 +38,7 @@ export function extractCharacterDirectoryName(characterPath: string): string | n
 }
 
 /** 設定ファイルのパスから、拡張子を除いた設定名を取り出す。 */
-function extractSettingName(characterPath: string): string | null {
+export function extractSettingName(characterPath: string): string | null {
     const parts = characterPath.replace(/\\/g, '/').split('/').filter(Boolean);
     const settingsIndex = findSettingsIndex(parts);
     if (settingsIndex < 0 || settingsIndex + 1 >= parts.length) return null;

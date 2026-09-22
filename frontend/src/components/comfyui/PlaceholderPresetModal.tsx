@@ -273,6 +273,7 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
 
                     {/* エントリ編集（説明列あり） */}
                     <PlaceholderEntriesEditor
+                        showTargets
                         entries={entries}
                         onChange={setEntries}
                         showDescription

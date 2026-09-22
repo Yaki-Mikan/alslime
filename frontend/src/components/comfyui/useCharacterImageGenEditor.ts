@@ -33,6 +33,8 @@ export function useCharacterImageGenEditor(backendUrl: string, dirName: string |
     const [config, setConfig] = useState<CharacterImageGenConfig>({ ...DEFAULT_CONFIG });
     const [isLoading, setIsLoading] = useState(false);
     const [isDirty, setIsDirty] = useState(false);
+    // 参照画像の登録・削除などサーバー側で設定が書き換わったあとに読み直すための版番号。
+    const [reloadVersion, setReloadVersion] = useState(0);
 
     const enabled = active && !!dirName;
     const { lorasByCategory, comfyUnreachable, retry: refreshLoras } = useComfyLoras(backendUrl, ['character', 'outfit'], enabled);
@@ -68,7 +70,11 @@ export function useCharacterImageGenEditor(backendUrl: string, dirName: string |
             }
         })();
         return () => { cancelled = true; };
-    }, [backendUrl, dirName, enabled]);
+    }, [backendUrl, dirName, enabled, reloadVersion]);
+
+    const reload = useCallback(async () => {
+        setReloadVersion(v => v + 1);
+    }, []);
 
     const updateConfig = useCallback(<K extends keyof CharacterImageGenConfig>(key: K, value: CharacterImageGenConfig[K]) => {
         setConfig(prev => ({ ...prev, [key]: value }));
@@ -119,6 +125,7 @@ export function useCharacterImageGenEditor(backendUrl: string, dirName: string |
         isDirty,
         updateConfig,
         save,
+        reload,
         availableLoras,
         availableOutfitLoras,
         comfyUnreachable,

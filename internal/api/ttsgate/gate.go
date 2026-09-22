@@ -56,23 +56,32 @@ type Deps struct {
 	HTTP *http.Client
 }
 
+// proxyTargetKey は受付時に確定した転送先を要求の context で Rewrite へ渡すキー。
+type proxyTargetKey struct{}
+
 // RegisterProxy はサイドカーモード時の TTS ルートを登録する。
 func RegisterProxy(mux *http.ServeMux, deps Deps) {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			// Rewrite 時点で target は確定済み（ハンドラ側で nil を弾いている）。
-			pr.SetURL(deps.Module.BaseURL())
+			// 転送先は受付時に一度だけ取得した値を使う（ここで取り直すと、確認後に
+			// モジュールが終了して nil に戻った場合に nil を参照してしまう）。
+			target, _ := pr.In.Context().Value(proxyTargetKey{}).(*url.URL)
+			pr.SetURL(target)
 			pr.Out.Header.Set(coreapi.ModuleAuthHeader, deps.Module.Secret())
 		},
 	}
 	mux.Handle(routeBase+"/", requireGate(deps.Gate,
 		func(w http.ResponseWriter, r *http.Request) {
-			if deps.Module == nil || deps.Module.BaseURL() == nil {
+			var target *url.URL
+			if deps.Module != nil {
+				target = deps.Module.BaseURL()
+			}
+			if target == nil {
 				// モジュール未起動（起動待ち・起動失敗）。
 				apierror.Write(w, apierror.NewKey(http.StatusServiceUnavailable, i18n.KeyErrorTTSServiceMissing))
 				return
 			}
-			proxy.ServeHTTP(w, r)
+			proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), proxyTargetKey{}, target)))
 		}))
 }
 
@@ -273,8 +282,13 @@ func emptyReason(items []coreapi.TTSPlanItem) string {
 }
 
 // fetchPlan は読み上げ計画を取得する。サイドカー起動中は RPC、無ければ in-process。
+// 接続先は一度だけ取得し、有無の判定と送信先の組み立ての両方にその値を使う。
 func fetchPlan(ctx context.Context, deps Deps, req coreapi.TTSPlanRequest) (coreapi.TTSPlanResponse, error) {
-	if deps.Module != nil && deps.Module.BaseURL() != nil {
+	var base *url.URL
+	if deps.Module != nil {
+		base = deps.Module.BaseURL()
+	}
+	if base != nil {
 		client := deps.HTTP
 		if client == nil {
 			client = http.DefaultClient
@@ -283,7 +297,7 @@ func fetchPlan(ctx context.Context, deps Deps, req coreapi.TTSPlanRequest) (core
 		if err != nil {
 			return coreapi.TTSPlanResponse{}, err
 		}
-		target := deps.Module.BaseURL().JoinPath(coreapi.ModuleTTSPlanRoute)
+		target := base.JoinPath(coreapi.ModuleTTSPlanRoute)
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(payload))
 		if err != nil {
 			return coreapi.TTSPlanResponse{}, err

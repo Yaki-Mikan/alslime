@@ -28,6 +28,9 @@ const (
 	// KindComfyUI は画像生成の生成段（ComfyUI への投入と完了待ち）。AI CLI を使わないため
 	// process.Manager では global 枠から独立した専用枠で同時数を制御する。
 	KindComfyUI Kind = "comfyui"
+	// KindImageAPI は画像生成の生成段のうち、外部の画像生成 API サービス（NovelAI 等）へ
+	// 送る経路。1 アカウント 1 生成が原則のサービスに合わせ、専用枠で 1 件ずつ流す。
+	KindImageAPI Kind = "image-api"
 )
 
 // ParseKind は provider 指定文字列を Kind へ解決する。

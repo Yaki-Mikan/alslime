@@ -25,15 +25,20 @@ import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHu
 import type { OpenFileRequest } from './settings/ConfigEditorModal';
 import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
 import { ImageGenDrawerControls } from './comfyui/ImageGenDrawerControls';
+import { ApiServiceBalancePanel } from './comfyui/apiservice/ApiServiceBalancePanel';
+import type { BackendSelection } from './comfyui/BackendTabs';
 import { TTSDrawerPanel } from './tts/TTSDrawerPanel';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
-import { FEATURE_COMFYUI, FEATURE_TTS, isFeatureEnabled } from '../constants/features';
-import { MODULE_COMFY, MODULE_TTS, fetchModulesStatus } from '../api/sponsor';
+import { FEATURE_COMFYUI, FEATURE_TTS, isFeatureEnabled, isImageGenAvailable } from '../constants/features';
+import { MODULE_COMFY, MODULE_TTS } from '../api/sponsor';
+import { useComfyModuleActive } from '../hooks/useComfyModuleActive';
+import { useTTSModuleActive } from '../hooks/useTTSModuleActive';
 import { getTTSEmojiList } from '../api/tts';
 import { MessageList } from './chat/MessageList';
 
 import { MessageInput } from './chat/MessageInput';
 import { modelTypeForNewSession, resolveRestoredModelSelection } from './chat/sessionModelRestore';
+import { extractCharacterDirectoryName, extractSettingName } from './chat/characterImagePath';
 import { HamburgerMenu } from './SSRP/HamburgerMenu';
 import { RolePlaySettings } from './SSRP/RolePlaySettings';
 import type { RolePlaySettingsHandlers } from './SSRP/RolePlaySettings';
@@ -66,6 +71,7 @@ import {
 // Hooks
 import { useChat } from '../hooks/useChat';
 import { useSession } from '../hooks/useSession';
+import { useTempCharacterImport } from '../hooks/useTempCharacterImport';
 import type { Session } from '../hooks/useSession';
 import { usePullToReload } from '../hooks/usePullToReload';
 
@@ -153,6 +159,30 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
             byName[name] = value;
         }
         return Object.keys(byName).length > 0 ? byName : undefined;
+    }, [currentSessionConfig]);
+    // 応答時の自動画像生成で対象外にするキャラクター名の集合。保存キー（キャラ.mdパス）を
+    // TURN の character 名（設定名。物理ディレクトリ名は、同じディレクトリの選択中キャラが
+    // 全て対象外のときだけ）へ変換して渡す。会話設定で選択中のキャラクターだけを見る。
+    const getAutoImageExcludedCharacters = React.useCallback((): ReadonlySet<string> => {
+        const excluded = new Set<string>();
+        const characters = currentSessionConfig?.characters as string[] | undefined;
+        const details = currentSessionConfig?.characterDetails as Record<string, { autoImageGenEnabled?: boolean } | undefined> | undefined;
+        if (!characters || !details) return excluded;
+        const directoryHasTarget = new Map<string, boolean>();
+        for (const charPath of characters) {
+            if (!charPath) continue;
+            const enabled = details[charPath]?.autoImageGenEnabled !== false;
+            const settingName = extractSettingName(charPath) || charPath.split('/').pop()?.replace(/\.md$/i, '') || charPath;
+            const directoryName = extractCharacterDirectoryName(charPath);
+            if (!enabled) excluded.add(settingName);
+            if (directoryName) {
+                directoryHasTarget.set(directoryName, (directoryHasTarget.get(directoryName) ?? false) || enabled);
+            }
+        }
+        for (const [directoryName, hasTarget] of directoryHasTarget) {
+            if (!hasTarget) excluded.add(directoryName);
+        }
+        return excluded;
     }, [currentSessionConfig]);
     // セッション履歴から読み込んだSSRP設定（プリセット閲覧・保存からチャット送信を守るための基準）
     const [sessionHistoryConfig, setSessionHistoryConfig] = useState<any>(null);
@@ -306,48 +336,22 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         }
     }, []);
 
-    // ComfyUI連携モジュールの連携状態（会話設定の画像生成設定欄の表示条件に使用）。
-    // ComfyUI機能が有効な支援レベルのときだけ確認する。
-    const [comfyModuleActive, setComfyModuleActive] = useState(false);
-    useEffect(() => {
-        if (!isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)) {
-            setComfyModuleActive(false);
-            return;
-        }
-        let disposed = false;
-        (async () => {
-            try {
-                const modules = await fetchModulesStatus(BACKEND_URL);
-                if (!disposed) {
-                    setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
-                }
-            } catch {
-                if (!disposed) setComfyModuleActive(false);
-            }
-        })();
-        return () => { disposed = true; };
-    }, [enabledFeatures]);
+    // ComfyUI連携モジュールの連携状態（画像生成設定・容姿プロンプト作成等の表示条件に使用）。
+    // ComfyUI機能が有効な支援レベルの間だけ、初回・定期・画面の再表示時に取り直す
+    //（サイドカーの起動完了・異常停止へ追随し、投入 API の受付条件と揃える）。
+    const [comfyModuleActive, setComfyModuleActive] = useComfyModuleActive(
+        BACKEND_URL,
+        isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI),
+    );
+    // 画像生成バックエンドの選択（左メニューの切替タブから受け取り、残高パネルの表示切替に使う）
+    const [imageBackendSelection, setImageBackendSelection] = useState<BackendSelection | null>(null);
     // TTS連携モジュールの連携状態（TTS設定タブ等の表示条件に使用）。
-    // TTS機能が有効な支援レベルのときだけ確認する（in-process 供給時も active が返る）。
-    const [ttsModuleActive, setTtsModuleActive] = useState(false);
-    useEffect(() => {
-        if (!isFeatureEnabled(enabledFeatures, FEATURE_TTS)) {
-            setTtsModuleActive(false);
-            return;
-        }
-        let disposed = false;
-        (async () => {
-            try {
-                const modules = await fetchModulesStatus(BACKEND_URL);
-                if (!disposed) {
-                    setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
-                }
-            } catch {
-                if (!disposed) setTtsModuleActive(false);
-            }
-        })();
-        return () => { disposed = true; };
-    }, [enabledFeatures]);
+    // TTS機能が有効な支援レベルの間だけ、初回・定期・画面の再表示時に取り直す
+    //（サイドカーの起動完了・異常停止へ追随する。in-process 供給時も active が返る）。
+    const [ttsModuleActive, setTtsModuleActive] = useTTSModuleActive(
+        BACKEND_URL,
+        isFeatureEnabled(enabledFeatures, FEATURE_TTS),
+    );
     // 文体指示の対応絵文字一覧（表示からの常時除去用）。TTS機能が有効なときだけ取得する
     //（除去リストの取得可否はゲートに従う。不通過ユーザーはそもそも文体指示で生成されない）。
     const [ttsEmojiList, setTtsEmojiList] = useState<string[]>([]);
@@ -872,6 +876,38 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         }
     };
 
+    // セッションからの一時キャラクター取り込み。進行状態は画面本体で保持し、小窓を閉じても続く。
+    const currentSessionIdRef = React.useRef<string | null>(null);
+    useEffect(() => {
+        currentSessionIdRef.current = currentSessionId || null;
+    }, [currentSessionId]);
+    // サーバー側で会話設定が更新されたとき（分析完了・一時キャラの本文更新／削除・キャラ設定登録）に
+    // 保持値と会話設定メニューの UI を差し替える。保存値スナップショットも揃えて dirty にしない。
+    const handleSessionSettingsUpdated = React.useCallback((saved: any) => {
+        if (!saved) return;
+        setCurrentSessionConfig(cloneSSRPConfig(saved));
+        setSessionHistoryConfig(cloneSSRPConfig(saved));
+        setIsConversationPresetChanged(false);
+        setIsSSRPDirty(false);
+        rolePlaySettingsRef.current?.applySettings(cloneSSRPConfig(saved));
+    }, []);
+    const tempImport = useTempCharacterImport(BACKEND_URL, async (sessionId) => {
+        // 分析完了時の登録はサーバー側で済んでいる。会話設定を読み直して画面へ反映する。
+        try {
+            const res = await applySSRPSettingsToSession(BACKEND_URL, sessionId, null);
+            if (currentSessionIdRef.current === sessionId && res.ssrpSettings) {
+                handleSessionSettingsUpdated(res.ssrpSettings);
+            }
+        } catch (error) {
+            console.error('[Chat] Failed to reload SSRP settings after temp character import:', error);
+        }
+    });
+    // 画面を読み込み直した後もサーバーで分析が続いていれば、完了時に会話設定を読み直す。
+    useEffect(() => {
+        if (currentSessionId) tempImport.watchActive(currentSessionId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentSessionId]);
+
     // UIの現在SSRP設定を送信時と同じ経路で取得する（lastModel付与込み）
     const collectCurrentSSRPSettings = React.useCallback(() => {
         let settings: any = null;
@@ -975,6 +1011,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         // セッション復元中はUI stateが未同期の可能性があるため送信を禁止
         if (isRestoringSession) {
             console.log('[Chat] Send blocked: session restore in progress');
+            return;
+        }
+        // 一時キャラクターの分析中は、完了時の登録と送信時の会話設定が食い違わないよう送信を止める
+        if (tempImport.running) {
+            console.log('[Chat] Send blocked: temp character import in progress');
             return;
         }
         let ssrpSettingsOverride = undefined;
@@ -1122,6 +1163,17 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         backendUrl={BACKEND_URL}
                         uiCatalog={uiCatalog}
                         active={isStatusDrawerOpen}
+                        onBackendChange={setImageBackendSelection}
+                    />
+                )}
+
+                {/* API サービスの残高パネル（バックエンドが API サービスのときだけ中身が表示される） */}
+                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                    <ApiServiceBalancePanel
+                        backendUrl={BACKEND_URL}
+                        uiCatalog={uiCatalog}
+                        active={isStatusDrawerOpen}
+                        selection={imageBackendSelection}
                     />
                 )}
 
@@ -1167,7 +1219,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 backendUrl={BACKEND_URL}
                 uiCatalog={uiCatalog}
                 initialTab={configEditorInitialTab}
-                imageGenEnabled={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI)}
+                imageGenEnabled={isImageGenAvailable(enabledFeatures, comfyModuleActive)}
                 ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
                 comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                 openApiProviderInstruction={openApiProviderInstruction}
@@ -1185,7 +1237,6 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 onSave={saveSettings}
                 onLogout={onLogout}
                 uiCatalog={uiCatalog}
-                enabledFeatures={enabledFeatures}
                 onModelsChanged={refreshModels}
                 onModulesChanged={modules => {
                     setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
@@ -1197,10 +1248,12 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     setConfigEditorInitialTab('config');
                     setIsConfigEditorOpen(true);
                 }}
-                onOpenImageGenSettings={() => {
-                    setConfigEditorInitialTab('imageGen');
-                    setIsConfigEditorOpen(true);
-                }}
+                onOpenImageGenSettings={isImageGenAvailable(enabledFeatures, comfyModuleActive)
+                    ? () => {
+                        setConfigEditorInitialTab('imageGen');
+                        setIsConfigEditorOpen(true);
+                    }
+                    : undefined}
                 onOpenTTSSettings={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
                     ? () => {
                         setConfigEditorInitialTab('tts');
@@ -1728,6 +1781,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
                             ttsEmojiList={ttsEmojiList}
                             getTTSPresetVoiceDesign={getTTSPresetVoiceDesign}
+                            getAutoImageExcludedCharacters={getAutoImageExcludedCharacters}
                             actionChoices={actionChoices}
                             selectedChoice={selectedChoice}
                             onSelectChoice={setSelectedChoice}
@@ -1738,7 +1792,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                         <MessageInput
                             input={input}
                             isLoading={isLoading}
-                            disabled={isRestoringSession}
+                            disabled={isRestoringSession || tempImport.running}
                             onSend={handleSendWrapper}
                             onStop={handleStop}
                             onInputChange={handleInputChange}
@@ -1808,6 +1862,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     canApplyToSession={!!currentSessionId && isSSRPDirty}
                     onApplyToSession={handleApplyToSession}
                     applyToSessionState={applyToSessionState}
+                    sessionId={currentSessionId}
+                    messages={messages}
+                    tempImport={tempImport}
+                    onSessionSettingsUpdated={handleSessionSettingsUpdated}
                 />
             </div>
         </div>

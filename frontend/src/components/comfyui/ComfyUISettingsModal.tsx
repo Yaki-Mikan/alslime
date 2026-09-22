@@ -19,8 +19,15 @@ import { ComfyUITagMappingModal } from './ComfyUITagMappingModal';
 import { ComfyUITagEnableModal } from './ComfyUITagEnableModal';
 import { ComfyUIGenerateTestModal } from './ComfyUIGenerateTestModal';
 import { TagJudgeProviderFields, type TagJudgeProviderValues } from './TagJudgeProviderFields';
+import { BackendTabs, type BackendSelection } from './BackendTabs';
+import { ApiServiceConnectionSection } from './apiservice/ApiServiceConnectionSection';
+import { NovelAIPresetSection } from './apiservice/NovelAIPresetSection';
+import { ApiServiceModelSelect } from './apiservice/ApiServiceModelSelect';
+import { AutoSoundEffectsToggle } from './apiservice/AutoSoundEffectsToggle';
+import { UserAppearanceSection } from './apiservice/UserAppearanceSection';
+import { normalizeApiService, normalizeImageBackend } from './apiservice/services';
 import { createComfyUIText, formatComfyText } from './i18n';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { resolveBackendError, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { normalizeClaudeEffort, type ClaudeEffort } from '../../constants/claude';
 import {
     DEFAULT_ANTIGRAVITY_THINKING,
@@ -29,19 +36,23 @@ import {
 } from '../../constants/antigravity';
 import {
     getComfyUIConfig,
-    saveComfyUIConfig,
+    patchComfyUIConfig,
     testComfyUIConnection,
     listComfyUITemplates,
     addComfyUITemplate,
     deleteComfyUITemplate,
     downloadComfyUITemplate,
     testGenerateComfyUI,
+    listApiServicePresets,
 } from '../../api/comfyui';
 import type {
     AntigravityTagJudgeModel,
+    ApiServiceId,
     ClaudeTagJudgeModel,
-    ComfyUIConfig,
+    ImageBackend,
     ImageJobMode,
+    NovelAIFreeTier,
+    NovelAIPreset,
     ConnectionTestResult,
     DanbooruTagFormat,
     TriggerWordFormat,
@@ -78,7 +89,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     onAppSettingsSave,
     onOpenIntegrated,
 }) => {
-    const { COMMON, DIRECTIVE_MODE_OPTIONS, GENERATE_TEST, INTEGRATED, SECTION_NAMES } = createComfyUIText(uiCatalog);
+    const { API_SERVICE, COMMON, DIRECTIVE_MODE_OPTIONS, DIRECTIVE_MODE_OPTIONS_API, GENERATE_TEST, INTEGRATED, SECTION_NAMES } = createComfyUIText(uiCatalog);
     // 接続設定
     const [connectionUrl, setConnectionUrl] = useState('http://127.0.0.1:8188');
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
@@ -87,7 +98,9 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [lightweightImageQuality, setLightweightImageQuality] = useState(92);
     const [lightweightImageLossless, setLightweightImageLossless] = useState(false);
     const [lightweightImageEffort, setLightweightImageEffort] = useState(4);
+    // 分析指示の形式の選択は、ComfyUI 用と API サービス用で別に持つ（指示ファイルが別のため）。
     const [directiveMode, setDirectiveMode] = useState<DirectiveMode>('danbooru_only');
+    const [apiDirectiveMode, setApiDirectiveMode] = useState<DirectiveMode>('danbooru_only');
     // 形式（directiveMode）ごとの使用ワークフロー名。キー未登録・空値は共通（defaultTemplateId）
     const [workflowByDirectiveMode, setWorkflowByDirectiveMode] = useState<Record<string, string>>({});
     const [danbooruTagFormat, setDanbooruTagFormat] = useState<DanbooruTagFormat>('underscore');
@@ -103,6 +116,29 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const [tagJudgeTimeoutSeconds, setTagJudgeTimeoutSeconds] = useState(180);
     // 画像生成ジョブの単位（統合 / 分離）。既定は統合。
     const [imageJobMode, setImageJobMode] = useState<ImageJobMode>('combined');
+    // 画像生成バックエンド（全画面共用・即時保存）と API サービス側の設定。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiService, setApiService] = useState<ApiServiceId>('novelai');
+    const [apiPresetDefault, setApiPresetDefault] = useState('');
+    const [apiPresetByDirectiveMode, setApiPresetByDirectiveMode] = useState<Record<string, string>>({});
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const [apiFreeTier, setApiFreeTier] = useState<NovelAIFreeTier | null>(null);
+    // 使用モデル（全体の設定の値。モデル選択の部品が読み書きし、ここは表示と連動のために持つ）
+    const [apiModelId, setApiModelId] = useState('');
+    const [isApiModelSaving, setIsApiModelSaving] = useState(false);
+    const handleBackendChange = useCallback((selection: BackendSelection) => {
+        setImageBackend(selection.imageBackend);
+        setApiService(selection.apiService);
+    }, []);
+    const reloadApiPresets = useCallback(async () => {
+        try {
+            const list = await listApiServicePresets(backendUrl, apiService);
+            setApiPresets(list);
+            setApiPresetDefault(prev => (prev && list.some(p => p.name === prev)) ? prev : (list[0]?.name ?? ''));
+        } catch (error) {
+            console.error('[ComfyUISettingsModal] api presets load failed:', error);
+        }
+    }, [backendUrl, apiService]);
     // 分析AI・モデルの選択部品（TagJudgeProviderFields）からの差分を各 state へ振り分ける。
     // モデル一覧の取得・thinking の丸め・openai_compat の先頭自動選択は部品側が担う。
     const applyTagJudgePatch = useCallback((patch: Partial<TagJudgeProviderValues>) => {
@@ -181,6 +217,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             ]);
             setConnectionUrl(config.connectionUrl || 'http://127.0.0.1:8188');
             setDirectiveMode(config.directiveMode || 'danbooru_only');
+            setApiDirectiveMode(config.apiDirectiveMode || 'danbooru_only');
             setWorkflowByDirectiveMode(config.workflowByDirectiveMode || {});
             setDanbooruTagFormat(config.danbooruTagFormat || 'underscore');
             setTriggerWordFormat(config.triggerWordFormat || 'raw');
@@ -193,6 +230,10 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             setTagJudgeOpenAICompatModel(config.tagJudgeOpenAICompatModel || '');
             setTagJudgeTimeoutSeconds(config.tagJudgeTimeoutSeconds ?? 180);
             setImageJobMode(config.imageJobMode ?? 'combined');
+            setImageBackend(normalizeImageBackend(config.imageBackend));
+            setApiService(normalizeApiService(config.apiService));
+            setApiPresetDefault(config.apiPresetDefault || '');
+            setApiPresetByDirectiveMode(config.apiPresetByDirectiveMode || {});
             setLightweightImageSaveEnabled(config.lightweightImageSave?.enabled || false);
             setLightweightImageFormat(config.lightweightImageSave?.format || 'avif');
             setLightweightImageQuality(config.lightweightImageSave?.quality || 92);
@@ -216,6 +257,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             loadData();
+            void reloadApiPresets();
+            setApiFreeTier(null);
             setTestResult(null);
             setUploadError(null);
             setDownloadError(null);
@@ -225,7 +268,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             setGenerateError(null);
             setLocalAppSettings(appSettings);
         }
-    }, [isOpen, loadData, appSettings]);
+    }, [isOpen, loadData, reloadApiPresets, appSettings]);
 
     // 接続テスト
     const handleTestConnection = async () => {
@@ -373,7 +416,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
             if (result.success && result.imageBase64) {
                 setGeneratedImage(`data:${result.mimeType || 'image/png'};base64,${result.imageBase64}`);
             } else {
-                setGenerateError(result.error || GENERATE_TEST.MESSAGES.GENERATE_FAILED);
+                setGenerateError(resolveBackendError(uiCatalog, result.error) || GENERATE_TEST.MESSAGES.GENERATE_FAILED);
             }
         } catch (error: any) {
             const msg = error.response?.data?.error || error.message || GENERATE_TEST.MESSAGES.GENERATE_FAILED;
@@ -387,8 +430,10 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            const config: ComfyUIConfig = {
-                version: 1,
+            // この画面で編集した項目だけを差し替える（GET → 差し替え → PUT）。
+            // 他画面が持つ項目（自動画像生成・プレースホルダプリセット選択・バックエンド選択・
+            // サービス別設定）を落とさない。
+            await patchComfyUIConfig(backendUrl, {
                 connectionUrl,
                 defaultTemplateId,
                 directiveMode,
@@ -411,8 +456,10 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                     lossless: lightweightImageLossless,
                     effort: lightweightImageEffort,
                 },
-            };
-            await saveComfyUIConfig(backendUrl, config);
+                apiPresetDefault,
+                apiPresetByDirectiveMode,
+                apiDirectiveMode,
+            });
             // セッション内背景画像設定（アプリ設定）も一緒に保存する
             if (localAppSettings && onAppSettingsSave) {
                 await onAppSettingsSave(localAppSettings);
@@ -454,7 +501,46 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
 
                 {/* 本体 */}
                 <div className="p-5 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                    {/* 接続設定 */}
+                    {/* バックエンド切替（全画面共用・即時保存）。API サービス側はサービス選択付き */}
+                    <BackendTabs
+                        backendUrl={backendUrl}
+                        uiCatalog={uiCatalog}
+                        active={isOpen}
+                        initial={{ imageBackend, apiService }}
+                        onChange={handleBackendChange}
+                    />
+
+                    {/* 接続設定（API サービス側はトークンと接続テスト） */}
+                    {imageBackend === 'api' ? (
+                        <>
+                            <ApiServiceConnectionSection
+                                backendUrl={backendUrl}
+                                uiCatalog={uiCatalog}
+                                service={apiService}
+                                active={isOpen}
+                                onSubscription={(sub) => setApiFreeTier(sub?.freeTier ?? null)}
+                            />
+                            {/* 使用モデル（生成プリセットとは別に選ぶ。切り替えたら即時保存） */}
+                            <ApiServiceModelSelect
+                                backendUrl={backendUrl}
+                                uiCatalog={uiCatalog}
+                                service={apiService}
+                                active={isOpen}
+                                onModelChange={setApiModelId}
+                                onSavingChange={setIsApiModelSaving}
+                            />
+                            {/* 自動効果音描画（全体で 1 つの値。切り替えたら即時保存。保存ボタンの対象ではない） */}
+                            <AutoSoundEffectsToggle
+                                modelId={apiModelId}
+                                backendUrl={backendUrl}
+                                uiCatalog={uiCatalog}
+                                service={apiService}
+                                active={isOpen}
+                                showHelp
+                                size="sm"
+                            />
+                        </>
+                    ) : (
                     <div className="space-y-3">
                         <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
                             <Wifi size={16} className="text-green-400" />
@@ -502,6 +588,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             {COMMON.MESSAGES.DEFAULT_PORT_DESC}
                         </p>
                     </div>
+                    )}
 
                     {/* タグ判定・ワークフロー設定（開閉・デフォルト閉）:
                         分析AI / 形式×ワークフロー対応表 / 共通ワークフロー / DD領域 / 生成テスト / 軽量画像保存 */}
@@ -510,7 +597,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             title={
                                 <>
                                     <FileText size={16} className="text-green-400" />
-                                    {SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
+                                    {imageBackend === 'api' ? SECTION_NAMES.TAG_JUDGE_GENERATION_SETTINGS : SECTION_NAMES.TAG_JUDGE_WORKFLOW_SETTINGS}
                                 </>
                             }
                         >
@@ -555,16 +642,23 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             </h4>
                             <p className="text-xs text-gray-500">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
                             <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
+                            {/* 選択肢の文言と選択の状態は、タブの側のものを出す（片方を変えても他方は変わらない） */}
                             {([
-                                { value: 'natural_language', label: DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE },
-                                { value: 'natural_language_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_SHORT },
-                                { value: 'natural_language_third_person', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD },
-                                { value: 'natural_language_third_person_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD_SHORT },
-                                { value: 'danbooru_only', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY },
-                                { value: 'danbooru_third_person', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_THIRD },
-                            ] as { value: DirectiveMode; label: string }[]).map((row) => {
-                                const mappedName = workflowByDirectiveMode[row.value] ?? '';
-                                const templateNames = templates.filter(t => t.hasWorkflow).map(t => t.name);
+                                { value: 'natural_language', key: 'NATURAL_LANGUAGE' },
+                                { value: 'natural_language_short', key: 'NATURAL_SHORT' },
+                                { value: 'natural_language_third_person', key: 'NATURAL_THIRD' },
+                                { value: 'natural_language_third_person_short', key: 'NATURAL_THIRD_SHORT' },
+                                { value: 'danbooru_only', key: 'DANBOORU_ONLY' },
+                                { value: 'danbooru_third_person', key: 'DANBOORU_THIRD' },
+                            ] as { value: DirectiveMode; key: keyof typeof DIRECTIVE_MODE_OPTIONS }[]).map(({ value, key }) => {
+                                const isApi = imageBackend === 'api';
+                                const row = { value, label: (isApi ? DIRECTIVE_MODE_OPTIONS_API : DIRECTIVE_MODE_OPTIONS)[key] };
+                                const mappedName = isApi
+                                    ? (apiPresetByDirectiveMode[row.value] ?? '')
+                                    : (workflowByDirectiveMode[row.value] ?? '');
+                                const templateNames = isApi
+                                    ? apiPresets.map(p => p.name)
+                                    : templates.filter(t => t.hasWorkflow).map(t => t.name);
                                 // 保存済みの紐づけ先が一覧から消えている場合（削除済み等）も選択肢に
                                 // 出して選択状態を維持する（実行時はバックエンドが共通へフォールバック）。
                                 const rowOptions = mappedName && !templateNames.includes(mappedName)
@@ -576,8 +670,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                             <input
                                                 type="radio"
                                                 name="directiveMode"
-                                                checked={directiveMode === row.value}
-                                                onChange={() => setDirectiveMode(row.value)}
+                                                checked={(isApi ? apiDirectiveMode : directiveMode) === row.value}
+                                                onChange={() => (isApi ? setApiDirectiveMode : setDirectiveMode)(row.value)}
                                                 className="accent-green-500 shrink-0"
                                             />
                                             <span className="text-sm text-gray-300">{row.label}</span>
@@ -585,13 +679,17 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                         <select
                                             value={mappedName}
                                             onChange={(e) => {
-                                                const next = { ...workflowByDirectiveMode };
+                                                const next = { ...(isApi ? apiPresetByDirectiveMode : workflowByDirectiveMode) };
                                                 if (e.target.value === '') {
                                                     delete next[row.value];
                                                 } else {
                                                     next[row.value] = e.target.value;
                                                 }
-                                                setWorkflowByDirectiveMode(next);
+                                                if (isApi) {
+                                                    setApiPresetByDirectiveMode(next);
+                                                } else {
+                                                    setWorkflowByDirectiveMode(next);
+                                                }
                                             }}
                                             className="w-40 shrink-0 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors"
                                         >
@@ -604,8 +702,27 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 );
                             })}
 
-                            {/* 共通ワークフロー（「共通」を選んだ形式が使う既定。DL/削除の対象） */}
-                            {templates.length > 0 ? (
+                            {/* 共通ワークフロー（「共通」を選んだ形式が使う既定。DL/削除の対象）。
+                                API サービスでは共通プリセット */}
+                            {imageBackend === 'api' ? (
+                                <div className="space-y-2 pt-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-400 shrink-0">{API_SERVICE.LABELS.COMMON_PRESET}</span>
+                                        <select
+                                            value={apiPresetDefault}
+                                            onChange={(e) => setApiPresetDefault(e.target.value)}
+                                            disabled={apiPresets.length === 0}
+                                            className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none disabled:opacity-50"
+                                        >
+                                            {apiPresets.length === 0 && <option value="">{API_SERVICE.MESSAGES.NO_PRESET}</option>}
+                                            {apiPresets.map((p) => (
+                                                <option key={p.name} value={p.name}>{p.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <p className="text-xs text-gray-500">{API_SERVICE.HELP.FORMAT_PRESET_DESC}</p>
+                                </div>
+                            ) : templates.length > 0 ? (
                                 <div className="space-y-2 pt-1">
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
@@ -659,6 +776,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             )}
                         </div>
 
+                        {imageBackend === 'comfyui' && (<>
                         {/* ドラッグ&ドロップ領域 */}
                         <div
                             onDragOver={handleDragOver}
@@ -850,6 +968,33 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                                 </p>
                             </div>
                         </div>
+                        </>)}
+
+                        {/* API サービスの生成プリセット（モデル・画像設定・プロンプト・高度な設定・出力） */}
+                        {imageBackend === 'api' && (
+                            <div className="pt-3 border-t border-gray-700">
+                                <NovelAIPresetSection
+                                    backendUrl={backendUrl}
+                                    uiCatalog={uiCatalog}
+                                    service={apiService}
+                                    active={isOpen}
+                                    presets={apiPresets}
+                                    modelId={apiModelId}
+                                    onPresetsChanged={reloadApiPresets}
+                                    freeTier={apiFreeTier}
+                                />
+                                {/* ユーザーの容姿設定（呼び名・容姿・服装・参照画像。即時保存） */}
+                                <div className="pt-3 mt-3 border-t border-gray-700">
+                                    <UserAppearanceSection
+                                        backendUrl={backendUrl}
+                                        uiCatalog={uiCatalog}
+                                        service={apiService}
+                                        active={isOpen}
+                                        referenceRefreshKey={apiModelId}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         </CollapsibleSection>
                     </div>
 
@@ -950,7 +1095,8 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                         </p>
                     </div>
 
-                    {/* LoRAディレクトリ設定ボタン */}
+                    {/* LoRAディレクトリ設定ボタン（ComfyUI 連携のみ） */}
+                    {imageBackend === 'comfyui' && (
                     <div className="pt-4 border-t border-gray-700">
                         <button
                             onClick={() => setIsLoraDirOpen(true)}
@@ -963,12 +1109,14 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             {COMMON.MESSAGES.LORA_DIR_SETTINGS_DESC}
                         </p>
                     </div>
+                    )}
 
                     {/* 画像生成テストボタン */}
                     <div className="pt-4 border-t border-gray-700">
                         <button
                             onClick={() => setIsGenerateTestOpen(true)}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-purple-600 rounded-lg text-sm text-gray-300 transition-colors"
+                            disabled={imageBackend === 'api' && isApiModelSaving}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-purple-600 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-40"
                         >
                             <Palette size={16} className="text-purple-400" />
                             {SECTION_NAMES.GENERATE_TEST}
@@ -980,6 +1128,9 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                     </>
                     )}
 
+                    {/* Danbooru タグ取得形式・トリガーワード取得形式（ComfyUI 連携のみ。
+                        API サービスは送信時に自動変換するため欄を出さない） */}
+                    {imageBackend === 'comfyui' && (<>
                     {/* Danbooruタグ取得形式 */}
                     <div className="space-y-3 pt-4 border-t border-gray-700">
                         <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
@@ -1082,6 +1233,7 @@ export const ComfyUISettingsModal: React.FC<ComfyUISettingsModalProps> = ({
                             {COMMON.MESSAGES.TRIGGER_FORMAT_DESC}
                         </p>
                     </div>
+                    </>)}
 
                     {/* セッション内背景画像（アプリ設定。基本チャット設定から移動） */}
                     {localAppSettings && (

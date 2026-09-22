@@ -17,9 +17,12 @@ import {
     getComfyUIConfig,
     saveComfyUIConfig,
     listComfyUITemplates,
+    listApiServicePresets,
 } from '../../api/comfyui';
-import type { ComfyUIConfig, DirectiveMode, TemplateInfo } from '../../api/comfyui';
+import type { ApiServiceId, ComfyUIConfig, DirectiveMode, ImageBackend, NovelAIPreset, TemplateInfo } from '../../api/comfyui';
 import { TagJudgeProviderFields, type TagJudgeProviderValues } from './TagJudgeProviderFields';
+import { BackendTabs, type BackendSelection } from './BackendTabs';
+import { normalizeApiService, normalizeImageBackend } from './apiservice/services';
 import { normalizeClaudeEffort } from '../../constants/claude';
 import { DEFAULT_ANTIGRAVITY_THINKING, normalizeAntigravityThinking } from '../../constants/antigravity';
 import { createComfyUIText } from './i18n';
@@ -65,6 +68,10 @@ interface Props {
     showHeading?: boolean;
     // 幅の狭い場所向けに、ラジオ文字列の下・ラベルの下へプルダウンを縦積みする
     stacked?: boolean;
+    // 上部に画像生成バックエンドの切替タブ（全画面共用・即時保存）を出す（左メニュー用）
+    showBackendTabs?: boolean;
+    // バックエンドの選択が確定（読み込み・保存）するたびに親へ通知する
+    onBackendChange?: (selection: BackendSelection) => void;
 }
 
 export const TagJudgeWorkflowPanel: React.FC<Props> = ({
@@ -73,12 +80,24 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
     templates,
     showHeading = true,
     stacked = false,
+    showBackendTabs = false,
+    onBackendChange,
 }) => {
-    const { COMMON, DIRECTIVE_MODE_OPTIONS } = createComfyUIText(uiCatalog);
+    const { COMMON, DIRECTIVE_MODE_OPTIONS, DIRECTIVE_MODE_OPTIONS_API, API_SERVICE } = createComfyUIText(uiCatalog);
 
+    // 分析指示の形式の選択は、ComfyUI 用と API サービス用で別に持つ（指示ファイルが別のため）。
     const [directiveMode, setDirectiveMode] = useState<DirectiveMode>('danbooru_only');
+    const [apiDirectiveMode, setApiDirectiveMode] = useState<DirectiveMode>('danbooru_only');
     const [workflowByDirectiveMode, setWorkflowByDirectiveMode] = useState<Record<string, string>>({});
     const [defaultTemplateId, setDefaultTemplateId] = useState('');
+    // 画像生成バックエンド（全画面共用の選択）。API サービス側では形式ごとの生成プリセットと
+    // 共通プリセットを選ぶ（ワークフローの対応）。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiService, setApiService] = useState<ApiServiceId>('novelai');
+    const [apiPresetByDirectiveMode, setApiPresetByDirectiveMode] = useState<Record<string, string>>({});
+    const [apiPresetDefault, setApiPresetDefault] = useState('');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const isApi = imageBackend === 'api';
     const [tagJudgeValues, setTagJudgeValues] = useState<TagJudgeProviderValues>(defaultTagJudgeValues);
     // 設定の読み込みが終わるまで分析AI 部品の自動補正（先頭自動選択等）で保存が走らないようにする。
     const [configLoaded, setConfigLoaded] = useState(false);
@@ -98,8 +117,13 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 const config = await getComfyUIConfig(backendUrl);
                 if (cancelled) return;
                 setDirectiveMode((config.directiveMode || 'danbooru_only') as DirectiveMode);
+                setApiDirectiveMode((config.apiDirectiveMode || 'danbooru_only') as DirectiveMode);
                 setWorkflowByDirectiveMode(config.workflowByDirectiveMode || {});
                 setDefaultTemplateId(config.defaultTemplateId || '');
+                setImageBackend(normalizeImageBackend(config.imageBackend));
+                setApiService(normalizeApiService(config.apiService));
+                setApiPresetByDirectiveMode(config.apiPresetByDirectiveMode || {});
+                setApiPresetDefault(config.apiPresetDefault || '');
                 setTagJudgeValues(tagJudgeValuesFromConfig(config));
                 setConfigLoaded(true);
             } catch (error) {
@@ -117,6 +141,27 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [backendUrl]);
+
+    // API サービス側のときだけ生成プリセット一覧を読む（サービスの切替にも追従）。
+    useEffect(() => {
+        if (!configLoaded || !isApi) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const list = await listApiServicePresets(backendUrl, apiService);
+                if (!cancelled) setApiPresets(list);
+            } catch (error) {
+                console.error('[TagJudgeWorkflowPanel] api presets load failed:', error);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [configLoaded, isApi, apiService, backendUrl]);
+
+    const handleBackendChange = useCallback((selection: BackendSelection) => {
+        setImageBackend(selection.imageBackend);
+        setApiService(selection.apiService);
+        onBackendChange?.(selection);
+    }, [onBackendChange]);
 
     const showNotice = (kind: 'saved' | 'error', text: string) => {
         setNotice({ kind, text });
@@ -151,7 +196,13 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
         });
     }, [configLoaded, persistPatch]);
 
+    // 開いているタブの側の選択だけを変える（片方を変えても他方は変わらない）。
     const handleChangeDirectiveMode = (mode: DirectiveMode) => {
+        if (isApi) {
+            setApiDirectiveMode(mode);
+            void persistPatch({ apiDirectiveMode: mode });
+            return;
+        }
         setDirectiveMode(mode);
         void persistPatch({ directiveMode: mode });
     };
@@ -172,19 +223,49 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
         void persistPatch({ defaultTemplateId: name });
     };
 
+    const handleChangeRowPreset = (mode: DirectiveMode, presetName: string) => {
+        const next = { ...apiPresetByDirectiveMode };
+        if (presetName === '') {
+            delete next[mode];
+        } else {
+            next[mode] = presetName;
+        }
+        setApiPresetByDirectiveMode(next);
+        void persistPatch({ apiPresetByDirectiveMode: next });
+    };
+
+    const handleChangeDefaultPreset = (name: string) => {
+        setApiPresetDefault(name);
+        void persistPatch({ apiPresetDefault: name });
+    };
+
+    // 選択肢の文言はタブの側のものを出す（API サービス用に「Anima等向け」は当てはまらない）。
+    const modeLabels = isApi ? DIRECTIVE_MODE_OPTIONS_API : DIRECTIVE_MODE_OPTIONS;
+    const selectedDirectiveMode = isApi ? apiDirectiveMode : directiveMode;
     const rows: { value: DirectiveMode; label: string }[] = [
-        { value: 'natural_language', label: DIRECTIVE_MODE_OPTIONS.NATURAL_LANGUAGE },
-        { value: 'natural_language_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_SHORT },
-        { value: 'natural_language_third_person', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD },
-        { value: 'natural_language_third_person_short', label: DIRECTIVE_MODE_OPTIONS.NATURAL_THIRD_SHORT },
-        { value: 'danbooru_only', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_ONLY },
-        { value: 'danbooru_third_person', label: DIRECTIVE_MODE_OPTIONS.DANBOORU_THIRD },
+        { value: 'natural_language', label: modeLabels.NATURAL_LANGUAGE },
+        { value: 'natural_language_short', label: modeLabels.NATURAL_SHORT },
+        { value: 'natural_language_third_person', label: modeLabels.NATURAL_THIRD },
+        { value: 'natural_language_third_person_short', label: modeLabels.NATURAL_THIRD_SHORT },
+        { value: 'danbooru_only', label: modeLabels.DANBOORU_ONLY },
+        { value: 'danbooru_third_person', label: modeLabels.DANBOORU_THIRD },
     ];
 
     const templateNames = effectiveTemplates.filter(t => t.hasWorkflow).map(t => t.name);
+    const presetNames = apiPresets.map(p => p.name);
 
     return (
         <div className="space-y-2">
+            {showBackendTabs && (
+                <BackendTabs
+                    backendUrl={backendUrl}
+                    uiCatalog={uiCatalog}
+                    active={configLoaded}
+                    onChange={handleBackendChange}
+                    initial={{ imageBackend, apiService }}
+                    compact
+                />
+            )}
             {showHeading && (
                 <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
                     <Workflow size={16} className="text-green-400" />
@@ -205,19 +286,22 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
             <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
 
             {rows.map((row) => {
-                const mappedName = workflowByDirectiveMode[row.value] ?? '';
+                const mappedName = isApi
+                    ? (apiPresetByDirectiveMode[row.value] ?? '')
+                    : (workflowByDirectiveMode[row.value] ?? '');
+                const candidates = isApi ? presetNames : templateNames;
                 // 保存済みの紐づけ先が一覧から消えている場合（削除済み等）も選択肢に
                 // 出して選択状態を維持する（実行時はバックエンドが共通へフォールバック）。
-                const rowOptions = mappedName && !templateNames.includes(mappedName)
-                    ? [...templateNames, mappedName]
-                    : templateNames;
+                const rowOptions = mappedName && !candidates.includes(mappedName)
+                    ? [...candidates, mappedName]
+                    : candidates;
                 return (
                     <div key={row.value} className={stacked ? 'flex flex-col gap-1' : 'flex items-center gap-2'}>
                         <label className={`flex items-center gap-2 min-w-0 cursor-pointer ${stacked ? '' : 'flex-1'}`}>
                             <input
                                 type="radio"
                                 name="tagJudgeWorkflowDirectiveMode"
-                                checked={directiveMode === row.value}
+                                checked={selectedDirectiveMode === row.value}
                                 onChange={() => handleChangeDirectiveMode(row.value)}
                                 className="accent-green-500 shrink-0"
                             />
@@ -225,7 +309,7 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                         </label>
                         <select
                             value={mappedName}
-                            onChange={(e) => handleChangeRowWorkflow(row.value, e.target.value)}
+                            onChange={(e) => (isApi ? handleChangeRowPreset : handleChangeRowWorkflow)(row.value, e.target.value)}
                             className={`${stacked ? 'w-full min-w-0' : 'w-40 shrink-0'} bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors`}
                         >
                             <option value="">{COMMON.MESSAGES.COMMON_WORKFLOW_OPTION}</option>
@@ -237,19 +321,39 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 );
             })}
 
-            {/* 共通ワークフロー（「共通」を選んだ形式が使う既定） */}
-            <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
-                <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
-                <select
-                    value={defaultTemplateId}
-                    onChange={(e) => handleChangeDefaultTemplate(e.target.value)}
-                    className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none`}
-                >
-                    {effectiveTemplates.map((t) => (
-                        <option key={t.name} value={t.name}>{t.name}</option>
-                    ))}
-                </select>
-            </div>
+            {/* 共通ワークフロー（「共通」を選んだ形式が使う既定）。API サービスでは共通プリセット */}
+            {isApi ? (
+                <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
+                    <span className="text-xs text-gray-400 shrink-0">{API_SERVICE.LABELS.COMMON_PRESET}</span>
+                    <select
+                        value={apiPresetDefault}
+                        onChange={(e) => handleChangeDefaultPreset(e.target.value)}
+                        disabled={apiPresets.length === 0}
+                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none disabled:opacity-50`}
+                    >
+                        {apiPresets.length === 0 && <option value="">{API_SERVICE.MESSAGES.NO_PRESET}</option>}
+                        {apiPresetDefault && !presetNames.includes(apiPresetDefault) && (
+                            <option value={apiPresetDefault}>{apiPresetDefault}</option>
+                        )}
+                        {apiPresets.map((p) => (
+                            <option key={p.name} value={p.name}>{p.name}</option>
+                        ))}
+                    </select>
+                </div>
+            ) : (
+                <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
+                    <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
+                    <select
+                        value={defaultTemplateId}
+                        onChange={(e) => handleChangeDefaultTemplate(e.target.value)}
+                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none`}
+                    >
+                        {effectiveTemplates.map((t) => (
+                            <option key={t.name} value={t.name}>{t.name}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
 
             <div className="flex items-center gap-2">
                 <p className="text-xs text-gray-500">{COMMON.MESSAGES.TAG_JUDGE_WORKFLOW_AUTO_SAVE}</p>

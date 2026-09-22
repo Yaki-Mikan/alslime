@@ -6,6 +6,7 @@ import {
     getComfyUIConfig,
     listComfyUITemplates,
     saveComfyUIConfig,
+    patchComfyUIConfig,
     type ComfyUIConfig,
 } from '../../api/comfyui';
 import { DEFAULT_ANTIGRAVITY_THINKING } from '../../constants/antigravity';
@@ -20,6 +21,7 @@ vi.mock('../../api/comfyui', async (importOriginal) => ({
     getComfyUIConfig: vi.fn(),
     listComfyUITemplates: vi.fn(),
     saveComfyUIConfig: vi.fn(),
+    patchComfyUIConfig: vi.fn(),
 }));
 
 const baseConfig: ComfyUIConfig = {
@@ -85,6 +87,7 @@ describe('ComfyUI 設定モーダルのタグ判定 API 対応', () => {
         vi.mocked(getComfyUIConfig).mockResolvedValue({ ...baseConfig });
         vi.mocked(listComfyUITemplates).mockResolvedValue([]);
         vi.mocked(saveComfyUIConfig).mockResolvedValue(undefined as never);
+        vi.mocked(patchComfyUIConfig).mockResolvedValue({ ...baseConfig });
         mockModels([geminiModel]);
     });
 
@@ -119,8 +122,9 @@ describe('ComfyUI 設定モーダルのタグ判定 API 対応', () => {
 
         const saveButtons = screen.getAllByRole('button', { name: '保存' });
         await user.click(saveButtons[saveButtons.length - 1]);
-        await waitFor(() => expect(saveComfyUIConfig).toHaveBeenCalled());
-        const saved = vi.mocked(saveComfyUIConfig).mock.calls[0][1];
+        // 保存は設定全体を読み直して編集した項目だけ差し替える（他画面の項目を落とさない）。
+        await waitFor(() => expect(patchComfyUIConfig).toHaveBeenCalled());
+        const saved = vi.mocked(patchComfyUIConfig).mock.calls[0][1];
         expect(saved.tagJudgeProvider).toBe('openai_compat');
         expect(saved.tagJudgeOpenAICompatModel).toBe(apiModel.id);
     });

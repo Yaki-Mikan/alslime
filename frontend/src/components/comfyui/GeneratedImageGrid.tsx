@@ -15,6 +15,8 @@ export interface GeneratedImageResult {
     mimeType?: string;
     positivePrompt?: string;
     error?: string;
+    /** 生成側からの注意（表示用の文言に解決済み。API サービス生成で入る） */
+    warnings?: string[];
 }
 
 interface Props {
@@ -23,13 +25,15 @@ interface Props {
     onSelect: (id: string) => void;
     emptyLabel: string;
     hintLabel: string;
+    /** 注意欄の見出し（未指定なら見出しなしで本文だけ出す） */
+    warningsLabel?: string;
 }
 
 export function generatedImageDataUrl(result: GeneratedImageResult): string {
     return `data:${result.mimeType || 'image/png'};base64,${result.base64 || ''}`;
 }
 
-export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSelect, emptyLabel, hintLabel }) => {
+export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSelect, emptyLabel, hintLabel, warningsLabel }) => {
     const [previewId, setPreviewId] = useState<string | null>(null);
     const preview = previewId ? results.find(r => r.id === previewId) : undefined;
 
@@ -61,6 +65,11 @@ export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSel
                         >
                             <img src={generatedImageDataUrl(result)} alt="" className="w-full h-full object-cover" />
                             {isSelected && <div className="absolute inset-0 bg-blue-600/15 pointer-events-none" />}
+                            {result.warnings && result.warnings.length > 0 && (
+                                <span className="absolute top-1 right-1 rounded-full bg-amber-500/90 text-gray-900 p-0.5" title={result.warnings.join('\n')}>
+                                    <AlertCircle size={12} />
+                                </span>
+                            )}
                         </button>
                     );
                 })}
@@ -78,6 +87,12 @@ export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSel
                             <X size={16} />
                         </button>
                         <img src={generatedImageDataUrl(preview)} alt="" className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl" />
+                        {preview.warnings && preview.warnings.length > 0 && (
+                            <div className="max-w-[90vw] text-xs text-amber-200 bg-amber-900/40 border border-amber-700/60 rounded px-3 py-2 space-y-0.5">
+                                {warningsLabel && <p className="font-medium">{warningsLabel}</p>}
+                                {preview.warnings.map((w, i) => <p key={i}>{w}</p>)}
+                            </div>
+                        )}
                         {preview.positivePrompt && (
                             <p className="max-w-[90vw] text-xs text-gray-300 bg-gray-900/90 border border-gray-700 rounded px-3 py-2 break-words">{preview.positivePrompt}</p>
                         )}

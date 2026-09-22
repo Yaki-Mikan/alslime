@@ -17,6 +17,7 @@ import {
     type ComfyDirective,
 } from '../../../api/config-editor';
 import { getComfyUIConfig } from '../../../api/comfyui';
+import type { ImageBackend } from '../../../api/comfyui';
 import { directiveModeForDirectiveId } from '../../SSRP/ImageGenerationSettings';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 
@@ -26,6 +27,8 @@ interface Props {
     // 選択中の指示ファイルを設定ファイルエディタで開く（Hub が config タブへ
     // 切り替えて該当ファイルを開く。未指定ならボタンは表示しない）。
     onOpenInEditor?: (directiveId: string) => void;
+    // 一覧に出す側（ComfyUI 用 6 本 / API サービス用 6 本）。未指定は ComfyUI 用。
+    backend?: ImageBackend;
 }
 
 const FALLBACK_JA: Record<string, string> = {
@@ -44,7 +47,7 @@ const FALLBACK_JA: Record<string, string> = {
     'comfyDirective.openInEditor': '設定ファイルエディタで開く',
 };
 
-export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCatalog = null, onOpenInEditor }) => {
+export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCatalog = null, onOpenInEditor, backend = 'comfyui' }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, FALLBACK_JA[key] || key);
 
     const [directives, setDirectives] = useState<ComfyDirective[]>([]);
@@ -60,21 +63,22 @@ export const IntegratedDirectiveSection: React.FC<Props> = ({ backendUrl, uiCata
 
     useEffect(() => {
         let cancelled = false;
-        listComfyDirectives(backendUrl)
+        listComfyDirectives(backendUrl, backend)
             .then(list => {
                 if (cancelled) return;
                 setDirectives(list);
                 if (list.length > 0) {
-                    setSelectedId(prev => prev || list[0].id);
+                    setSelectedId(prev => (prev && list.some(d => d.id === prev)) ? prev : list[0].id);
                 }
             })
             .catch(() => setNotice(t('comfyDirective.loadFailed')));
         getComfyUIConfig(backendUrl)
-            .then(cfg => { if (!cancelled) setActiveDirectiveMode(cfg.directiveMode); })
+            // 開いているタブの側の選択と比べる（選択は ComfyUI 用と API サービス用で別）。
+            .then(cfg => { if (!cancelled) setActiveDirectiveMode(backend === 'api' ? (cfg.apiDirectiveMode || 'danbooru_only') : cfg.directiveMode); })
             .catch(() => { /* バッジ表示のみのため失敗は無視 */ });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [backendUrl]);
+    }, [backendUrl, backend]);
 
     useEffect(() => {
         if (!selectedId) return;

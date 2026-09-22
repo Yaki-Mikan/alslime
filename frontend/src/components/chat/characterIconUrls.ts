@@ -48,13 +48,18 @@ export function buildCharacterIconUrlMap(
  * backendUrl の空文字は同一オリジン（Go 同梱フロント）を意味する正常な値であり、
  * 未設定として扱ってはならない。空を弾くと同梱ビルドでアイコンが一切要求されなくなる。
  */
+/** 一時キャラ ID（tmp_ ＋ 16 進 12 文字）。サーバー側 tempcharacters.NewID と同じ形 */
+const TEMP_CHARACTER_DIRECTORY_PATTERN = /^tmp_[0-9a-f]{12}$/;
+
 export function resolveCharacterIconUrl(
     backendUrl: string,
     directoryName: string,
     emotion: string,
     iconUrls: CharacterIconUrlMap | undefined
 ): string {
-    if (!directoryName) {
+    // 一時キャラクター（仮想パス roleplay/temp_characters/<id>/settings/...）は画像を持たないため、
+    // 実在しない URL を要求せず既定画像にする。ディレクトリ名は一時キャラ ID そのもの。
+    if (!directoryName || TEMP_CHARACTER_DIRECTORY_PATTERN.test(directoryName)) {
         return '/assets/default/no-image-female.png';
     }
 

@@ -15,8 +15,9 @@ import (
 )
 
 // Limits は同時実行数の上限。global と各種別。
-// TTS（外部サーバー送信）と ComfyUI（画像生成の投入と完了待ち）は AI CLI を使わないため
-// global 枠から独立した専用枠（global の消費なしで各上限のみで制御）。
+// TTS（外部サーバー送信）・ComfyUI（画像生成の投入と完了待ち）・画像 API サービス
+// （外部画像生成 API への送信）は AI CLI を使わないため global 枠から独立した専用枠
+// （global の消費なしで各上限のみで制御）。
 type Limits struct {
 	Global       int `json:"global"`
 	Gemini       int `json:"gemini"`
@@ -25,6 +26,7 @@ type Limits struct {
 	OpenAICompat int `json:"openai_compat"`
 	TTS          int `json:"tts"`
 	ComfyUI      int `json:"comfyui"`
+	ImageAPI     int `json:"image_api"`
 }
 
 // InUse は現在の使用中スロット数。
@@ -36,11 +38,12 @@ type InUse struct {
 	OpenAICompat int `json:"openai_compat"`
 	TTS          int `json:"tts"`
 	ComfyUI      int `json:"comfyui"`
+	ImageAPI     int `json:"image_api"`
 }
 
 // DefaultLimits は既定の上限（現行 Node 版と同じく全て 1）。
 func DefaultLimits() Limits {
-	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1, OpenAICompat: 1, TTS: 1, ComfyUI: 1}
+	return Limits{Global: 1, Gemini: 1, Claude: 1, Antigravity: 1, OpenAICompat: 1, TTS: 1, ComfyUI: 1, ImageAPI: 1}
 }
 
 // comfyUIMaxLimit は ComfyUI 枠の上限値の上限。2 以上にすると ComfyUI 側へ複数件が積まれ、
@@ -48,9 +51,9 @@ func DefaultLimits() Limits {
 const comfyUIMaxLimit = 4
 
 // usesGlobalSlot は kind が global 枠を消費するかを返す。
-// TTS と ComfyUI は AI CLI を使わないため専用枠だけで制御する。
+// TTS・ComfyUI・画像 API サービスは AI CLI を使わないため専用枠だけで制御する。
 func usesGlobalSlot(kind models.Kind) bool {
-	return kind != models.KindTTS && kind != models.KindComfyUI
+	return kind != models.KindTTS && kind != models.KindComfyUI && kind != models.KindImageAPI
 }
 
 // Manager は 2 軸セマフォ。sync.Mutex でカウンタを保護する。
@@ -72,6 +75,7 @@ func NewManager() *Manager {
 			models.KindOpenAICompat: 0,
 			models.KindTTS:          0,
 			models.KindComfyUI:      0,
+			models.KindImageAPI:     0,
 		},
 	}
 }
@@ -128,6 +132,7 @@ func (m *Manager) InUse() InUse {
 		OpenAICompat: m.kindInUse[models.KindOpenAICompat],
 		TTS:          m.kindInUse[models.KindTTS],
 		ComfyUI:      m.kindInUse[models.KindComfyUI],
+		ImageAPI:     m.kindInUse[models.KindImageAPI],
 	}
 }
 
@@ -163,13 +168,16 @@ func (m *Manager) limitOf(kind models.Kind) int {
 		return m.limits.TTS
 	case models.KindComfyUI:
 		return m.limits.ComfyUI
+	case models.KindImageAPI:
+		return m.limits.ImageAPI
 	default:
 		return m.limits.Gemini
 	}
 }
 
 // clampLimits は上限値をクランプする（global 最低 1・各種別 1〜global。
-// TTS は global 枠外のため最低 1 のみ、ComfyUI は global 枠外のため 1〜4 でクランプする）。
+// TTS は global 枠外のため最低 1 のみ、ComfyUI は global 枠外のため 1〜4 でクランプする。
+// 画像 API サービスは 1 アカウント 1 生成が原則のため常に 1 に固定する）。
 func clampLimits(l Limits) Limits {
 	global := l.Global
 	if global < 1 {
@@ -203,5 +211,6 @@ func clampLimits(l Limits) Limits {
 		OpenAICompat: clamp(l.OpenAICompat),
 		TTS:          tts,
 		ComfyUI:      comfy,
+		ImageAPI:     1,
 	}
 }

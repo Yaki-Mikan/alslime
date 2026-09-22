@@ -33,3 +33,41 @@ export const resolveMessage = (
     key: string,
     fallback: string
 ): string => catalog?.messages?.[key] || fallback;
+
+// 入力の不備の補足に入る入力欄の識別子を、欄の名前へ直すための辞書キーの接頭辞。
+const INPUT_FIELD_LABEL_KEY_PREFIX = 'label.nai.inputField.';
+
+// parseBackendErrorValues は「名前=値; 名前=値」の形の補足を読む。この形でなければ null。
+const parseBackendErrorValues = (detail: string): Record<string, string> | null => {
+    const values: Record<string, string> = {};
+    for (const part of detail.split(';')) {
+        const match = /^\s*([A-Za-z][A-Za-z0-9]*)=(.*)$/.exec(part);
+        if (!match) return null;
+        values[match[1]] = match[2].trim();
+    }
+    return values;
+};
+
+// resolveBackendError は「辞書キー: 補足」の形で届くエラー文字列を表示文言へ解決する。
+// キーを文言にし、補足（状態コードや相手先の説明）は括弧で添える。文言に {{名前}} の差し込み口が
+// あり、補足が「名前=値; 名前=値」の形のときは、値を差し込む（入力欄の識別子は欄の名前へ直す）。
+// 辞書キーで始まらない文字列や未翻訳のキーはそのまま返す。
+export const resolveBackendError = (catalog: I18NCatalog | null, raw: string | null | undefined): string => {
+    const text = (raw ?? '').trim();
+    const match = /^((?:error|warning|message)\.[A-Za-z0-9_.]+?)(?::\s*([\s\S]*))?$/.exec(text);
+    if (!match) return text;
+    const resolved = catalog?.messages?.[match[1]];
+    if (!resolved) return text;
+    const detail = (match[2] ?? '').trim();
+    if (detail && /\{\{\w+\}\}/.test(resolved)) {
+        const values = parseBackendErrorValues(detail);
+        if (values) {
+            const label = (value: string) => value
+                .split(',')
+                .map(item => catalog?.messages?.[INPUT_FIELD_LABEL_KEY_PREFIX + item.trim()] ?? item.trim())
+                .join(' / ');
+            return resolved.replace(/\{\{(\w+)\}\}/g, (slot, name: string) => (name in values ? label(values[name]) : slot));
+        }
+    }
+    return detail ? `${resolved}（${detail}）` : resolved;
+};

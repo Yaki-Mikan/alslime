@@ -14,6 +14,7 @@ import (
 
 	apiprovidersapi "alslime/internal/api/apiproviders"
 	"alslime/internal/api/apiresponse"
+	appearancepromptapi "alslime/internal/api/appearanceprompt"
 	charactersapi "alslime/internal/api/characters"
 	chatapi "alslime/internal/api/chat"
 	"alslime/internal/api/comfyuigate"
@@ -21,6 +22,7 @@ import (
 	"alslime/internal/api/ttsgate"
 	"alslime/internal/domain/ttsaudio"
 	configgenapi "alslime/internal/api/configgen"
+	tempcharactersapi "alslime/internal/api/tempcharacters"
 	filesapi "alslime/internal/api/files"
 	i18napi "alslime/internal/api/i18n"
 	jobsapi "alslime/internal/api/jobs"
@@ -48,6 +50,7 @@ import (
 	pwasettingssvc "alslime/internal/domain/pwasettings"
 	serversettingssvc "alslime/internal/domain/serversettings"
 	sessionssvc "alslime/internal/domain/sessions"
+	"alslime/internal/domain/tempcharacters"
 	sponsorsvc "alslime/internal/domain/sponsor"
 	ssrpsettingssvc "alslime/internal/domain/ssrpsettings"
 	updatesvc "alslime/internal/domain/update"
@@ -75,9 +78,11 @@ import (
 	"alslime/internal/storage/workspacefs"
 	"alslime/internal/system/backup"
 	"alslime/internal/system/cache"
+	"alslime/internal/system/cliexecutable"
 	"alslime/internal/system/clistatus"
 	"alslime/internal/system/configcheck"
 	"alslime/internal/system/housekeeping"
+	"alslime/internal/system/promptlocale"
 	settingspacksys "alslime/internal/system/settingspack"
 )
 
@@ -121,9 +126,12 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// openai_compat 接続先。カスケード先（usermodels / globalsettings）は
 	// 生成順の都合でクロージャ経由の遅延参照にする（実行時には代入済み）。
 	var userModelsSvc *usermodelssvc.Service
+	// 秘密ストアは openai_compat 接続先のキーと、画像生成 API サービスのトークンで共用する
+	//（後者は ID の名前空間を分けて同じファイルに置く）。
+	apiSecretStore := apiprovidersstore.NewSecretStore(resolver)
 	apiProvidersSvc := apiproviderssvc.New(
 		apiprovidersstore.NewMetaStore(resolver),
-		apiprovidersstore.NewSecretStore(resolver),
+		apiSecretStore,
 		resolver,
 		newConnectionIDPart,
 		apiproviderssvc.CascadeDeps{
@@ -167,6 +175,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	newPresetSvc := func(loc locations.Location, meta presetssvc.MetaPolicy) *presetssvc.Service {
 		return presetssvc.New(presetstore.New(resolver, locs.MustPath(loc)), meta)
 	}
+	// 登録済みキャラクターの一覧（キャラ一覧 API と、一時キャラクターの照合の両方が使う）。
+	charStore := charfiltersstore.New(resolver, config.CharacterListDir, config.CharacterFiltersFile)
+	registeredTempCharacters := tempcharactersapi.RegisteredTempCharacters(charStore)
+	// 会話設定プリセット（SSRP_All）は開いたときに一時キャラクターを照合し、登録済みなら書き換えて保存する。
+	ssrpAllPresetSvc := newPresetSvc(locations.PresetSSRPAll, presetssvc.MetaTimestamps).WithAfterGet(func(_ string, data map[string]any) bool {
+		return tempcharacters.Reconcile(data, registeredTempCharacters())
+	})
 	presetsapi.Register(mux,
 		presetsapi.RouteSet{
 			Kind:    "presets",
@@ -178,7 +193,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		},
 		presetsapi.RouteSet{
 			Kind:    "ssrp-all-presets",
-			Service: newPresetSvc(locations.PresetSSRPAll, presetssvc.MetaTimestamps),
+			Service: ssrpAllPresetSvc,
 		},
 		presetsapi.RouteSet{
 			Kind:    "ssrp-param-presets",
@@ -230,9 +245,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	}
 	sessionSvc := sessionssvc.New(resolver)
 	// プロンプト層の言語解決（uiLanguage 連動）。送信のたびに現在の設定で解決される。
-	promptLocale := func() coreapi.PromptLocale {
-		return resolvePromptLocale(i18nService, pwaSvc)
-	}
+	promptLocale := promptlocale.Resolver(i18nService, pwaSvc)
 	// 支援者 entitlement トークンの保存（14番 7章の TokenStore）と
 	// 時刻巻き戻し検出の記録（17番の緩和策）。署名検証・tier 判定・巻き戻り判定は
 	// core 側 gate（featuresimpl）が担う。
@@ -266,9 +279,9 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		DefaultModel: func(modelType sessionssvc.ModelType) string {
 			return defaultModelFromSettings(globalSvc, string(modelType))
 		},
-		ResolveGeminiExe:      resolveGeminiExecutable(serverSettingsSvc),
-		ResolveClaudeExe:      resolveClaudeExecutable(serverSettingsSvc),
-		ResolveAntigravityExe: resolveAntigravityExecutable(serverSettingsSvc),
+		ResolveGeminiExe:      cliexecutable.Gemini(serverSettingsSvc),
+		ResolveClaudeExe:      cliexecutable.Claude(serverSettingsSvc),
+		ResolveAntigravityExe: cliexecutable.Antigravity(serverSettingsSvc),
 		ExtraAliases:          geminiExtraAliases(userModelsSvc),
 		NewID:                 newJobID,
 		CLITimeout:            time.Duration(cfg.ChatCLITimeoutSeconds) * time.Second,
@@ -287,6 +300,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 			info, err := os.Stat(module.ExePath(resolver.Root(), module.ModuleTTS))
 			return err == nil && !info.IsDir()
 		},
+		ImageAPITokenStore: apiprovidersstore.NewImageAPITokenStore(resolver),
 	})
 	// フックのゲートは core の gate 実装を注入する（ゲート先評価。設計 3.4）。
 	if choiceHook != nil {
@@ -321,6 +335,12 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Token:     entitlementSvc.Current,
 	})
 	sidecarMode := moduleMgr.Available()
+	// comfyActive は ComfyUI 連携の実体が今使えるかを都度返す。in-process 供給ビルドは
+	// 内蔵実装が常駐し、それ以外は接続先が解決済み（モジュール起動済み）かの実測で判定する。
+	comfyActive := func() bool { return moduleMgr.BaseURL() != nil }
+	if !sidecarMode && core.Comfy().InProcess() {
+		comfyActive = func() bool { return true }
+	}
 	// 配布ビルド（in-process 供給なし）でモジュール未配置のまま起動した場合の
 	// 初回導入用結線。プロキシルートの後付け登録はルート組み立て部で代入し、
 	// 生存管理 ctx は background 起動時（listen 開始前）に確定する。
@@ -348,13 +368,8 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		// 更新の起こし直しを一覧へ即時反映する）。
 		switch def.ID {
 		case module.ModuleComfy:
-			if !sidecarMode && core.Comfy().InProcess() {
-				// in-process 供給ビルドはサイドカーを使わず内蔵実装が常駐する。
-				// 画像実行系の分岐（imageRunner）と同条件で常に連携済みとする。
-				target.Active = func() bool { return true }
-			} else {
-				target.Active = func() bool { return moduleMgr.BaseURL() != nil }
-			}
+			// in-process 供給ビルドは画像実行系の分岐（imageRunner）と同条件で常に連携済みとする。
+			target.Active = comfyActive
 		case module.ModuleActionChoice:
 			hooked := choiceHook != nil
 			target.Active = func() bool { return hooked && choiceMgr.BaseURL() != nil }
@@ -422,22 +437,27 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		}
 		moduleTargets[def.ID] = target
 	}
-	sponsorSvc.ConfigureModules(module.IDs(), moduleTargets, core.VerifyModuleSig)
+	sponsorSvc.ConfigureModules(module.IDs(), moduleTargets, core.VerifyManifestSig)
 	// アップデート確認 API（ファイル自動更新、確認 01番）: 本体は GitHub Releases、
-	// モジュールは entitlement サーバーの一括インデックスで更新有無を返す。
+	// モジュールは配信用ドメインの署名付き一覧ファイルで更新有無を返す。
 	updateSvc := updatesvc.New(updatesettingsstore.New(resolver, locs.MustPath(locations.UpdateSettingsFile)))
 	updateapi.Register(mux, updateapi.Deps{Update: updateSvc, Sponsor: sponsorSvc})
-	var imageRunner, imageAnalyzeRunner, imageRenderRunner jobsqueue.Runner
+	// Config Editor のサービスは、in-process 供給ビルドのキャラクター容姿プロンプト作成の実行器が
+	// 設定ファイル本文を読むためにも使うので、ジョブ実行器の組み立てより前に作る（API 登録は後段）。
+	configEditorSvc := configeditorsvc.New(configeditorstore.New(resolver))
+	var imageRunner, imageAnalyzeRunner, imageRenderRunner, appearancePromptRunner jobsqueue.Runner
 	if sidecarMode || !core.Comfy().InProcess() {
 		// サイドカー委譲（未起動なら実行時に接続先未解決エラー）。配布ビルドは
 		// 初回導入の自動起動後、本体再起動なしでジョブが通る。
 		imageRunner = module.ImageRunner{Manager: moduleMgr}
 		imageAnalyzeRunner = module.ImageAnalyzeRunner{Manager: moduleMgr}
 		imageRenderRunner = module.ImageRenderRunner{Manager: moduleMgr}
+		appearancePromptRunner = module.AppearancePromptRunner{Manager: moduleMgr}
 	} else {
 		imageRunner = core.Comfy().ImageRunner()
 		imageAnalyzeRunner = core.Comfy().ImageAnalyzeRunner()
 		imageRenderRunner = core.Comfy().ImageRenderRunner()
+		appearancePromptRunner = core.Comfy().AppearancePromptRunner(configEditorSvc)
 	}
 	// 画像生成ジョブの単位（統合 / 分離）は ComfyUI 設定ファイルを直接読んで判定する
 	//（サイドカーモードの本体は comfyui ドメインを持たないため。in-process も同じ正本）。
@@ -465,13 +485,14 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		},
 	}
 	jobRunner := jobsqueue.CompositeRunner{
-		jobsqueue.TypeChat:       chatRunner,
-		jobsqueue.TypeRegenerate: chatRunner,
-		jobsqueue.TypeImageGen:     imageRunner,
-		jobsqueue.TypeImageAnalyze: imageAnalyzeRunner,
-		jobsqueue.TypeImageRender:  imageRenderRunner,
-		jobsqueue.TypeConfigGen:  configGenRunner,
-		jobsqueue.TypeTTS:        ttsRunner,
+		jobsqueue.TypeChat:             chatRunner,
+		jobsqueue.TypeRegenerate:       chatRunner,
+		jobsqueue.TypeImageGen:         imageRunner,
+		jobsqueue.TypeImageAnalyze:     imageAnalyzeRunner,
+		jobsqueue.TypeImageRender:      imageRenderRunner,
+		jobsqueue.TypeConfigGen:        configGenRunner,
+		jobsqueue.TypeTTS:              ttsRunner,
+		jobsqueue.TypeAppearancePrompt: appearancePromptRunner,
 	}
 	jobQueue = jobsqueue.NewQueue(procManager, jobRunner, newJobID)
 	// 本体の直接アップデート（01番 5章）: 適用開始と同時にジョブ投入を停止し
@@ -496,7 +517,15 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Queue:    jobQueue,
 		Resolver: resolver,
 		Dialog:   configGenDialogStore,
+		Sessions: sessionSvc,
 		NewID:    newJobID,
+	})
+	// キャラクター容姿プロンプト作成（投入・状態取得・中止）。投入は画像生成 Tier と
+	// ComfyUI 連携の実体の稼働を両方確認する。
+	appearancepromptapi.Register(mux, appearancepromptapi.Deps{
+		Queue:     jobQueue,
+		Gate:      core.Features(),
+		Available: comfyActive,
 	})
 	// モデル一覧の正本まわり（一覧・ユーザー編集・疎通確認。09番）。
 	// 疎通確認の呼び出し口は chatflow.Engine（EngineRouter）そのもの。
@@ -521,18 +550,19 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		NativeSweeper: core.NativeSweeper(),
 		Sidecars:      core.SidecarRemover(),
 		TTSAudio:      ttsAudioStore,
+		// セッション復元時に一時キャラクターを登録済みキャラクターと照合する。
+		RegisteredTempCharacters: registeredTempCharacters,
 	})
 
 	// Files / Content（汎用 WORKSPACE ファイル操作）。境界確認は paths.Resolver 正本。
 	filesapi.Register(mux, filessvc.New(workspacefs.New(resolver)))
 
 	// Character 基本データ（キャラリスト走査・フィルタ集約）。Files とは責務を分ける。
-	charactersapi.Register(mux, characterssvc.New(
-		charfiltersstore.New(resolver, config.CharacterListDir, config.CharacterFiltersFile),
-	))
+	charactersapi.Register(mux, characterssvc.New(charStore))
 	charactersapi.RegisterImages(mux, characterssvc.NewImageService(resolver))
 	// キャラクターの設定紐づけ（個別性格・服装・背景の自動投入と追加設定）。
-	charactersapi.RegisterLinkedSettings(mux, characterssvc.NewLinkedSettingsService(resolver))
+	linkedSettingsSvc := characterssvc.NewLinkedSettingsService(resolver)
+	charactersapi.RegisterLinkedSettings(mux, linkedSettingsSvc)
 	// 表情画像生成用の表情プロンプト（キャラクター共通）。
 	emotionPromptsSvc := characterssvc.NewEmotionPromptsService(resolver)
 	charactersapi.RegisterEmotionPrompts(mux, emotionPromptsSvc)
@@ -542,7 +572,16 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	// Config Editor（設定編集 UI 用のカテゴリ別ファイル/テンプレート CRUD）。
 	// カテゴリ定義の正本は domain、保存先解決・境界確認は storage（paths.Resolver）。
 	// gate はタグ判定指示ファイル（D 分類。設計 §9）の tier 判定に使う。
-	configeditorapi.Register(mux, configeditorsvc.New(configeditorstore.New(resolver)), core.Features())
+	// configEditorSvc はジョブ実行器の組み立て時に生成済み。
+	configeditorapi.Register(mux, configEditorSvc, core.Features())
+	// セッション内の一時キャラクター（本文更新・削除・キャラ設定登録）。
+	tempcharactersapi.Register(mux, tempcharactersapi.Deps{
+		Sessions:   sessionSvc,
+		Characters: charStore,
+		Editor:     configEditorSvc,
+		Linked:     linkedSettingsSvc,
+		Presets:    ssrpAllPresetSvc,
+	})
 
 	// 設定パック（設定インポート・エクスポート。設定設定大設定/設定インポートエクスポート_設計.md）。
 	// 分類の正本は domain/settingspack、zip 入出力は system/settingspack。
@@ -699,25 +738,6 @@ func loadAIProcessLimits(svc *globalsettingssvc.Service) (process.Limits, bool) 
 		OpenAICompat: num("openai_compat", def.OpenAICompat),
 		ComfyUI:      num("comfyui", def.ComfyUI),
 	}, true
-}
-
-// resolvePromptLocale は UI 言語設定（uiLanguage）に対応するプロンプト層の
-// 言語解決コンテキスト（prompt.* キーを含む i18n カタログ）を返す。
-// 設定・辞書の取得に失敗した場合は空（呼び出し側が日本語既定へフォールバック）。
-//
-// 必ず LoadPrompt（fallback 補完なし）を使うこと。Load（UI 辞書）を使うと
-// 内蔵 ja に無い prompt.* キーが内蔵 en から補完され、コード内日本語既定への
-// フォールバックが発動しなくなる（セリフ引用符が "" になった不具合の原因）。
-func resolvePromptLocale(i18nService *i18nsvc.Service, pwaSvc *pwasettingssvc.Service) coreapi.PromptLocale {
-	lang := ""
-	if settings, err := pwaSvc.Get(); err == nil {
-		lang, _ = settings["uiLanguage"].(string)
-	}
-	catalog, err := i18nService.LoadPrompt(lang)
-	if err != nil {
-		return coreapi.PromptLocale{Lang: lang}
-	}
-	return coreapi.PromptLocale{Lang: catalog.Lang, Messages: catalog.Messages}
 }
 
 // defaultModelFromSettings は globalsettings の defaultModels からプロバイダ毎の

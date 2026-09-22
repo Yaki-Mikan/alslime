@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"alslime/internal/domain/appearancejobs"
 	"alslime/internal/domain/models"
 	"alslime/internal/domain/sessions"
 	"alslime/internal/jobs"
@@ -80,6 +81,17 @@ type CoreDeps struct {
 	//（nil は未配置扱い。Irodori-TTS 用文体指示の焼き込み可否の供給判定に使う。
 	// 配置検出は公開側 internal/module の管轄のためクロージャで受ける）。
 	TTSSidecarInstalled func() bool
+	// ImageAPITokenStore は画像生成 API サービス（NovelAI 等）のトークン保存
+	//（秘密ストア配下）。nil の場合は未設定扱いで API サービスの生成は失敗する。
+	ImageAPITokenStore ImageAPITokenStore
+}
+
+// ImageAPITokenStore は画像生成 API サービスのトークンをサービス ID で読み書きする境界。
+// 値をログ・応答へ出さないこと。
+type ImageAPITokenStore interface {
+	Get(service string) (token string, ok bool, err error)
+	Set(service, token string) error
+	Delete(service string) error
 }
 
 // ComfyProvider は ComfyUI 連携の in-process 供給境界（12番 Phase C）。
@@ -96,6 +108,9 @@ type ComfyProvider interface {
 	// 後続として返す。ImageRenderRunner は生成ジョブ（ComfyUI 投入→保存→添付）の実行本体。
 	ImageAnalyzeRunner() jobs.Runner
 	ImageRenderRunner() jobs.Runner
+	// AppearancePromptRunner は in-process モードのキャラクター容姿プロンプト作成
+	// （appearance-prompt）ジョブの実行本体。files はキャラクター設定ファイル本文の読み取り口。
+	AppearancePromptRunner(files appearancejobs.SettingReader) jobs.Runner
 	// TagJudgeKind はタグ判定に使う provider 種別（ジョブの同時実行制御用。
 	// generate-from-chat がジョブ投入時に参照する）。
 	TagJudgeKind() models.Kind
@@ -147,4 +162,8 @@ type Core interface {
 	// payload は Sig を除いた正規化 JSON、sigB64 は base64url 署名。
 	// entitlement トークンと同じ埋め込み公開鍵系で検証する（鍵は core に閉じる）。
 	VerifyModuleSig(payload []byte, sigB64 string) error
+	// VerifyManifestSig は配信用ドメインの配布ファイル一覧の署名検証。
+	// payload は一覧ファイルの payload を解いたバイト列、sigB64 は base64url 署名。
+	// entitlement トークンとは別の埋め込み公開鍵表から、kid が一致する鍵だけで検証する。
+	VerifyManifestSig(kid string, payload []byte, sigB64 string) error
 }

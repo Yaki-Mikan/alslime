@@ -32,7 +32,6 @@ import { fetchUpdateCheck, fetchUpdateSettings, saveUpdateSettings, type AppUpda
 import { rebuildCharacterFilters } from '../api/files';
 import { fetchI18NLanguages, resolveMessage, type I18NCatalog } from '../api/i18n';
 import { BACKEND_URL } from '../api/base-url';
-import { FEATURE_COMFYUI, isFeatureEnabled } from '../constants/features';
 import { DEFAULT_UI_LANGUAGE, SETTINGS_I18N_KEYS, SETTINGS_TEXT_FALLBACK_JA, UI_LANGUAGE_LABELS, UI_LANGUAGE_OPTIONS, UPDATE_I18N_KEYS, UPDATE_TEXT_FALLBACK_JA } from '../constants/i18n';
 import type { ApiProviderInstructionTarget } from '../api/api-providers';
 
@@ -43,15 +42,14 @@ interface SettingsModalProps {
     onSave: (settings: Settings) => Promise<void>;
     onLogout?: () => void;
     uiCatalog: I18NCatalog | null;
-    // backend の tier gate（機能フラグ）。Chat が一度だけ取得して配布する（04調査 中#4）。
-    enabledFeatures?: Record<string, boolean> | null;
     // モデル一覧編集の保存後にチャット側のモデル一覧を再取得させる（useChat.refreshModels）。
     onModelsChanged?: () => void;
     // モジュール配置状態の変化をチャット側へ中継する（SponsorModal 由来）。
     onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
     onOpenApiProviderInstruction?: (target: ApiProviderInstructionTarget) => void;
     // 画像生成統合設定を ConfigEditorHub のタブ付き表示で開く（Chat が Hub を開く）。
-    // 呼ぶ前に設定メニュー自身は閉じる。
+    // 呼ぶ前に設定メニュー自身は閉じる。Tier充足かつComfyUI実体（サイドカー / in-process）
+    // 連携済みのときのみ Chat が渡す（prop の有無で画像生成設定ボタンの表示を制御する）。
     onOpenImageGenSettings?: () => void;
     // TTS統合設定を ConfigEditorHub のタブ付き表示で開く。
     // Tier充足かつTTS実体（サイドカー / in-process）連携済みのときのみ Chat が渡す
@@ -66,7 +64,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSave,
     onLogout,
     uiCatalog,
-    enabledFeatures = null,
     onModelsChanged,
     onModulesChanged,
     onOpenApiProviderInstruction,
@@ -288,8 +285,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {resolveMessage(uiCatalog, 'apiProviders.menuLabel', 'API接続先管理')}
                         </button>
 
-                        {/* 画像生成設定（支援者機能が有効な場合のみ表示） */}
-                        {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && (
+                        {/* 画像生成設定（Tier充足かつComfyUI連携済みの場合のみ Chat が prop を渡す） */}
+                        {onOpenImageGenSettings && (
                             <button
                                 onClick={() => setIsComfyUISettingsOpen(true)}
                                 className={hubButtonClass('border-green-600')}
@@ -506,23 +503,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 uiCatalog={uiCatalog}
             />
 
-            {/* ComfyUI設定モーダル（セッション内背景画像はアプリ設定なので settings/onSave を渡す） */}
-            <ComfyUISettingsModal
-                isOpen={isComfyUISettingsOpen}
-                onClose={() => setIsComfyUISettingsOpen(false)}
-                backendUrl={BACKEND_URL}
-                uiCatalog={uiCatalog}
-                appSettings={settings}
-                onAppSettingsSave={onSave}
-                onOpenIntegrated={onOpenImageGenSettings
-                    ? () => {
+            {/* ComfyUI設定モーダル（画像生成設定ボタンの表示条件と同じく prop がある時だけ。
+                セッション内背景画像はアプリ設定なので settings/onSave を渡す） */}
+            {onOpenImageGenSettings && (
+                <ComfyUISettingsModal
+                    isOpen={isComfyUISettingsOpen}
+                    onClose={() => setIsComfyUISettingsOpen(false)}
+                    backendUrl={BACKEND_URL}
+                    uiCatalog={uiCatalog}
+                    appSettings={settings}
+                    onAppSettingsSave={onSave}
+                    onOpenIntegrated={() => {
                         // 統合設定は ConfigEditorHub のタブ付き表示で開くため、
                         // 設定メニュー自身も閉じてから Chat 側へ中継する。
                         onClose();
                         onOpenImageGenSettings();
-                    }
-                    : undefined}
-            />
+                    }}
+                />
+            )}
 
             {/* 小画面用TTS設定モーダル（TTS設定ボタンの表示条件と同じく prop がある時だけ） */}
             {onOpenTTSSettings && (

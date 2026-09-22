@@ -3,9 +3,12 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     getAllTagMappings,
+    getApiServiceCatalog,
     getComfyUIConfig,
     saveComfyUIConfig,
+    setApiServiceAutoSoundEffects,
     type ComfyUIConfig,
+    type NovelAICatalog,
 } from '../../api/comfyui';
 import { DEFAULT_ANTIGRAVITY_THINKING } from '../../constants/antigravity';
 import { ImageGenDrawerControls } from './ImageGenDrawerControls';
@@ -13,8 +16,10 @@ import { ImageGenDrawerControls } from './ImageGenDrawerControls';
 vi.mock('../../api/comfyui', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../api/comfyui')>()),
     getComfyUIConfig: vi.fn(),
+    getApiServiceCatalog: vi.fn(),
     saveComfyUIConfig: vi.fn(),
     getAllTagMappings: vi.fn(),
+    setApiServiceAutoSoundEffects: vi.fn(),
 }));
 
 const baseConfig: ComfyUIConfig = {
@@ -46,6 +51,9 @@ const openPanel = (user: ReturnType<typeof userEvent.setup>) =>
 
 describe('左メニューの画像生成ジョブ単位とタグ有効/無効設定', () => {
     beforeEach(() => {
+        vi.mocked(getApiServiceCatalog).mockResolvedValue({ models: [
+            { id: 'nai-diffusion-5-full', supportsSoundEffects: true },
+        ] } as NovelAICatalog);
         vi.mocked(getComfyUIConfig).mockResolvedValue({ ...baseConfig, imageJobMode: 'split' });
         vi.mocked(saveComfyUIConfig).mockResolvedValue(undefined as never);
         vi.mocked(getAllTagMappings).mockResolvedValue({ categories: [], mappings: [] });
@@ -139,6 +147,35 @@ describe('左メニューの画像生成ジョブ単位とタグ有効/無効設
         expect(saved?.autoGenerateEnabled).toBe(true);
         expect(saved?.imageJobMode).toBe('split');
         expect(saved?.defaultTemplateId).toBe('wf-a');
+    });
+
+    it('自動効果音描画のトグルは API サービスを選んでいるときだけ出て、専用の保存の口で保存する', async () => {
+        const user = userEvent.setup();
+        const label = '自動効果音描画';
+        // ComfyUI 連携のときは出さない。
+        const comfy = render(<ImageGenDrawerControls backendUrl="http://backend.invalid" />);
+        await openPanel(user);
+        await waitFor(() => expect(modeButton(SPLIT_LABEL)).toHaveAttribute('aria-pressed', 'true'));
+        expect(screen.queryByRole('checkbox', { name: label })).toBeNull();
+        comfy.unmount();
+
+        vi.mocked(getComfyUIConfig).mockResolvedValue({
+            ...baseConfig,
+            imageBackend: 'api',
+            apiService: 'novelai',
+            apiServiceSettings: { novelai: { autoSoundEffects: true } } as unknown as ComfyUIConfig['apiServiceSettings'],
+        });
+        vi.mocked(setApiServiceAutoSoundEffects).mockResolvedValue(false);
+        render(<ImageGenDrawerControls backendUrl="http://backend.invalid" />);
+        await openPanel(user);
+        const toggle = await screen.findByRole('checkbox', { name: label });
+        await waitFor(() => expect(toggle).toBeChecked());
+
+        await user.click(toggle);
+        await waitFor(() => expect(setApiServiceAutoSoundEffects).toHaveBeenCalledWith('http://backend.invalid', false, 'novelai'));
+        expect(toggle).not.toBeChecked();
+        // この値は設定全体の保存では書かない。
+        expect(saveComfyUIConfig).not.toHaveBeenCalled();
     });
 
     it('保存済みの自動画像生成トグルを ON で表示する', async () => {

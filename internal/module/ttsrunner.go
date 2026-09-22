@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -138,10 +139,30 @@ func (r TTSRunner) progress(jobID, key string, args ...string) {
 	r.Progress(jobID, jobs.ProgressEntry{Kind: jobs.ProgressKindText, TextKey: key, Args: args})
 }
 
+// ttsModuleEndpoint はサイドカーの接続先（*Manager が満たす。試験で差し替える）。
+type ttsModuleEndpoint interface {
+	BaseURL() *url.URL
+	Secret() string
+}
+
 // synthesize は一件の合成を実行する。サイドカー起動中は RPC、無ければ in-process。
 func (r TTSRunner) synthesize(ctx context.Context, req coreapi.TTSSynthesizeRequest, onChunk func(coreapi.TTSChunk) error) error {
-	if r.Manager != nil && r.Manager.BaseURL() != nil {
-		return r.synthesizeRPC(ctx, req, onChunk)
+	var endpoint ttsModuleEndpoint
+	if r.Manager != nil {
+		endpoint = r.Manager
+	}
+	return r.synthesizeFrom(ctx, endpoint, req, onChunk)
+}
+
+// synthesizeFrom は接続先を一度だけ取得し、その値で合成を最後まで行う
+// （確認後にモジュールが終了して接続先が nil に戻っても、同じ合成の中で取り直さない）。
+func (r TTSRunner) synthesizeFrom(ctx context.Context, endpoint ttsModuleEndpoint, req coreapi.TTSSynthesizeRequest, onChunk func(coreapi.TTSChunk) error) error {
+	var base *url.URL
+	if endpoint != nil {
+		base = endpoint.BaseURL()
+	}
+	if base != nil {
+		return r.synthesizeRPC(ctx, base, endpoint.Secret(), req, onChunk)
 	}
 	if r.Provider != nil && r.Provider.InProcess() {
 		return r.Provider.Synthesize(ctx, req, onChunk)
@@ -150,7 +171,8 @@ func (r TTSRunner) synthesize(ctx context.Context, req coreapi.TTSSynthesizeRequ
 }
 
 // synthesizeRPC はサイドカーの /module/tts-synthesize（SSE: chunk / done / error）を読む。
-func (r TTSRunner) synthesizeRPC(ctx context.Context, req coreapi.TTSSynthesizeRequest, onChunk func(coreapi.TTSChunk) error) error {
+// base は呼び出し側が一度だけ取得した接続先（ここでは取り直さない）。
+func (r TTSRunner) synthesizeRPC(ctx context.Context, base *url.URL, secret string, req coreapi.TTSSynthesizeRequest, onChunk func(coreapi.TTSChunk) error) error {
 	client := r.HTTP
 	if client == nil {
 		client = http.DefaultClient
@@ -159,13 +181,13 @@ func (r TTSRunner) synthesizeRPC(ctx context.Context, req coreapi.TTSSynthesizeR
 	if err != nil {
 		return err
 	}
-	target := r.Manager.BaseURL().JoinPath(coreapi.ModuleTTSSynthesizeRoute)
+	target := base.JoinPath(coreapi.ModuleTTSSynthesizeRoute)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set(coreapi.ModuleAuthHeader, r.Manager.Secret())
+	httpReq.Header.Set(coreapi.ModuleAuthHeader, secret)
 	res, err := client.Do(httpReq)
 	if err != nil {
 		return err

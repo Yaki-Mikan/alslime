@@ -306,6 +306,30 @@ func (s *Service) LiveNativeSessionIDs() (map[ModelType]map[string]struct{}, err
 	return live, nil
 }
 
+// errReconcileNoChange は ReadReconciled で書き換えが無かったことを Update へ伝える内部印。
+var errReconcileNoChange = errors.New("sessions: reconcile no change")
+
+// ReadReconciled は sessionID を読み、reconcile が会話設定を書き換えて真を返した場合だけ
+// 保存して返す（偽なら保存せず、更新日時も動かさない）。
+// セッションを開いたときの一時キャラクターの照合に使う。
+func (s *Service) ReadReconciled(sessionID string, reconcile func(*UnifiedSession) bool) (UnifiedSession, error) {
+	if reconcile == nil {
+		return s.Read(sessionID)
+	}
+	var snapshot UnifiedSession
+	updated, err := s.Update(sessionID, func(session *UnifiedSession) error {
+		if !reconcile(session) {
+			snapshot = *session
+			return errReconcileNoChange
+		}
+		return nil
+	})
+	if errors.Is(err, errReconcileNoChange) {
+		return snapshot, nil
+	}
+	return updated, err
+}
+
 // Read は統一セッションを読み込む。
 func (s *Service) Read(sessionID string) (UnifiedSession, error) {
 	path, err := s.filePath(sessionID, false)

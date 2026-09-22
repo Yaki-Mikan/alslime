@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Palette } from 'lucide-react';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { listComfyUITemplates } from '../../api/comfyui';
+import { getComfyUIConfig, listApiServicePresets, listComfyUITemplates } from '../../api/comfyui';
+import type { ImageBackend } from '../../api/comfyui';
+import { normalizeApiService, normalizeImageBackend } from '../comfyui/apiservice/services';
 import { listComfyDirectives, type ComfyDirective } from '../../api/config-editor';
 
 /**
@@ -9,15 +11,21 @@ import { listComfyDirectives, type ComfyDirective } from '../../api/config-edito
  * 空文字は「Default」＝グローバル設定（ComfyUI設定側の選択）を適用する。
  */
 export interface ImageGenSettingsState {
-    /** 使用ワークフローテンプレート名（'' = Default） */
+    /** 使用ワークフローテンプレート名（'' = Default。ComfyUI 連携のとき） */
     workflowId: string;
-    /** 分析指示の directiveMode 値（'' = Default） */
+    /** API サービスの生成プリセット名（'' = Default。API サービスのとき） */
+    apiPresetId: string;
+    /** 分析指示の directiveMode 値（'' = Default。ComfyUI 連携のとき） */
     directiveMode: string;
+    /** API サービス用の分析指示の値（'' = Default。API サービスのとき）。ComfyUI 用とは別に持つ */
+    apiDirectiveMode: string;
 }
 
 export const getDefaultImageGenSettings = (): ImageGenSettingsState => ({
     workflowId: '',
+    apiPresetId: '',
     directiveMode: '',
+    apiDirectiveMode: '',
 });
 
 interface ImageGenerationSettingsProps {
@@ -30,6 +38,7 @@ interface ImageGenerationSettingsProps {
 const I18N_KEYS = {
     title: 'ssrp.imageGenSettings.title',
     workflow: 'ssrp.imageGenSettings.workflow',
+    preset: 'ssrp.imageGenSettings.preset',
     directive: 'ssrp.imageGenSettings.directive',
     defaultOption: 'ssrp.imageGenSettings.defaultOption',
     loadFailed: 'ssrp.imageGenSettings.loadFailed',
@@ -39,6 +48,7 @@ const I18N_KEYS = {
 const FALLBACK_JA: Record<string, string> = {
     [I18N_KEYS.title]: '画像生成設定',
     [I18N_KEYS.workflow]: 'ワークフロー',
+    [I18N_KEYS.preset]: '生成プリセット',
     [I18N_KEYS.directive]: '画像生成時の分析指示',
     [I18N_KEYS.defaultOption]: 'Default（グローバル設定に従う）',
     [I18N_KEYS.loadFailed]: '選択肢の取得に失敗しました。',
@@ -60,6 +70,9 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [templateNames, setTemplateNames] = useState<string[]>([]);
+    const [presetNames, setPresetNames] = useState<string[]>([]);
+    // 画像生成バックエンド（全画面共用の選択）。ワークフロー／プリセットの欄を切り替える。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
     const [directives, setDirectives] = useState<ComfyDirective[]>([]);
     const [loadError, setLoadError] = useState(false);
 
@@ -69,14 +82,30 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
         let canceled = false;
         (async () => {
             try {
-                const [templates, directiveList] = await Promise.all([
+                // 分析指示の選択は ComfyUI 用と API サービス用で別に持つ。選択肢も、使っている
+                // バックエンドの側の指示ファイルの一覧から出す。
+                const [templates, config] = await Promise.all([
                     listComfyUITemplates(backendUrl),
-                    listComfyDirectives(backendUrl),
+                    getComfyUIConfig(backendUrl).catch(() => null),
                 ]);
+                if (canceled) return;
+                const backend = normalizeImageBackend(config?.imageBackend);
+                const directiveList = await listComfyDirectives(backendUrl, backend);
                 if (canceled) return;
                 setTemplateNames(templates.filter(tpl => tpl.hasWorkflow).map(tpl => tpl.name));
                 setDirectives(directiveList);
                 setLoadError(false);
+                if (config) {
+                    setImageBackend(backend);
+                    if (backend === 'api') {
+                        try {
+                            const presets = await listApiServicePresets(backendUrl, normalizeApiService(config.apiService));
+                            if (!canceled) setPresetNames(presets.map(p => p.name));
+                        } catch {
+                            if (!canceled) setLoadError(true);
+                        }
+                    }
+                }
             } catch {
                 if (!canceled) setLoadError(true);
             }
@@ -84,7 +113,11 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
         return () => { canceled = true; };
     }, [backendUrl]);
 
-    const hasCustom = settings.workflowId !== '' || settings.directiveMode !== '';
+    const hasCustom = settings.workflowId !== '' || settings.apiPresetId !== '' || settings.directiveMode !== '' || settings.apiDirectiveMode !== '';
+    // 使っているバックエンドの側の選択だけを読み書きする（片方を変えても他方は変わらない）。
+    const isApi = imageBackend === 'api';
+    const selectedDirective = isApi ? settings.apiDirectiveMode : settings.directiveMode;
+    const changeDirective = (value: string) => onChange(isApi ? { ...settings, apiDirectiveMode: value } : { ...settings, directiveMode: value });
 
     // 保存済みの選択が一覧から消えている場合（テンプレート削除等）も選択肢として
     // 表示し、選択状態を維持する（消すと保存内容が意図せず書き換わるため。
@@ -92,8 +125,11 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
     const workflowOptions = settings.workflowId && !templateNames.includes(settings.workflowId)
         ? [...templateNames, settings.workflowId]
         : templateNames;
+    const presetOptions = settings.apiPresetId && !presetNames.includes(settings.apiPresetId)
+        ? [...presetNames, settings.apiPresetId]
+        : presetNames;
     const directiveModeValues = directives.map(d => directiveModeForDirectiveId(d.id));
-    const directiveOptions = settings.directiveMode && !directiveModeValues.includes(settings.directiveMode)
+    const directiveOptions = selectedDirective && !directiveModeValues.includes(selectedDirective)
         ? [...directives, null]
         : directives;
 
@@ -122,30 +158,46 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
                     {loadError && (
                         <p className="text-xs text-red-400">{t(I18N_KEYS.loadFailed)}</p>
                     )}
-                    <label className="space-y-1 block">
-                        <span className="text-xs text-gray-500">{t(I18N_KEYS.workflow)}</span>
-                        <select
-                            value={settings.workflowId}
-                            onChange={(e) => onChange({ ...settings, workflowId: e.target.value })}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
-                        >
-                            <option value="">{t(I18N_KEYS.defaultOption)}</option>
-                            {workflowOptions.map(name => (
-                                <option key={name} value={name}>{name}</option>
-                            ))}
-                        </select>
-                    </label>
+                    {imageBackend === 'api' ? (
+                        <label className="space-y-1 block">
+                            <span className="text-xs text-gray-500">{t(I18N_KEYS.preset)}</span>
+                            <select
+                                value={settings.apiPresetId}
+                                onChange={(e) => onChange({ ...settings, apiPresetId: e.target.value })}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                            >
+                                <option value="">{t(I18N_KEYS.defaultOption)}</option>
+                                {presetOptions.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : (
+                        <label className="space-y-1 block">
+                            <span className="text-xs text-gray-500">{t(I18N_KEYS.workflow)}</span>
+                            <select
+                                value={settings.workflowId}
+                                onChange={(e) => onChange({ ...settings, workflowId: e.target.value })}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                            >
+                                <option value="">{t(I18N_KEYS.defaultOption)}</option>
+                                {workflowOptions.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
                     <label className="space-y-1 block">
                         <span className="text-xs text-gray-500">{t(I18N_KEYS.directive)}</span>
                         <select
-                            value={settings.directiveMode}
-                            onChange={(e) => onChange({ ...settings, directiveMode: e.target.value })}
+                            value={selectedDirective}
+                            onChange={(e) => changeDirective(e.target.value)}
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
                         >
                             <option value="">{t(I18N_KEYS.defaultOption)}</option>
                             {directiveOptions.map(d => (
                                 d === null ? (
-                                    <option key={settings.directiveMode} value={settings.directiveMode}>{settings.directiveMode}</option>
+                                    <option key={selectedDirective} value={selectedDirective}>{selectedDirective}</option>
                                 ) : (
                                     <option key={d.id} value={directiveModeForDirectiveId(d.id)}>{d.label}</option>
                                 )
@@ -163,9 +215,12 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
  * natural_third / natural_short / natural_third_short）を、実行時に使う
  * directiveMode 値へ対応付ける。
  * バックエンド comfyui.DirectiveFileForMode の対応表と一致させること。
+ * API サービス用の ID（api_ 接頭辞）も同じ形式値へ写す（形式の値の種類は両側で同じ。
+ * どの形式を選んでいるかは、ComfyUI 用と API サービス用で別の項目に保存する）。
  */
 export const directiveModeForDirectiveId = (id: string): string => {
-    switch (id) {
+    const base = id.startsWith('api_') ? id.slice(4) : id;
+    switch (base) {
         case 'danbooru': return 'danbooru_only';
         case 'natural': return 'natural_language';
         case 'danbooru_third': return 'danbooru_third_person';

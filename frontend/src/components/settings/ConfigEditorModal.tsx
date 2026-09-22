@@ -22,6 +22,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { SimpleCharacterForm, EMPTY_SIMPLE_CHARACTER, simpleCharacterToMarkdown } from './SimpleCharacterForm';
 import { CharacterAuxPanel } from './character/CharacterAuxPanel';
 import { CharacterTagsEditor } from './character/CharacterTagsEditor';
+import type { AppearancePromptHandle } from '../../hooks/useAppearancePromptGen';
 import type { SimpleCharacterConfig } from './SimpleCharacterForm';
 import {
     getCategories,
@@ -99,6 +100,8 @@ interface Props {
     imageGenEnabled?: boolean;
     /** 同上。音声紐づけタブ（TTS）の表示可否。 */
     ttsEnabled?: boolean;
+    /** キャラクター容姿プロンプト作成の小窓の状態（Hub が持つ。画像生成設定区画へ流す） */
+    appearancePrompt?: AppearancePromptHandle;
 }
 
 type ConfirmKind =
@@ -157,6 +160,7 @@ export const ConfigEditorModal: React.FC<Props> = ({
     comfyDirectiveVisible = false,
     imageGenEnabled = false,
     ttsEnabled = false,
+    appearancePrompt,
 }) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
@@ -951,9 +955,11 @@ export const ConfigEditorModal: React.FC<Props> = ({
                                 <CharacterAuxPanel
                                     backendUrl={backendUrl}
                                     dirName={characterDirName}
+                                    fileName={characterDirName ? (selectedExistingFile?.name ?? null) : null}
                                     imageGenEnabled={imageGenEnabled}
                                     ttsEnabled={ttsEnabled}
                                     uiCatalog={uiCatalog}
+                                    appearancePrompt={appearancePrompt}
                                 />
                             )}
                         </div>

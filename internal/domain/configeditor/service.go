@@ -201,10 +201,11 @@ func (s *Service) WriteProviderInstruction(id, content string) error {
 
 // ComfyDirectiveStatus は一覧 API 用の 1 件（存在有無付き）。
 type ComfyDirectiveStatus struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	File   string `json:"file"`
-	Exists bool   `json:"exists"`
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	File    string `json:"file"`
+	Backend string `json:"backend"`
+	Exists  bool   `json:"exists"`
 }
 
 // resolveComfyDirective は id を検証して定義を返す。未知は ErrUnknownComfyDirective。
@@ -217,15 +218,16 @@ func resolveComfyDirective(id string) (ComfyDirective, error) {
 }
 
 // ListComfyDirectives はタグ判定指示ファイル定義と存在有無を返す。
-func (s *Service) ListComfyDirectives() ([]ComfyDirectiveStatus, error) {
-	defs := ComfyDirectives()
+// backend（comfyui / api）を指定するとその側の定義だけを返す。空は全部。
+func (s *Service) ListComfyDirectives(backend string) ([]ComfyDirectiveStatus, error) {
+	defs := ComfyDirectivesFor(backend)
 	out := make([]ComfyDirectiveStatus, 0, len(defs))
 	for _, d := range defs {
 		exists, err := s.store.FixedFileExists(d.File)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, ComfyDirectiveStatus{ID: d.ID, Label: d.Label, File: d.File, Exists: exists})
+		out = append(out, ComfyDirectiveStatus{ID: d.ID, Label: d.Label, File: d.File, Backend: d.Backend, Exists: exists})
 	}
 	return out, nil
 }

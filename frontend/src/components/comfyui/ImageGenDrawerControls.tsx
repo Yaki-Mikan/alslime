@@ -16,9 +16,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, Layers, ListChecks } from 'lucide-react';
 import { getComfyUIConfig, saveComfyUIConfig } from '../../api/comfyui';
-import type { ImageJobMode } from '../../api/comfyui';
+import type { ComfyUIConfig, ImageJobMode } from '../../api/comfyui';
 import { ComfyUITagEnableModal } from './ComfyUITagEnableModal';
 import { ToggleSwitch } from '../common/ToggleSwitch';
+import { AutoSoundEffectsToggle } from './apiservice/AutoSoundEffectsToggle';
 import { createComfyUIText } from './i18n';
 import type { I18NCatalog } from '../../api/i18n';
 
@@ -38,6 +39,8 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
     const [imageJobMode, setImageJobMode] = useState<ImageJobMode>('combined');
     // 応答時の自動画像生成（設定に無ければ無効として扱う）
     const [autoGenerateEnabled, setAutoGenerateEnabled] = useState(false);
+    // 開くたびに読み直した設定（自動効果音描画のトグルへ渡す。同じ設定を二重に読まないため）
+    const [loadedConfig, setLoadedConfig] = useState<ComfyUIConfig | null>(null);
     const [isTagEnableOpen, setIsTagEnableOpen] = useState(false);
     const [notice, setNotice] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null);
     // 保存の直列化（読み直し→書き込みの組が交差しないようにする）
@@ -54,6 +57,7 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
                 if (cancelled) return;
                 setImageJobMode(normalizeImageJobMode(config.imageJobMode));
                 setAutoGenerateEnabled(config.autoGenerateEnabled === true);
+                setLoadedConfig(config);
             } catch (error) {
                 console.error('[ImageGenDrawerControls] config load failed:', error);
             }
@@ -163,6 +167,14 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
                             />
                             <p className="text-xs text-gray-600">{COMMON.BUTTONS.AUTO_GENERATE_DESCRIPTION}</p>
                         </div>
+                        {/* 自動効果音描画（API サービスを選んでいるときだけ出す。値は設定画面のトグルと同じ） */}
+                        <AutoSoundEffectsToggle
+                            backendUrl={backendUrl}
+                            uiCatalog={uiCatalog}
+                            active={isOpen && active}
+                            onlyWhenApiBackend
+                            source={loadedConfig}
+                        />
                         {notice && (
                             <span className={`flex items-center gap-1 text-xs ${notice.kind === 'saved' ? 'text-green-400' : 'text-red-300'}`}>
                                 {notice.kind === 'saved' ? <CheckCircle size={12} /> : <AlertCircle size={12} />}

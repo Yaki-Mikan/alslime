@@ -14,10 +14,18 @@ import (
 // EmotionPromptsVersion は emotion_prompts.json の形式版。
 const EmotionPromptsVersion = 1
 
+// PromptTargets はプロンプト行の適用先（画像生成バックエンドごとのチェック）。
+// nil は ComfyUI・API サービスの両方に適用（項目を持たない既存データとの互換）。
+type PromptTargets struct {
+	ComfyUI bool `json:"comfyui"`
+	API     bool `json:"api"`
+}
+
 // EmotionPromptEntry は 1 表情に保存するプロンプト 1 件（タイトルで識別）。
 type EmotionPromptEntry struct {
-	Title  string `json:"title"`
-	Prompt string `json:"prompt"`
+	Title   string         `json:"title"`
+	Prompt  string         `json:"prompt"`
+	Targets *PromptTargets `json:"targets,omitempty"`
 }
 
 // EmotionPrompts は表情画像生成で使う表情ごとのプロンプト一覧（キャラクター共通）。
@@ -26,8 +34,10 @@ type EmotionPrompts struct {
 	Version int `json:"version"`
 	// Workflow は表情画像生成で選択中のワークフロー（テンプレート名）。
 	// 画像生成統合設定の既定（defaultTemplateId）とは別に保持する。
-	Workflow string                          `json:"workflow"`
-	Emotions map[string][]EmotionPromptEntry `json:"emotions"`
+	Workflow string `json:"workflow"`
+	// APIPreset は画像生成 API サービスのときに使う生成プリセット名（Workflow の API 側対応）。
+	APIPreset string                          `json:"apiPreset"`
+	Emotions  map[string][]EmotionPromptEntry `json:"emotions"`
 }
 
 // DefaultEmotionPrompts は未作成時の既定値。
@@ -78,6 +88,7 @@ func (s *EmotionPromptsService) Save(in EmotionPrompts) (EmotionPrompts, error) 
 func normalizeEmotionPrompts(in EmotionPrompts) EmotionPrompts {
 	out := DefaultEmotionPrompts()
 	out.Workflow = strings.TrimSpace(in.Workflow)
+	out.APIPreset = strings.TrimSpace(in.APIPreset)
 	for rawName, entries := range in.Emotions {
 		name, err := sanitizeImageSegment(rawName)
 		if err != nil || name == "" {
@@ -91,6 +102,10 @@ func normalizeEmotionPrompts(in EmotionPrompts) EmotionPrompts {
 				continue
 			}
 			entry := EmotionPromptEntry{Title: title, Prompt: strings.TrimSpace(e.Prompt)}
+			// 両方に適用は項目を持たない形に揃える。
+			if e.Targets != nil && !(e.Targets.ComfyUI && e.Targets.API) {
+				entry.Targets = &PromptTargets{ComfyUI: e.Targets.ComfyUI, API: e.Targets.API}
+			}
 			if idx, ok := byTitle[title]; ok {
 				normalized[idx] = entry
 				continue

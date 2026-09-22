@@ -64,7 +64,17 @@ export async function saveCharacterTags(backendUrl: string, dirName: string, bod
 
 // ===== 表情画像生成用の表情プロンプト（キャラクター共通） =====
 
+/** プロンプト行の適用先（未指定は ComfyUI・API サービスの両方） */
+export interface EmotionPromptTargets {
+    comfyui: boolean;
+    api: boolean;
+}
+
+export const emotionPromptTargetsOf = (entry: Pick<EmotionPromptEntry, 'targets'>): EmotionPromptTargets =>
+    entry.targets ?? { comfyui: true, api: true };
+
 export interface EmotionPromptEntry {
+    targets?: EmotionPromptTargets;
     title: string;
     prompt: string;
 }
@@ -73,12 +83,14 @@ export interface EmotionPrompts {
     version: number;
     /** 表情画像生成で選択中のワークフロー（テンプレート名）。統合設定の既定とは別に保持 */
     workflow?: string;
+    /** 画像生成 API サービスのときに使う生成プリセット名（workflow の API 側対応） */
+    apiPreset?: string;
     /** 表情名 → 保存済みプロンプト一覧 */
     emotions: Record<string, EmotionPromptEntry[]>;
 }
 
 export function createEmptyEmotionPrompts(): EmotionPrompts {
-    return { version: 1, workflow: '', emotions: {} };
+    return { version: 1, workflow: '', apiPreset: '', emotions: {} };
 }
 
 export async function getEmotionPrompts(backendUrl: string): Promise<EmotionPrompts> {

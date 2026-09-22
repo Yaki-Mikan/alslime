@@ -17,6 +17,8 @@ const (
 	routeDialogStart  = "/config-gen/dialog/start"
 	routeDialogSend   = "/config-gen/dialog/send"
 	routeDialog       = "/config-gen/dialog/{sessionId}"
+	// routeFromSession はセッションからの一時キャラクター取り込み（1 キャラ 1 ジョブ）。
+	routeFromSession = "/config-gen/from-session"
 
 	pathParamJobID         = "jobId"
 	pathParamCategoryID    = "categoryId"

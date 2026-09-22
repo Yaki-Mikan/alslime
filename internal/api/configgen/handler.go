@@ -19,10 +19,13 @@ import (
 	"alslime/internal/api/apierror"
 	"alslime/internal/api/apiresponse"
 	"alslime/internal/config"
+	"alslime/internal/domain/charname"
 	"alslime/internal/domain/configeditor"
 	"alslime/internal/domain/configgendialog"
 	"alslime/internal/domain/configgenjobs"
 	"alslime/internal/domain/models"
+	"alslime/internal/domain/sessions"
+	"alslime/internal/domain/tempcharacters"
 	"alslime/internal/i18n"
 	jobsvc "alslime/internal/jobs"
 	"alslime/internal/storage/paths"
@@ -35,6 +38,8 @@ type Deps struct {
 	Resolver *paths.Resolver
 	// Dialog は対話作成のセッション履歴ストア。
 	Dialog *configgendialog.Store
+	// Sessions は会話セッションの正本（from-session の実在確認に使う）。
+	Sessions *sessions.Service
 	// NewID はセッション ID の採番（ジョブ ID と同じ採番器を使う）。
 	NewID func() string
 	// Now はテスト差し替え用（nil なら time.Now 相当を handler 内で使う）。
@@ -55,6 +60,74 @@ func Register(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeDialogSend, handleDialogSend(deps))
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeDialog, handleDialogGet(deps))
 	mux.HandleFunc(http.MethodDelete+" "+config.APIPrefix+routeDialog, handleDialogDelete(deps))
+	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeFromSession, handleFromSession(deps))
+}
+
+// fromSessionRequest はセッションからの一時キャラクター取り込みの投入。
+type fromSessionRequest struct {
+	SessionID           string `json:"sessionId"`
+	TargetCharacter     string `json:"targetCharacter"`
+	// SettingTemplate は AI 用の設定ファイルテンプレート名、ManualTemplate は手動作成用の雛形名。
+	// どちらか一方を送る（両方空なら AI 用の既定）。
+	SettingTemplate     string `json:"settingTemplate,omitempty"`
+	ManualTemplate      string `json:"manualTemplate,omitempty"`
+	Model               string `json:"model,omitempty"`
+	ClaudeEffort        string `json:"claudeEffort,omitempty"`
+	AntigravityThinking string `json:"antigravityThinking,omitempty"`
+	TimeoutMinutes      int    `json:"timeoutMinutes,omitempty"`
+	Locale              string `json:"locale,omitempty"`
+}
+
+// handleFromSession は 1 キャラ分の分析ジョブを投入する。
+// 同じセッション・同じ話者（照合用正規化で同一視）の二重投入は 409。
+func handleFromSession(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req fromSessionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
+			return
+		}
+		sessionID := strings.TrimSpace(req.SessionID)
+		if sessionID == "" {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorSessionIDRequired))
+			return
+		}
+		target := strings.TrimSpace(req.TargetCharacter)
+		if target == "" || len([]rune(target)) > inputMaxRunes {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorConfigGenInvalidPayload))
+			return
+		}
+		dirName, err := tempcharacters.SanitizeForDirName(target)
+		if err != nil {
+			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorTempCharInvalidName))
+			return
+		}
+		if deps.Sessions == nil {
+			apierror.Write(w, apierror.NewKey(http.StatusInternalServerError, i18n.KeyErrorInternal))
+			return
+		}
+		if _, err := deps.Sessions.Read(sessionID); err != nil {
+			apierror.Write(w, apierror.NewKey(http.StatusNotFound, i18n.KeyErrorTempCharSessionNotFound))
+			return
+		}
+		payload := configgenjobs.Payload{
+			CategoryID:          "character",
+			Method:              configgenjobs.MethodFromSession,
+			CharacterName:       target,
+			FileName:            dirName,
+			DirName:             dirName,
+			Model:               strings.TrimSpace(req.Model),
+			ClaudeEffort:        strings.TrimSpace(req.ClaudeEffort),
+			AntigravityThinking: strings.TrimSpace(req.AntigravityThinking),
+			TimeoutMinutes:      req.TimeoutMinutes,
+			Locale:              strings.TrimSpace(req.Locale),
+			SessionID:           sessionID,
+			TargetCharacter:     target,
+			SettingTemplate:     strings.TrimSpace(req.SettingTemplate),
+			ManualTemplate:      strings.TrimSpace(req.ManualTemplate),
+		}
+		enqueueWithSession(w, deps, payload, "temp-char:"+sessionID+":"+charname.NormalizeMatchName(target), sessionID)
+	}
 }
 
 type submitRequest struct {
@@ -210,15 +283,26 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 
 // enqueue はペイロードをジョブキューへ投入し、結果を応答する（submit / dialog send 共通）。
 func enqueue(w http.ResponseWriter, deps Deps, payload configgenjobs.Payload, dedupe string) {
+	enqueueWithSession(w, deps, payload, dedupe, "")
+}
+
+// enqueueWithSession は所属セッション ID 付きで投入する（from-session 用）。
+// 排他は DedupeKey で行い、SessionID は所属の記録（チャットの同セッション排他には乗せない）。
+func enqueueWithSession(w http.ResponseWriter, deps Deps, payload configgenjobs.Payload, dedupe, sessionID string) {
 	// ジョブの同時実行制御 Kind はモデルから判定する（空モデルは Claude 既定）。
 	kind := models.KindOf(payload.Model)
 	if payload.Model == "" {
 		kind = models.KindClaude
 	}
+	label := labelKeyConfigGen
+	if payload.Method == configgenjobs.MethodFromSession {
+		label = i18n.KeyLabelTempCharacterImport
+	}
 	added := deps.Queue.Add(jobsvc.Spec{
 		Type:      jobsvc.TypeConfigGen,
 		Kind:      kind,
-		Label:     labelKeyConfigGen,
+		Label:     label,
+		SessionID: sessionID,
 		DedupeKey: dedupe,
 		Model:     payload.Model,
 		Payload:   payload,

@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -22,17 +21,18 @@ import (
 	"alslime/internal/storage/jsonstore"
 )
 
-// サイドカーモジュールの取得・検証・配置（12番 5章 / 14番 6章。複数モジュール対応）。
+// サイドカーモジュールの取得・検証・配置（複数モジュール対応）。
 //
-// entitlement サーバーの署名付きマニフェスト（SHA-256 + Ed25519）を検証してから
-// バイナリを配置する。署名鍵は entitlement トークンと同じ埋め込み公開鍵系で、
-// 検証実体は core（featuresimpl）に閉じ、本パッケージは注入された関数だけを呼ぶ。
-// 対象モジュールは ConfigureModules で注入されたレジストリ（module.IDs()）に限る。
+// 配信用ドメインの署名付き一覧ファイルから、本体のバージョンが対応範囲に入る最新の
+// バージョンを選び、entitlement サーバーが発行するダウンロード許可を付けて取得する。
+// 取得後は一覧ファイルの SHA-256 とサイズで照合してから配置する。
+// 一覧ファイルの署名検証の実体は core（featuresimpl）に閉じ、本パッケージは注入された
+// 関数だけを呼ぶ。対象モジュールは ConfigureModules で注入されたレジストリに限る。
 
 // ErrModuleNoToken はモジュール取得に必要なトークンが無い。
 var ErrModuleNoToken = errors.New("sponsor: no token for module download")
 
-// ErrModuleUnavailable はサーバー側にモジュール配布が無い（404）。
+// ErrModuleUnavailable は配布側に該当の配布物が無い（404・一覧に未掲載）。
 var ErrModuleUnavailable = errors.New("sponsor: module not available on server")
 
 // ErrModuleRejected は旧呼び出し元との互換用エラー。
@@ -50,32 +50,11 @@ var ErrModuleUnknown = errors.New("sponsor: unknown module id")
 // ErrModuleBusy はモジュール変更操作（install / clean）が既に進行中（409）。
 var ErrModuleBusy = errors.New("sponsor: module operation in progress")
 
-// ErrModuleNeedsNewerApp は本体が古すぎてモジュールを配置できない（MinAppVersion 未満）。
+// ErrModuleNeedsNewerApp は本体が古すぎて、対応するバージョンのモジュールが無い。
 var ErrModuleNeedsNewerApp = errors.New("sponsor: module requires newer app")
 
-// ErrModuleIncompatible は OS/Arch 不一致または本体が新しすぎる（MaxAppVersion 超過）。
+// ErrModuleIncompatible は OS/Arch 向けの配布が無い、または本体が新しすぎて対応するバージョンが無い。
 var ErrModuleIncompatible = errors.New("sponsor: module incompatible with this app")
-
-// moduleManifest は entitlement サーバーが返す署名付きマニフェスト。
-// サーバー側 httpapi.Manifest と同一契約で、署名対象の正規化 JSON は
-// Sig を空にした本構造体の json.Marshal（フィールド順も一致させること）。
-type moduleManifest struct {
-	Version       string `json:"version"`
-	OS            string `json:"os"`
-	Arch          string `json:"arch"`
-	SHA256        string `json:"sha256"`
-	MinAppVersion string `json:"minAppVersion"`
-	MaxAppVersion string `json:"maxAppVersion"`
-	Sig           string `json:"sig"`
-}
-
-type companionPackManifest struct {
-	Module    string `json:"module"`
-	Version   string `json:"version"`
-	SHA256    string `json:"sha256"`
-	SizeBytes int64  `json:"sizeBytes"`
-	Sig       string `json:"sig"`
-}
 
 // ModuleInstallResult はバイナリと付属パックそれぞれの配置結果。
 type ModuleInstallResult struct {
@@ -120,85 +99,98 @@ func (s *Service) ModulesStatus() []ModuleStatusEntry {
 	return out
 }
 
-// InstallModule は entitlement サーバーから指定モジュールを取得・検証して配置する。
-// 成功時はマニフェストのバージョンを返す。配置の有効化には本体の再起動が必要。
-// 同時実行は ErrModuleBusy で拒否する（交換日記 005-3）。
+// InstallModule は指定モジュールを取得・検証して配置する。
+// 成功時は配置したバージョンを返す。同時実行は ErrModuleBusy で拒否する。
 func (s *Service) InstallModule(ctx context.Context, moduleID string) (ModuleInstallResult, error) {
 	if !s.moduleOpMu.TryLock() {
 		return ModuleInstallResult{}, ErrModuleBusy
 	}
 	defer s.moduleOpMu.Unlock()
-	return s.installModuleLocked(ctx, moduleID)
+	plan, err := s.planModuleInstall(ctx, moduleID)
+	if err != nil {
+		return ModuleInstallResult{}, err
+	}
+	return s.applyModuleInstall(ctx, plan)
 }
 
-// installModuleLocked は取得・検証・配置の実体（moduleOpMu 保持中に呼ぶこと）。
-func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (ModuleInstallResult, error) {
-	if len(s.modules) == 0 || s.verifySig == nil {
-		return ModuleInstallResult{}, errors.New("sponsor: module install is not configured")
+// moduleInstallPlan は取得前に確定させる導入内容（どのバージョンのどのファイルを取るか）。
+type moduleInstallPlan struct {
+	moduleID string
+	target   ModuleTarget
+	token    string
+	entry    dlModuleEntry
+	file     dlModuleFile
+}
+
+// planModuleInstall は一覧ファイルを取得・検証し、導入するバージョンを決める
+// （moduleOpMu 保持中に呼ぶこと）。配置物には触れないため、クリーン再導入は削除の前に
+// これを済ませ、一覧ファイルが取れない・対応バージョンが無い状態で削除だけが進むのを防ぐ。
+func (s *Service) planModuleInstall(ctx context.Context, moduleID string) (moduleInstallPlan, error) {
+	if len(s.modules) == 0 {
+		return moduleInstallPlan{}, errors.New("sponsor: module install is not configured")
 	}
 	target, ok := s.modules[moduleID]
 	if !ok {
-		return ModuleInstallResult{}, ErrModuleUnknown
+		return moduleInstallPlan{}, ErrModuleUnknown
 	}
 	tok := s.store.Current()
 	if tok == "" {
-		return ModuleInstallResult{}, ErrModuleNoToken
+		return moduleInstallPlan{}, ErrModuleNoToken
 	}
+	manifest, err := s.fetchDownloadManifest(ctx)
+	if err != nil {
+		return moduleInstallPlan{}, err
+	}
+	entries, listed := manifest.Modules[moduleID]
+	if !listed || len(entries) == 0 {
+		return moduleInstallPlan{}, ErrModuleUnavailable
+	}
+	// 互換性の強制検証。UI の表示条件に依存せず、配置前に必ず拒否する。
+	// OS/Arch は常時、バージョン範囲は release ビルドのみ。
+	selection := selectModule(entries, runtime.GOOS, runtime.GOARCH,
+		buildinfo.Snapshot().Version, buildinfo.IsRelease())
+	if selection.Entry == nil {
+		if selection.NeedsNewerApp {
+			return moduleInstallPlan{}, ErrModuleNeedsNewerApp
+		}
+		return moduleInstallPlan{}, ErrModuleIncompatible
+	}
+	return moduleInstallPlan{
+		moduleID: moduleID, target: target, token: tok,
+		entry: *selection.Entry, file: *selection.File,
+	}, nil
+}
 
-	query := fmt.Sprintf("?os=%s&arch=%s", runtime.GOOS, runtime.GOARCH)
+// applyModuleInstall は許可の取得・ダウンロード・照合・配置の実体（moduleOpMu 保持中に呼ぶこと）。
+func (s *Service) applyModuleInstall(ctx context.Context, plan moduleInstallPlan) (ModuleInstallResult, error) {
+	moduleID, target := plan.moduleID, plan.target
 
-	// 1. 署名付きマニフェスト取得
-	manifest, err := s.fetchModuleManifest(ctx, tok, moduleID, query)
+	// 1. ダウンロード許可（実行ファイルと付属パックで共用）
+	grant, err := s.requestDownloadGrant(ctx, plan.token, downloadKindModule, moduleID, plan.entry.Version)
 	if err != nil {
 		return ModuleInstallResult{}, err
 	}
+	folder := downloadFolder(downloadKindModule, moduleID, plan.entry.Version)
 
-	// 2. 署名検証（Sig を除いた正規化 JSON への Ed25519 署名）
-	payload := manifest
-	payload.Sig = ""
-	canonical, err := json.Marshal(payload)
-	if err != nil {
-		return ModuleInstallResult{}, err
-	}
-	if err := s.verifySig(canonical, manifest.Sig); err != nil {
-		return ModuleInstallResult{}, fmt.Errorf("sponsor: module manifest verification failed: %w", err)
-	}
-
-	// 互換性の強制検証（交換日記 005-5）。UI の表示条件に依存せず、配置前に必ず拒否する。
-	// OS/Arch は常時、バージョン範囲は release ビルドのみ（dev の 0.0.0-dev は
-	// 常に範囲外になり、ローカル検証を阻害するため）。
-	if manifest.OS != runtime.GOOS || manifest.Arch != runtime.GOARCH {
-		return ModuleInstallResult{}, ErrModuleIncompatible
-	}
-	if buildinfo.IsRelease() {
-		current := buildinfo.Snapshot().Version
-		if manifest.MinAppVersion != "" && semver.IsNewer(manifest.MinAppVersion, current) {
-			return ModuleInstallResult{}, ErrModuleNeedsNewerApp
-		}
-		if manifest.MaxAppVersion != "" && semver.IsNewer(current, manifest.MaxAppVersion) {
-			return ModuleInstallResult{}, ErrModuleIncompatible
-		}
-	}
-
-	// 3. バイナリ取得（一時ファイルへ書きつつ SHA-256 を計算）
+	// 2. バイナリ取得（一時ファイルへ書きつつ SHA-256 を計算）
 	tmpPath := target.InstallPath + ".download"
-	sum, err := s.downloadModuleBinary(ctx, tok, moduleID, query, tmpPath)
+	sum, size, err := s.downloadGranted(ctx, grant, folder, plan.file.Name, tmpPath, plan.file.Size, 0o755)
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return ModuleInstallResult{}, err
 	}
 
-	// 4. ハッシュ照合 → 配置（atomic rename）
-	if !strings.EqualFold(sum, manifest.SHA256) {
+	// 3. ハッシュ・サイズ照合 → 配置（atomic rename）
+	if size != plan.file.Size || !strings.EqualFold(sum, plan.file.SHA256) {
 		_ = os.Remove(tmpPath)
-		return ModuleInstallResult{}, errors.New("sponsor: module binary hash mismatch")
+		return ModuleInstallResult{}, errors.New("sponsor: module binary hash or size mismatch")
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		_ = os.Remove(tmpPath)
 		return ModuleInstallResult{}, err
 	}
-	// 実行中サイドカーの待避（01番 6.3）。Windows は実行中 exe への上書き rename が
-	// 失敗する。停止 API は無いため .old へ退避し、旧実体は本体再起動まで動き続ける。
+	// 実行中サイドカーの待避。Windows は実行中 exe への上書き rename が失敗する。
+	// 停止 API は無いため .old へ退避し、旧実体は本体再起動まで動き続ける。
 	// .old の掃除は本体起動時の掃除処理（module.CleanupStaleFiles）が担う。
 	oldPath := target.InstallPath + ".old"
 	usedBackup := false
@@ -212,7 +204,7 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 	}
 	if err := os.Rename(tmpPath, target.InstallPath); err != nil {
 		// 配置失敗時は待避した旧実体を戻す。戻せないと「配置先に何も無い」
-		// 中途状態になる（ウイルス対策の一時ロック等。交換日記 005-4）。
+		// 中途状態になる（ウイルス対策の一時ロック等）。
 		if usedBackup {
 			if rbErr := os.Rename(oldPath, target.InstallPath); rbErr != nil {
 				logging.Error("sponsor: module %s rollback failed: %v", moduleID, rbErr)
@@ -222,21 +214,21 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 		_ = os.Remove(tmpPath)
 		return ModuleInstallResult{}, err
 	}
-	logging.Info("sponsor: module %s installed (version %s)", moduleID, manifest.Version)
+	logging.Info("sponsor: module %s installed (version %s)", moduleID, plan.entry.Version)
 	result := ModuleInstallResult{
-		Version:                        manifest.Version,
+		Version:                        plan.entry.Version,
 		CompanionPackConfigured:        target.InstallCompanionPack != nil,
 		CompanionPackWorkflowTemplates: []string{},
 		FirstInstall:                   !usedBackup,
 	}
 	receipt := moduleReceipt{
 		Module:      moduleID,
-		Version:     manifest.Version,
-		SHA256:      manifest.SHA256,
+		Version:     plan.entry.Version,
+		SHA256:      plan.file.SHA256,
 		InstalledAt: time.Now().Format(time.RFC3339),
 	}
 	if target.InstallCompanionPack != nil {
-		packVersion, workflowTemplates, err := s.installCompanionPack(ctx, tok, moduleID, target.InstallCompanionPack)
+		workflowTemplates, err := s.installCompanionPack(ctx, grant, folder, plan.entry.CompanionPack, target.InstallCompanionPack)
 		if err != nil {
 			logging.Error("sponsor: module %s companion pack install failed: %v", moduleID, err)
 			s.writeReceipt(target.ReceiptPath, receipt)
@@ -249,7 +241,7 @@ func (s *Service) installModuleLocked(ctx context.Context, moduleID string) (Mod
 			result.CompanionPackWorkflowTemplates = append([]string{}, workflowTemplates...)
 		}
 		receipt.CompanionPack = &moduleReceiptPack{
-			Version: packVersion,
+			Version: plan.entry.CompanionPack.Version,
 			Files:   append([]string{}, result.CompanionPackWorkflowTemplates...),
 		}
 	}
@@ -273,187 +265,40 @@ func (s *Service) restartSidecar(moduleID string, target ModuleTarget) bool {
 	return true
 }
 
-// installCompanionPack は付属パックを取得・検証して適用する。
-// 戻り値は（パックのバージョン, 利用可能になった workflow テンプレート名, error）。
-// バージョンはレシートの companion pack 版数として記録される（01番 6.1）。
+// installCompanionPack は付属パックを取得・照合して適用する。
+// 戻り値は利用可能になった workflow テンプレート名。一覧ファイルに付属パックが無い
+// バージョンはエラー（呼び出し側は付属パック未適用として配置を続ける）。
 func (s *Service) installCompanionPack(
 	ctx context.Context,
-	tok string,
-	moduleID string,
+	grant string,
+	folder string,
+	pack *dlVersionedFile,
 	install func(zipPath string) ([]string, error),
-) (string, []string, error) {
-	manifest, err := s.fetchCompanionPackManifest(ctx, tok, moduleID)
-	if err != nil {
-		return "", nil, err
-	}
-	payload := manifest
-	payload.Sig = ""
-	canonical, err := json.Marshal(payload)
-	if err != nil {
-		return "", nil, err
-	}
-	if err := s.verifySig(canonical, manifest.Sig); err != nil {
-		return "", nil, fmt.Errorf("sponsor: companion pack manifest verification failed: %w", err)
-	}
-	if manifest.Module != moduleID || manifest.SHA256 == "" || manifest.SizeBytes <= 0 ||
-		manifest.SizeBytes > config.SettingsPackMaxUploadBytes {
-		return "", nil, errors.New("sponsor: incomplete companion pack manifest")
+) ([]string, error) {
+	if !validVersionedFile(pack) || pack.Size > config.SettingsPackMaxUploadBytes {
+		return nil, errors.New("sponsor: companion pack is not listed or exceeds the size limit")
 	}
 	tmp, err := os.CreateTemp("", "alslime-companion-pack-*.zip")
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	tmpPath := tmp.Name()
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", nil, err
+		return nil, err
 	}
 	defer func() { _ = os.Remove(tmpPath) }()
-	sum, size, err := s.downloadCompanionPack(ctx, tok, moduleID, tmpPath, manifest.SizeBytes)
+	sum, size, err := s.downloadGranted(ctx, grant, folder, pack.Name, tmpPath, pack.Size, 0o600)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	if size != manifest.SizeBytes || !strings.EqualFold(sum, manifest.SHA256) {
-		return "", nil, errors.New("sponsor: companion pack hash or size mismatch")
+	if size != pack.Size || !strings.EqualFold(sum, pack.SHA256) {
+		return nil, errors.New("sponsor: companion pack hash or size mismatch")
 	}
-	templates, err := install(tmpPath)
-	if err != nil {
-		return "", nil, err
-	}
-	return manifest.Version, templates, nil
+	return install(tmpPath)
 }
 
-func (s *Service) fetchCompanionPackManifest(
-	ctx context.Context,
-	tok string,
-	moduleID string,
-) (companionPackManifest, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		s.serverURL+"/modules/"+moduleID+"/companion-pack", nil)
-	if err != nil {
-		return companionPackManifest{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return companionPackManifest{}, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := moduleResponseError(resp.StatusCode); err != nil {
-		return companionPackManifest{}, err
-	}
-	var manifest companionPackManifest
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&manifest); err != nil {
-		return companionPackManifest{}, err
-	}
-	return manifest, nil
-}
-
-func (s *Service) downloadCompanionPack(
-	ctx context.Context,
-	tok string,
-	moduleID string,
-	dst string,
-	expectedSize int64,
-) (string, int64, error) {
-	if expectedSize <= 0 {
-		return "", 0, errors.New("sponsor: invalid companion pack size")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		s.serverURL+"/modules/"+moduleID+"/companion-pack/download", nil)
-	if err != nil {
-		return "", 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := moduleResponseError(resp.StatusCode); err != nil {
-		return "", 0, err
-	}
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return "", 0, err
-	}
-	h := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, expectedSize+1))
-	closeErr := f.Close()
-	if copyErr != nil {
-		return "", written, copyErr
-	}
-	if closeErr != nil {
-		return "", written, closeErr
-	}
-	if written > expectedSize {
-		return "", written, errors.New("sponsor: companion pack exceeds signed size")
-	}
-	return hex.EncodeToString(h.Sum(nil)), written, nil
-}
-
-// fetchModuleManifest はマニフェスト API を叩いて検証前のマニフェストを返す。
-func (s *Service) fetchModuleManifest(ctx context.Context, tok, moduleID, query string) (moduleManifest, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.serverURL+"/modules/"+moduleID+query, nil)
-	if err != nil {
-		return moduleManifest{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return moduleManifest{}, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := moduleResponseError(resp.StatusCode); err != nil {
-		return moduleManifest{}, err
-	}
-	var m moduleManifest
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&m); err != nil {
-		return moduleManifest{}, err
-	}
-	if m.SHA256 == "" || m.Sig == "" {
-		return moduleManifest{}, errors.New("sponsor: incomplete module manifest")
-	}
-	return m, nil
-}
-
-// downloadModuleBinary はモジュールバイナリを dst へ保存し SHA-256（hex）を返す。
-func (s *Service) downloadModuleBinary(ctx context.Context, tok, moduleID, query, dst string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.serverURL+"/modules/"+moduleID+"/download"+query, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := moduleResponseError(resp.StatusCode); err != nil {
-		return "", err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return "", err
-	}
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	_, copyErr := io.Copy(io.MultiWriter(f, h), resp.Body)
-	closeErr := f.Close()
-	if copyErr != nil {
-		return "", copyErr
-	}
-	if closeErr != nil {
-		return "", closeErr
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// moduleResponseError はモジュール API の HTTP ステータスをエラーへ変換する。
-// moduleReceipt は配置レシート（01番 6.1）。配置済みバージョンの正本で、
+// moduleReceipt は配置レシート。配置済みバージョンの正本で、
 // 更新有無の判定とクリーン再導入の対象限定に使う。
 type moduleReceipt struct {
 	Module        string             `json:"module"`
@@ -506,8 +351,8 @@ type ModuleUpdateEntry struct {
 	HasUpdate           bool   `json:"hasUpdate"`
 	CompanionPackUpdate bool   `json:"companionPackUpdate"`
 	NeedsAppUpdate      bool   `json:"needsAppUpdate"`
-	// Incompatible は本体が新しすぎる等で配布モジュールが対応していない
-	//（MaxAppVersion 超過。取得・更新の操作は無効化する。交換日記 005-5）。
+	// Incompatible は本体が新しすぎる等で、対応するバージョンのモジュールが配布されていない
+	//（取得・更新の操作は無効化する）。
 	Incompatible bool `json:"incompatible"`
 	// LatestCompanionPackVersion は配布側の付属パック版（配布に無ければ空）。
 	// 告知スキップの記録を exe 版と組で持つために露出する。
@@ -519,41 +364,21 @@ type ModuleUpdateEntry struct {
 	PostponedToday bool `json:"postponedToday"`
 }
 
-// moduleIndexEntry / moduleIndex はサーバーの一括インデックス契約。
-// 署名対象の正規化 JSON はフィールド順に依存するため、サーバー側
-// httpapi.IndexEntry / Index とフィールド順を含めて一致させること（02番 2.3）。
-type moduleIndexEntry struct {
-	ID                   string `json:"id"`
-	Version              string `json:"version"`
-	MinAppVersion        string `json:"minAppVersion"`
-	MaxAppVersion        string `json:"maxAppVersion"`
-	CompanionPackVersion string `json:"companionPackVersion"`
-}
-
-type moduleIndex struct {
-	Modules []moduleIndexEntry `json:"modules"`
-	Sig     string             `json:"sig"`
-}
-
-// ModulesUpdateInfo は配置済みモジュールの更新有無を返す（01番 6.2）。
-// appVersion は本体の現行バージョン（minAppVersion 判定に使う）。
+// ModulesUpdateInfo は配置済みモジュールの更新有無を返す。
+// appVersion は本体の現行バージョン（対応範囲の判定に使う）。
 // トークンが無い場合は ErrModuleNoToken（呼び出し側はモジュール部分を省いて応答する）。
 func (s *Service) ModulesUpdateInfo(ctx context.Context, appVersion string) ([]ModuleUpdateEntry, error) {
-	if len(s.modules) == 0 || s.verifySig == nil {
+	if len(s.modules) == 0 {
 		return nil, errors.New("sponsor: module update check is not configured")
 	}
-	tok := s.store.Current()
-	if tok == "" {
+	if s.store.Current() == "" {
 		return nil, ErrModuleNoToken
 	}
-	latest, err := s.fetchModulesIndex(ctx, tok)
-	if errors.Is(err, ErrModuleUnavailable) {
-		// 旧サーバー（/modules/index 未実装）へのフォールバック: 個別マニフェスト照会。
-		latest, err = s.fetchModulesIndexFallback(ctx, tok)
-	}
+	manifest, err := s.fetchDownloadManifest(ctx)
 	if err != nil {
 		return nil, err
 	}
+	enforceRange := buildinfo.IsRelease()
 	out := make([]ModuleUpdateEntry, 0, len(s.moduleIDs))
 	for _, id := range s.moduleIDs {
 		target, ok := s.modules[id]
@@ -563,138 +388,82 @@ func (s *Service) ModulesUpdateInfo(ctx context.Context, appVersion string) ([]M
 		if _, statErr := os.Stat(target.InstallPath); statErr != nil {
 			continue // 未配置モジュールは対象外（新着案内は既存導線に任せる）
 		}
-		entry := ModuleUpdateEntry{ID: id}
-		idx, found := latest[id]
-		if !found {
-			out = append(out, entry) // サーバー側に配布なし → 更新なし表示
-			continue
-		}
-		entry.LatestVersion = idx.Version
-		entry.LatestCompanionPackVersion = idx.CompanionPackVersion
-		if idx.MinAppVersion != "" && semver.IsNewer(idx.MinAppVersion, appVersion) {
-			entry.NeedsAppUpdate = true
-		}
-		if idx.MaxAppVersion != "" && semver.IsNewer(appVersion, idx.MaxAppVersion) {
-			entry.Incompatible = true
-		}
-		if receipt, receiptOK := s.readReceipt(target.ReceiptPath); receiptOK {
-			entry.InstalledVersion = receipt.Version
-			entry.HasUpdate = idx.Version != "" && idx.Version != receipt.Version
-			if idx.CompanionPackVersion != "" {
-				entry.CompanionPackUpdate = receipt.CompanionPack == nil ||
-					receipt.CompanionPack.Version != idx.CompanionPackVersion
-			}
-		} else {
-			// レシート無し旧環境: exe の SHA-256 実測と個別マニフェストで判定（01番 6.2）。
-			entry.HasUpdate, entry.CompanionPackUpdate =
-				s.legacyUpdateCheck(ctx, tok, id, target.InstallPath, idx)
-		}
-		out = append(out, entry)
+		out = append(out, s.moduleUpdateEntry(id, target, manifest.Modules[id], appVersion, enforceRange))
 	}
 	return out, nil
 }
 
-// fetchModulesIndex は署名付き一括インデックスを取得・検証して ID 引きの map で返す。
-// 404（旧サーバー）は ErrModuleUnavailable。
-func (s *Service) fetchModulesIndex(ctx context.Context, tok string) (map[string]moduleIndexEntry, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.serverURL+"/modules/index", nil)
-	if err != nil {
-		return nil, err
+// moduleUpdateEntry は 1 モジュールの更新確認結果を組み立てる。
+//
+// 比べる相手は、今の本体のバージョンが対応範囲に入るバージョンの中の最新だけ。
+// 対応範囲の外にあるバージョンは、どれだけ新しくても更新として案内しない
+// （LatestVersion にも出さない）。本体を更新したあとの入れ替えは、更新後の本体で
+// 行う次の更新確認が受け持つ。使えるバージョンが 1 つも無いときは、バージョンを
+// 出さずに NeedsAppUpdate か Incompatible の状態だけを返す。
+func (s *Service) moduleUpdateEntry(
+	id string, target ModuleTarget, entries []dlModuleEntry, appVersion string, enforceRange bool,
+) ModuleUpdateEntry {
+	entry := ModuleUpdateEntry{ID: id}
+	receipt, receiptOK := s.readReceipt(target.ReceiptPath)
+	if receiptOK {
+		entry.InstalledVersion = receipt.Version
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
+	if len(entries) == 0 {
+		return entry // 配布なし → 更新なし表示
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := moduleResponseError(resp.StatusCode); err != nil {
-		return nil, err
+	selection := selectModule(entries, runtime.GOOS, runtime.GOARCH, appVersion, enforceRange)
+	usable := selection.Entry
+	if usable == nil {
+		entry.NeedsAppUpdate = selection.NeedsNewerApp
+		entry.Incompatible = selection.Incompatible
+		return entry
 	}
-	var idx moduleIndex
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&idx); err != nil {
-		return nil, err
+	entry.LatestVersion = usable.Version
+	entry.LatestCompanionPackVersion = companionPackVersion(usable)
+	if receiptOK {
+		// 導入済みより新しければ更新あり。本体の更新で導入済みのバージョンが対応範囲から
+		// 外れた場合は、対応するバージョンが導入済みより古くても更新として案内する。
+		entry.HasUpdate = semver.IsNewer(usable.Version, receipt.Version) ||
+			(usable.Version != receipt.Version &&
+				moduleOutOfRange(entries, receipt.Version, appVersion, enforceRange))
+	} else {
+		entry.HasUpdate = s.installedDiffers(target, selection.File)
 	}
-	// 署名検証（受信 JSON の配列順のまま Sig を空にした正規化 JSON に対して行う）。
-	payload := idx
-	payload.Sig = ""
-	canonical, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.verifySig(canonical, idx.Sig); err != nil {
-		return nil, fmt.Errorf("sponsor: module index verification failed: %w", err)
-	}
-	out := make(map[string]moduleIndexEntry, len(idx.Modules))
-	for _, entry := range idx.Modules {
-		out[entry.ID] = entry
-	}
-	return out, nil
+	entry.CompanionPackUpdate = companionPackOutdated(receipt, receiptOK, usable)
+	return entry
 }
 
-// fetchModulesIndexFallback は配置済みモジュールを個別マニフェストで照会する。
-// companion pack の版数は取得しない（フォールバックは本体版数の主判定のみ）。
-func (s *Service) fetchModulesIndexFallback(ctx context.Context, tok string) (map[string]moduleIndexEntry, error) {
-	query := fmt.Sprintf("?os=%s&arch=%s", runtime.GOOS, runtime.GOARCH)
-	out := map[string]moduleIndexEntry{}
-	for _, id := range s.moduleIDs {
-		target, ok := s.modules[id]
-		if !ok {
-			continue
-		}
-		if _, statErr := os.Stat(target.InstallPath); statErr != nil {
-			continue
-		}
-		manifest, err := s.fetchModuleManifest(ctx, tok, id, query)
-		if errors.Is(err, ErrModuleUnavailable) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		payload := manifest
-		payload.Sig = ""
-		canonical, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.verifySig(canonical, manifest.Sig); err != nil {
-			return nil, fmt.Errorf("sponsor: module manifest verification failed: %w", err)
-		}
-		out[id] = moduleIndexEntry{
-			ID:            id,
-			Version:       manifest.Version,
-			MinAppVersion: manifest.MinAppVersion,
-			MaxAppVersion: manifest.MaxAppVersion,
-		}
+func companionPackVersion(entry *dlModuleEntry) string {
+	if entry.CompanionPack == nil {
+		return ""
 	}
-	return out, nil
+	return entry.CompanionPack.Version
 }
 
-// legacyUpdateCheck はレシート無し環境の更新判定（exe の SHA-256 実測と
-// 個別マニフェストの SHA256 照合）。判定不能は「更新なし」へ倒す。
-// companion pack はレシートが無いと版数比較できないため、配布があれば更新あり扱い。
-func (s *Service) legacyUpdateCheck(
-	ctx context.Context, tok, moduleID, installPath string, idx moduleIndexEntry,
-) (hasUpdate, packUpdate bool) {
-	query := fmt.Sprintf("?os=%s&arch=%s", runtime.GOOS, runtime.GOARCH)
-	manifest, err := s.fetchModuleManifest(ctx, tok, moduleID, query)
+// companionPackOutdated は付属パックの版がレシートと違うかを返す。レシートが無い旧環境は
+// 版数比較できないため、配布があれば更新あり扱い。
+func companionPackOutdated(receipt moduleReceipt, receiptOK bool, entry *dlModuleEntry) bool {
+	latest := companionPackVersion(entry)
+	if latest == "" {
+		return false
+	}
+	if !receiptOK {
+		return true
+	}
+	return receipt.CompanionPack == nil || receipt.CompanionPack.Version != latest
+}
+
+// installedDiffers はレシート無し旧環境の更新判定（exe の SHA-256 実測と一覧ファイルの
+// ハッシュ値の照合）。判定不能は「更新なし」へ倒す。
+func (s *Service) installedDiffers(target ModuleTarget, file *dlModuleFile) bool {
+	if file == nil {
+		return false
+	}
+	sum, err := fileSHA256(target.InstallPath)
 	if err != nil {
-		return false, false
+		return false
 	}
-	payload := manifest
-	payload.Sig = ""
-	canonical, err := json.Marshal(payload)
-	if err != nil {
-		return false, false
-	}
-	if err := s.verifySig(canonical, manifest.Sig); err != nil {
-		return false, false
-	}
-	sum, err := fileSHA256(installPath)
-	if err != nil {
-		return false, false
-	}
-	return !strings.EqualFold(sum, manifest.SHA256), idx.CompanionPackVersion != ""
+	return !strings.EqualFold(sum, file.SHA256)
 }
 
 // fileSHA256 はファイルの SHA-256（hex 小文字）を返す。
@@ -711,6 +480,7 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// moduleResponseError は entitlement サーバーの HTTP ステータスをエラーへ変換する。
 func moduleResponseError(status int) error {
 	switch {
 	case status == http.StatusOK:

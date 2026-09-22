@@ -51,6 +51,10 @@ export interface CharacterTagInfo {
     tags: string[];
     /** default 表情のアイコン URL（キャラカード用。無ければ null） */
     iconUrl: string | null;
+    /** セッションの一時キャラクターから登録されたキャラクターだけが持つ一時キャラ ID */
+    tempCharacterId?: string;
+    /** 同上。フォルダ名に使えない文字を置き換える前の元のキャラクター名 */
+    originalName?: string;
 }
 
 export interface CharacterFilters {

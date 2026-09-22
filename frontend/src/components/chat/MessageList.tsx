@@ -32,11 +32,13 @@ import { getTTSConfig } from '../../api/tts';
 import type { TTSAudioIndex } from '../../api/tts';
 import type { TTSNotice } from './useTTSReading';
 import axiosLib from '../../lib/axios';
-import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment, getComfyUIConfig, testComfyUIConnection } from '../../api/comfyui';
+import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, deleteImageAttachment, getComfyUIConfig, testComfyUIConnection, getApiServiceBalance } from '../../api/comfyui';
+import type { ApiServiceId } from '../../api/comfyui';
 import type { ImageAttachment } from '../../api/comfyui';
+import { SoundEffectsSummary } from '../comfyui/apiservice/SoundEffectsSummary';
 import { FEATURE_ACTION_CHOICE, FEATURE_COMFYUI, isFeatureEnabled } from '../../constants/features';
 import { Toast, useToast } from '../common/Toast';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { resolveBackendError, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import {
     ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE,
     CHAT_INPUT_I18N_KEYS,
@@ -102,6 +104,8 @@ interface MessageListProps {
     getTTSPresetVoiceDesign?: () => Record<string, { mode: 'append' | 'replace'; text: string }> | undefined;
     // 文体指示の対応絵文字一覧（Chat が起動時に取得して配布）。表示から常時除去する。
     ttsEmojiList?: string[];
+    // 自動画像生成の対象外キャラクター名（TURN の character 名）。Chat が現セッション設定から供給。
+    getAutoImageExcludedCharacters?: () => ReadonlySet<string>;
 }
 
 /**
@@ -579,7 +583,8 @@ const MessageItem = React.memo<MessageItemProps>(({
     return (
         <div
             data-msg-id={msg.id}
-            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} relative z-[1]`}
+            data-msg-last={isLast ? 'true' : undefined}
+            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} relative z-[1] scroll-mt-4`}
         >
             {/* ファイル参照 (バブル外) */}
             {files.length > 0 && (
@@ -1263,6 +1268,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     ttsEnabled = false,
     ttsEmojiList = [],
     getTTSPresetVoiceDesign,
+    getAutoImageExcludedCharacters,
     onSelectChoice
 }) => {
     const t = (key: string) => resolveMessage(
@@ -1453,11 +1459,24 @@ export const MessageList: React.FC<MessageListProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messages, ttsEnabled, backendUrl]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
-
-    useEffect(scrollToBottom, [messages]);
+    // 最後がAI応答ならその先頭へ、それ以外（自分の送信直後など）は末尾へスクロールする。
+    // 応答の受信後はID付与のための履歴再読み込みで messages が再度変わるため、
+    // セッション・件数・本文のいずれかが変わったときだけ先頭へ動かし、読んでいる途中の引き戻しを防ぐ。
+    const lastAgentScrollRef = useRef<{ sessionId: string | null | undefined; count: number; content: string } | null>(null);
+    useEffect(() => {
+        const last = messages[messages.length - 1];
+        if (last?.role !== 'agent') {
+            lastAgentScrollRef.current = null;
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+        const prev = lastAgentScrollRef.current;
+        if (prev && prev.sessionId === sessionId && prev.count === messages.length && prev.content === last.content) return;
+        lastAgentScrollRef.current = { sessionId, count: messages.length, content: last.content };
+        containerRef.current
+            ?.querySelector('[data-msg-last="true"]')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [messages, sessionId]);
 
     useEffect(() => {
         onActiveBackgroundChange?.(useChatAreaBackground ? activeBackgroundUrl : null);
@@ -1704,7 +1723,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                     return;
                 } else if (status === 'error') {
                     console.error('[Frontend] Image-generate job failed:', error);
-                    showToast(error || t(MESSAGE_LIST_I18N_KEYS.imageGenerateFailed));
+                    showToast(resolveBackendError(uiCatalog, error) || t(MESSAGE_LIST_I18N_KEYS.imageGenerateFailed));
                     return;
                 } else if (status === 'canceled') {
                     // キャンセル済みジョブはタイムアウトまで回さず即終了する（04調査 中#3）。
@@ -1752,6 +1771,9 @@ export const MessageList: React.FC<MessageListProps> = ({
     // 完了待ちは TURN ごとに並行させる。
     const autoImageArmedRef = useRef(false);
     const prevImageLoadingRef = useRef(isLoading);
+    // 発火時点の会話設定を読むため、最新の供給関数を ref で保持する（effect の依存に入れない）。
+    const getAutoImageExcludedCharactersRef = useRef(getAutoImageExcludedCharacters);
+    getAutoImageExcludedCharactersRef.current = getAutoImageExcludedCharacters;
     useEffect(() => {
         if (prevImageLoadingRef.current && !isLoading) {
             autoImageArmedRef.current = true;
@@ -1772,23 +1794,39 @@ export const MessageList: React.FC<MessageListProps> = ({
         if (!last.id) return; // 履歴再読み込みによる ID 付与を待つ（フラグ維持）
         autoImageArmedRef.current = false;
         const messageId = last.id;
-        const content = last.content;
+        // キャラクター毎に対象外へ設定された TURN は予約しない（従来形式の character 無し TURN は対象）。
+        // 対象の TURN が一つも無ければ、死活チェックもトーストも行わない。
+        const excludedCharacters = getAutoImageExcludedCharactersRef.current?.() ?? new Set<string>();
+        const targetTurns = parseMultiCharacterResponse(last.content)
+            .filter(turn => !turn.character || !excludedCharacters.has(turn.character));
+        if (targetTurns.length === 0) return;
         void (async () => {
             // トグルはドロワーで随時変わるため、発火のたびに現在値を確認する。
             // 設定が読めない（連携モジュール未稼働など）ときは静かに何もしない。
             let connectionUrl = '';
+            let useApiService = false;
+            let apiService: ApiServiceId = 'novelai';
             try {
                 const cfg = await getComfyUIConfig(backendUrl);
                 if (!cfg.autoGenerateEnabled) return;
                 connectionUrl = (cfg.connectionUrl || '').trim();
+                useApiService = cfg.imageBackend === 'api';
+                apiService = (cfg.apiService as ApiServiceId) || 'novelai';
             } catch (error) {
                 console.error('[MessageList] auto image generate config check failed:', error);
                 return;
             }
             if (disposedRef.current) return;
-            // 死活チェック（接続先が未設定、または応答が無ければ予約しない）
+            // 死活チェック（選択中のバックエンドに応じて分岐。応答が無ければ予約しない）。
+            // API サービスはアカウント情報の取得で確かめる（トークン未設定・接続不可はここで止まる）。
             let alive = false;
-            if (connectionUrl) {
+            if (useApiService) {
+                try {
+                    alive = (await getApiServiceBalance(backendUrl, apiService)).success;
+                } catch (error) {
+                    console.error('[MessageList] auto image generate api service check failed:', error);
+                }
+            } else if (connectionUrl) {
                 try {
                     alive = (await testComfyUIConnection(backendUrl, connectionUrl)).success;
                 } catch (error) {
@@ -1797,13 +1835,13 @@ export const MessageList: React.FC<MessageListProps> = ({
             }
             if (disposedRef.current) return;
             if (!alive) {
-                showToast(t(MESSAGE_LIST_I18N_KEYS.imageAutoSkipped));
+                showToast(t(useApiService ? MESSAGE_LIST_I18N_KEYS.imageAutoSkippedApi : MESSAGE_LIST_I18N_KEYS.imageAutoSkipped));
                 return;
             }
             // 各 TURN へ上から順に投入。二重投入・409 の TURN は飛ばし、
             // それ以外の投入失敗は残りを打ち切る（ComfyUI 側が途中で落ちた場合に積み続けないため）。
             try {
-                for (const turn of parseMultiCharacterResponse(content)) {
+                for (const turn of targetTurns) {
                     if (disposedRef.current) return;
                     const jobId = await submitGenerate(messageId, turn.turnId, turn.index);
                     if (jobId === null) continue;
@@ -2181,6 +2219,29 @@ export const MessageList: React.FC<MessageListProps> = ({
                             <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-200 font-mono">
                                 {expandedAttachment.resolvedPrompt?.positive || t(MESSAGE_LIST_I18N_KEYS.noSavedPositivePrompt)}
                             </pre>
+                            {/* API サービス生成の注意（無料枠超過・日本語・参照画像無視・人数超過など）と生成条件 */}
+                            {expandedAttachment.warnings && expandedAttachment.warnings.length > 0 && (
+                                <div className="mt-3 rounded border border-amber-700/60 bg-amber-900/30 px-3 py-2 text-xs text-amber-200 space-y-0.5">
+                                    <p className="font-medium">{t(MESSAGE_LIST_I18N_KEYS.imageWarnings)}</p>
+                                    {expandedAttachment.warnings.map((key) => <p key={key}>{t(key)}</p>)}
+                                </div>
+                            )}
+                            {/* 生成へ指定した効果音（種別が無い画像＝判定なし・古い画像では何も出ない） */}
+                            <SoundEffectsSummary
+                                soundEffects={expandedAttachment.soundEffects}
+                                status={expandedAttachment.soundEffectsStatus}
+                                uiCatalog={uiCatalog}
+                                className="mt-3"
+                            />
+                            {expandedAttachment.backend === 'api' && (
+                                <div className="mt-3 text-xs text-gray-400 space-y-0.5">
+                                    <p className="font-medium text-gray-300">{t(MESSAGE_LIST_I18N_KEYS.imageGenerationInfo)}</p>
+                                    {expandedAttachment.model && <p>Model: <span className="text-gray-200">{expandedAttachment.model}</span></p>}
+                                    {expandedAttachment.presetName && <p>Preset: <span className="text-gray-200">{expandedAttachment.presetName}</span></p>}
+                                    {expandedAttachment.seed !== undefined && <p>Seed: <span className="text-gray-200">{expandedAttachment.seed}</span></p>}
+                                    {expandedAttachment.anlasEstimated !== undefined && <p>Anlas: <span className="text-gray-200">{expandedAttachment.anlasEstimated}</span></p>}
+                                </div>
+                            )}
                         </div>
                     )}
                     {/* 削除確認モーダル */}

@@ -15,6 +15,7 @@ import { EmotionImageTab } from './EmotionImageTab';
 import { ImageGenTab } from './ImageGenTab';
 import { VoiceTab } from './VoiceTab';
 import { LinkedSettingsTab } from './LinkedSettingsTab';
+import type { AppearancePromptHandle } from '../../../hooks/useAppearancePromptGen';
 
 type AuxSection = 'emotion' | 'imageGen' | 'voice' | 'linked';
 
@@ -22,11 +23,15 @@ interface Props {
     backendUrl: string;
     /** 開いているキャラクターのディレクトリ名。未保存キャラは null */
     dirName: string | null;
+    /** 開いている設定ファイル名（容姿プロンプト作成の対象）。未保存キャラは null */
+    fileName?: string | null;
     imageGenEnabled: boolean;
     ttsEnabled: boolean;
     uiCatalog?: I18NCatalog | null;
     /** いずれかの区画に未保存変更があるかの通知 */
     onDirtyChange?: (dirty: boolean) => void;
+    /** 容姿プロンプト作成の小窓の状態（Hub が持つ） */
+    appearancePrompt?: AppearancePromptHandle;
 }
 
 const Section: React.FC<{
@@ -55,7 +60,7 @@ const Section: React.FC<{
     </div>
 );
 
-export const CharacterAuxPanel: React.FC<Props> = ({ backendUrl, dirName, imageGenEnabled, ttsEnabled, uiCatalog = null, onDirtyChange }) => {
+export const CharacterAuxPanel: React.FC<Props> = ({ backendUrl, dirName, fileName = null, imageGenEnabled, ttsEnabled, uiCatalog = null, onDirtyChange, appearancePrompt }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, CONFIG_EDITOR_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key);
     const [dirtySections, setDirtySections] = useState<Record<AuxSection, boolean>>({ emotion: false, imageGen: false, voice: false, linked: false });
     const [openSections, setOpenSections] = useState<Record<AuxSection, boolean>>({ emotion: true, imageGen: false, voice: false, linked: false });
@@ -106,9 +111,11 @@ export const CharacterAuxPanel: React.FC<Props> = ({ backendUrl, dirName, imageG
                     <ImageGenTab
                         backendUrl={backendUrl}
                         dirName={dirName}
+                        fileName={fileName}
                         active
                         uiCatalog={uiCatalog}
                         onDirtyChange={markDirty('imageGen')}
+                        appearancePrompt={appearancePrompt}
                     />
                 </Section>
             )}

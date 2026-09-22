@@ -7,7 +7,19 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Trash2, Save, Loader2, Users, Sparkles, Shirt, RefreshCw } from 'lucide-react';
-import type { CharacterImageGenConfig, TriggerWordFormat } from '../../../api/comfyui';
+import type { ApiServiceId, CharacterImageGenConfig, DanbooruTagFormat, ImageBackend, ReferenceImage, TriggerWordFormat } from '../../../api/comfyui';
+import { IdentityOutputPreview } from '../IdentityOutputPreview';
+import {
+    addCharacterReferenceImage,
+    deleteCharacterReferenceImage,
+    emptyCharacterApiServiceConfig,
+    forgetAuthedUrl,
+    getCharacterReferenceImageUrl,
+    getComfyUIConfig,
+} from '../../../api/comfyui';
+import { CharacterApiServiceFields } from '../apiservice/CharacterApiServiceFields';
+import { normalizeApiService, normalizeImageBackend } from '../apiservice/services';
+import { useApiReferenceDisabledNote } from '../apiservice/useApiReferenceSupport';
 import type { CharacterTagInfo } from '../../../api/files';
 import { createComfyUIText } from '../i18n';
 import type { I18NCatalog } from '../../../api/i18n';
@@ -15,6 +27,8 @@ import { formatTriggerLine, appendTriggerLineDedup } from '../danbooru-format';
 import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
 import { LoraStrengthInput } from '../LoraStrengthInput';
 import { withTrailingEmptyLora } from '../loraEntries';
+import { AppearancePromptPanel } from '../AppearancePromptPanel';
+import type { AppearancePromptHandle, AppearanceTarget } from '../../../hooks/useAppearancePromptGen';
 
 interface Props {
     // キャラクター選択ドロップダウン用。hideCharacterSelector のときは不要
@@ -39,6 +53,25 @@ interface Props {
     onFetchTriggerWords: (loraName: string) => Promise<{ words: string[]; lines: string[] } | null>;
     triggerWordFormat?: TriggerWordFormat;
     uiCatalog?: I18NCatalog | null;
+    // キャラクター容姿プロンプト作成（小窓の状態は親の Hub が持つ）。無ければボタンを出さない。
+    appearancePrompt?: AppearancePromptHandle;
+    // 容姿分析の対象（フォルダ名・設定ファイル名・表示名）。null なら押せない。
+    appearanceTarget?: AppearanceTarget | null;
+    backendUrl?: string;
+    // 画像生成バックエンドの選択（内部タブの初期値）。親が全画面共用の値を持っていれば渡し、
+    // 無ければこのセクションが設定を読んで決める。
+    imageBackend?: ImageBackend;
+    apiService?: ApiServiceId;
+    // 参照画像の登録・削除に使うキャラ設定フォルダ名。無ければ参照画像欄を出さない。
+    characterDirName?: string;
+    // 参照画像が使えないモデルのときの注記（無効表示）。指定が無ければこのセクションが判定する。
+    referenceDisabledNote?: string;
+    // 変わるたびに参照画像の可否を読み直す印（使用モデルの切り替え後など）。
+    referenceRefreshKey?: unknown;
+    // 参照画像の登録・削除のあと、親が設定を読み直すための口。
+    onReloadConfig?: () => Promise<void>;
+    // ComfyUI 用の Danbooru タグ形式。親が持っていれば渡す（無ければ出力表示が保存済みの設定を読む）。
+    danbooruTagFormat?: DanbooruTagFormat;
 }
 
 const createEmptyLora = () => ({ name: '', strengthModel: 1.0, strengthClip: 1.0 });
@@ -62,9 +95,52 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     onFetchTriggerWords,
     triggerWordFormat = 'raw',
     uiCatalog = null,
+    appearancePrompt,
+    appearanceTarget = null,
+    backendUrl = '',
+    imageBackend,
+    apiService,
+    characterDirName,
+    referenceDisabledNote,
+    referenceRefreshKey,
+    onReloadConfig,
+    danbooruTagFormat,
 }) => {
     const { CHARACTER, LORA, TRIGGER_WORDS, COMMON } = createComfyUIText(uiCatalog);
     // ===== ローカルstate =====
+    // 内部タブ（ComfyUI 用 / API サービス用）。開いたときは全画面共用の選択に従う。
+    const [tab, setTab] = useState<ImageBackend>(imageBackend ?? 'comfyui');
+    const [service, setService] = useState<ApiServiceId>(apiService ?? 'novelai');
+    useEffect(() => {
+        if (imageBackend !== undefined) {
+            setTab(imageBackend);
+            setService(apiService ?? 'novelai');
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const cfg = await getComfyUIConfig(backendUrl);
+                if (cancelled) return;
+                setTab(normalizeImageBackend(cfg.imageBackend));
+                setService(normalizeApiService(cfg.apiService));
+            } catch { /* 読めなければ ComfyUI 用タブのまま */ }
+        })();
+        return () => { cancelled = true; };
+    }, [imageBackend, apiService, backendUrl]);
+    const apiConfig = config.apiService?.[service] ?? emptyCharacterApiServiceConfig();
+    // 親から注記が来なければ、全体の設定で選ばれている使用モデルで参照画像の可否を判定する。
+    const autoReferenceNote = useApiReferenceDisabledNote(backendUrl, service, tab === 'api' && referenceDisabledNote === undefined, uiCatalog, {
+        refreshKey: referenceRefreshKey,
+    });
+    const effectiveReferenceNote = referenceDisabledNote ?? autoReferenceNote;
+    const updateApiConfig = useCallback((next: typeof apiConfig) => {
+        onUpdateConfig('apiService', { ...(config.apiService ?? {}), [service]: next });
+    }, [config.apiService, service, onUpdateConfig]);
+    const referenceImageUrl = useCallback(
+        (ref: ReferenceImage) => getCharacterReferenceImageUrl(backendUrl, characterDirName ?? '', service, ref.id),
+        [backendUrl, characterDirName, service]
+    );
     const [searchQuery, setSearchQuery] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -170,6 +246,24 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
         newLora[loraIdx] = { ...newLora[loraIdx], triggerWords: appendTriggerLineDedup(current, line, triggerWordFormat) };
         onUpdateConfig('lora', newLora);
     }, [config.lora, triggerWordFormat, onUpdateConfig]);
+
+    // 容姿プロンプト小窓の「追加」：タグ行をキャラクタープロンプト欄の末尾へ追記（ワード単位で重複除去）。
+    // 書き込み先は開いているタブ側。
+    const appendAppearanceLine = useCallback((line: string) => {
+        if (tab === 'api') {
+            updateApiConfig({ ...apiConfig, characterPrompt: appendTriggerLineDedup(apiConfig.characterPrompt || '', line, 'space') });
+            return;
+        }
+        onUpdateConfig('characterPrompt', appendTriggerLineDedup(config.characterPrompt || '', line, triggerWordFormat));
+    }, [tab, apiConfig, updateApiConfig, config.characterPrompt, triggerWordFormat, onUpdateConfig]);
+
+    const openAppearancePrompt = () => {
+        if (!appearancePrompt || !appearanceTarget) return;
+        appearancePrompt.open(appearanceTarget, tab === 'api'
+            ? { characterPrompt: apiConfig.characterPrompt || '', physicalFeatures: apiConfig.physicalFeatures || '' }
+            : { characterPrompt: config.characterPrompt || '', physicalFeatures: config.physicalFeatures || '' });
+    };
+    const canOpenAppearancePrompt = !!appearancePrompt && !!appearanceTarget && !appearancePrompt.running;
 
     // 服装操作
     const updateOutfit = (outfitIndex: number, field: keyof CharacterImageGenConfig['outfits'][number], value: any) => {
@@ -319,6 +413,14 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 />
                             </div>
                         </div>
+                        <IdentityOutputPreview
+                            backendUrl={backendUrl}
+                            active={!!selectedCharacter}
+                            characterName={config.characterName}
+                            workName={config.workName}
+                            danbooruTagFormat={danbooruTagFormat}
+                            uiCatalog={uiCatalog}
+                        />
                     </div>
 
                     {/* エイリアス */}
@@ -339,12 +441,81 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                         <p className="text-xs text-gray-600">{CHARACTER.HELP.ALIASES_DESC}</p>
                     </div>
 
+                    {/* 内部タブ: プロンプト系は ComfyUI 用 / API サービス用で別の値を持つ */}
+                    <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-1" role="tablist">
+                        {([
+                            { value: 'comfyui', label: CHARACTER.LABELS.BACKEND_TAB_COMFYUI },
+                            { value: 'api', label: CHARACTER.LABELS.BACKEND_TAB_API },
+                        ] as { value: ImageBackend; label: string }[]).map((t) => (
+                            <button
+                                key={t.value}
+                                type="button"
+                                role="tab"
+                                aria-selected={tab === t.value}
+                                onClick={() => setTab(t.value)}
+                                className={`flex-1 px-3 py-1.5 text-sm rounded transition-colors ${
+                                    tab === t.value ? 'bg-pink-700 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                }`}
+                            >
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {tab === 'api' ? (
+                        <CharacterApiServiceFields
+                            uiCatalog={uiCatalog}
+                            value={apiConfig}
+                            onChange={updateApiConfig}
+                            description={CHARACTER.HELP.API_PROMPT_DESC}
+                            promptAction={appearancePrompt && (
+                                <button
+                                    type="button"
+                                    onClick={openAppearancePrompt}
+                                    disabled={!canOpenAppearancePrompt}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-pink-900/60 hover:bg-pink-800/70 text-pink-200 border border-pink-700/60 disabled:opacity-40 transition-colors"
+                                >
+                                    <Sparkles size={12} />
+                                    {CHARACTER.BUTTONS.APPEARANCE_PROMPT}
+                                </button>
+                            )}
+                            referenceImages={characterDirName ? {
+                                imageUrl: referenceImageUrl,
+                                onAdd: async (file) => {
+                                    // 登録はサーバー側が設定ファイルを書くため、未保存の編集があれば先に保存する。
+                                    if (isDirty) await onSave();
+                                    await addCharacterReferenceImage(backendUrl, characterDirName, service, file, { kind: 'character', strength: 0.6, fidelity: 0.5 });
+                                    await onReloadConfig?.();
+                                },
+                                onRemove: async (id) => {
+                                    if (isDirty) await onSave();
+                                    forgetAuthedUrl(getCharacterReferenceImageUrl(backendUrl, characterDirName, service, id));
+                                    await deleteCharacterReferenceImage(backendUrl, characterDirName, service, id);
+                                    await onReloadConfig?.();
+                                },
+                                disabledNote: effectiveReferenceNote,
+                            } : undefined}
+                        />
+                    ) : (<>
                     {/* キャラクタープロンプト */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">
-                            {CHARACTER.LABELS.CHARACTER_PROMPT}
-                            <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
-                        </label>
+                        <div className="flex items-center justify-between gap-2">
+                            <label className="text-sm font-medium text-gray-400">
+                                {CHARACTER.LABELS.CHARACTER_PROMPT}
+                                <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
+                            </label>
+                            {appearancePrompt && (
+                                <button
+                                    type="button"
+                                    onClick={openAppearancePrompt}
+                                    disabled={!canOpenAppearancePrompt}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-pink-900/60 hover:bg-pink-800/70 text-pink-200 border border-pink-700/60 disabled:opacity-40 transition-colors"
+                                >
+                                    <Sparkles size={12} />
+                                    {CHARACTER.BUTTONS.APPEARANCE_PROMPT}
+                                </button>
+                            )}
+                        </div>
                         <textarea
                             value={config.characterPrompt}
                             onChange={(e) => onUpdateConfig('characterPrompt', e.target.value)}
@@ -712,6 +883,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
                         />
                     </div>
+                    </>)}
 
                     {/* 保存ボタン */}
                     <div className="flex items-center justify-between pt-2 border-t border-gray-700/50">
@@ -734,6 +906,16 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                 </>
             ) : (
                 <p className="text-sm text-gray-600 text-center py-4">{CHARACTER.MESSAGES.SELECT_CHARACTER}</p>
+            )}
+            {appearancePrompt && (
+                <AppearancePromptPanel
+                    backendUrl={backendUrl}
+                    handle={appearancePrompt}
+                    isDirty={isDirty}
+                    triggerWordFormat={triggerWordFormat}
+                    onAppendLine={appendAppearanceLine}
+                    uiCatalog={uiCatalog}
+                />
             )}
         </div>
     );

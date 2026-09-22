@@ -10,16 +10,20 @@ import { IntegratedCharacterSection } from '../../comfyui/integrated/IntegratedC
 import { useCharacterImageGenEditor } from '../../comfyui/useCharacterImageGenEditor';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { CONFIG_EDITOR_I18N_KEYS, CONFIG_EDITOR_TEXT_FALLBACK_JA } from '../../../constants/i18n';
+import type { AppearancePromptHandle } from '../../../hooks/useAppearancePromptGen';
 
 interface Props {
     backendUrl: string;
     dirName: string;
+    /** 開いている設定ファイル名（容姿プロンプト作成の対象）。無ければボタンは押せない */
+    fileName?: string | null;
     active: boolean;
     uiCatalog?: I18NCatalog | null;
     onDirtyChange?: (dirty: boolean) => void;
+    appearancePrompt?: AppearancePromptHandle;
 }
 
-export const ImageGenTab: React.FC<Props> = ({ backendUrl, dirName, active, uiCatalog = null, onDirtyChange }) => {
+export const ImageGenTab: React.FC<Props> = ({ backendUrl, dirName, fileName = null, active, uiCatalog = null, onDirtyChange, appearancePrompt }) => {
     const editor = useCharacterImageGenEditor(backendUrl, dirName, active);
     const t = (key: string) => resolveMessage(uiCatalog, key, CONFIG_EDITOR_TEXT_FALLBACK_JA[key] || key);
 
@@ -44,6 +48,11 @@ export const ImageGenTab: React.FC<Props> = ({ backendUrl, dirName, active, uiCa
             onFetchTriggerWords={editor.fetchTriggerWords}
             triggerWordFormat={editor.triggerWordFormat}
             uiCatalog={uiCatalog}
+            backendUrl={backendUrl}
+            appearancePrompt={appearancePrompt}
+            appearanceTarget={fileName ? { dirName, fileName, displayName: fileName } : null}
+            characterDirName={dirName}
+            onReloadConfig={editor.reload}
         />
     );
 };

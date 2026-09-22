@@ -12,9 +12,13 @@ import {
     getTagCategories,
     getTagMapping,
     generateImage,
+    generateApiServiceTest,
+    imageDataUrlFromBase64,
     getComfyUIConfig,
     saveComfyUIConfig,
     listPlaceholderPresets,
+    listApiServicePresets,
+    tagTargetsOf,
 } from '../../../api/comfyui';
 import type {
     TagCategory,
@@ -23,10 +27,14 @@ import type {
     CharacterImageGenConfig,
     PlaceholderPreset,
     PlaceholderEntry,
+    ImageBackend,
+    NovelAIPreset,
 } from '../../../api/comfyui';
 import type { CharacterTagInfo } from '../../../api/files';
-import { createComfyUIText } from '../i18n';
-import type { I18NCatalog } from '../../../api/i18n';
+import { createComfyUIText, formatComfyText } from '../i18n';
+import { resolveBackendError, type I18NCatalog } from '../../../api/i18n';
+import { normalizeApiService, normalizeImageBackend } from '../apiservice/services';
+import { ApiGenerateResultDetails } from '../apiservice/ApiGenerateResultDetails';
 import { ToggleSwitch } from '../../common/ToggleSwitch';
 import { PlaceholderEntriesEditor } from '../PlaceholderEntriesEditor';
 import { PlaceholderPresetModal } from '../PlaceholderPresetModal';
@@ -35,23 +43,30 @@ interface Props {
     backendUrl: string;
     // 使用ワークフロー（ワークフロー選択セクションで選択されたテンプレート名）
     selectedTemplate: string;
+    // API サービスで使う生成プリセット名（親が持っていれば渡す。無ければこのセクション内で選ぶ）
+    selectedPreset?: string;
     useLeftCharacter: boolean;
     onToggleUseLeftCharacter: () => void;
     leftCharacterName: string;
     leftCharConfig: CharacterImageGenConfig;
     characters: CharacterTagInfo[];
     uiCatalog?: I18NCatalog | null;
+    // 親の都合で生成を押せなくする（使用モデルの保存中など。表示のモデルと生成のモデルを食い違わせない）
+    generateDisabled?: boolean;
 }
 
 // placeholderEntriesToRecord はエントリ配列を directReplacements（変換元→変換先）へ
-// 変換する。有効な行が無ければ undefined（リクエストにキー自体を載せない）。
-const placeholderEntriesToRecord = (entries: PlaceholderEntry[]): Record<string, string> | undefined => {
+// 変換する。適用先チェックが backend に付いていない行は外す。有効な行が無ければ
+// undefined（リクエストにキー自体を載せない）。
+const placeholderEntriesToRecord = (entries: PlaceholderEntry[], backend: ImageBackend): Record<string, string> | undefined => {
     const out: Record<string, string> = {};
     let found = false;
     for (const entry of entries) {
         const from = entry.from.trim();
         const to = entry.to.trim();
         if (!from || !to) continue;
+        const targets = tagTargetsOf(entry);
+        if (backend === 'api' ? !targets.api : !targets.comfyui) continue;
         out[from] = to;
         found = true;
     }
@@ -61,14 +76,25 @@ const placeholderEntriesToRecord = (entries: PlaceholderEntry[]): Record<string,
 export const IntegratedGenerateTestSection: React.FC<Props> = ({
     backendUrl,
     selectedTemplate,
+    selectedPreset,
     useLeftCharacter,
     onToggleUseLeftCharacter,
     leftCharacterName,
     leftCharConfig: _leftCharConfig,
     characters,
     uiCatalog = null,
+    generateDisabled = false,
 }) => {
     const { SECTION_NAMES, INTEGRATED, CHARACTER, GENERATE_TEST, COMMON, PLACEHOLDER_PRESET } = createComfyUIText(uiCatalog);
+    // 画像生成バックエンド（全画面共用の選択）。API サービスでは生成プリセットを使う。
+    const [imageBackend, setImageBackend] = useState<ImageBackend>('comfyui');
+    const [apiPresets, setApiPresets] = useState<NovelAIPreset[]>([]);
+    const [ownPreset, setOwnPreset] = useState('');
+    const [intermediateStep, setIntermediateStep] = useState<number | null>(null);
+    // その回の生成にだけ使う追加プロンプト（API サービス用のテスト生成のみ）
+    const [extraPrompt, setExtraPrompt] = useState('');
+    const isApi = imageBackend === 'api';
+    const effectivePreset = selectedPreset ?? ownPreset;
     // 独立キャラクター選択（トグルOFF時）
     const [selectedCharacter, setSelectedCharacter] = useState('');
     const [isCharDropdownOpen, setIsCharDropdownOpen] = useState(false);
@@ -138,6 +164,17 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                 ]);
                 setPlaceholderPresets(list);
                 setSelectedPresetName(config.placeholderPresetName || '');
+                const backend = normalizeImageBackend(config.imageBackend);
+                setImageBackend(backend);
+                if (backend === 'api') {
+                    try {
+                        const presets = await listApiServicePresets(backendUrl, normalizeApiService(config.apiService));
+                        setApiPresets(presets);
+                        setOwnPreset(prev => (prev && presets.some(p => p.name === prev)) ? prev : (config.apiPresetDefault || presets[0]?.name || ''));
+                    } catch (e) {
+                        console.error('[IntegratedGenerateTestSection] api presets load failed:', e);
+                    }
+                }
             } catch (e) {
                 console.error('[IntegratedGenerateTestSection] placeholder preset load failed:', e);
             }
@@ -193,12 +230,13 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
         ? leftCharacterName
         : (charDirectMode ? '' : getCharDirName(selectedCharacter));
 
-    // 生成
+    // 生成（API サービスでは途中経過を受けて画像を差し替え、final で確定する）
     const handleGenerate = useCallback(async () => {
-        if (!selectedTemplate) return;
+        if (!isApi && !selectedTemplate) return;
         setIsGenerating(true);
         setResult(null);
         setGeneratedImage(null);
+        setIntermediateStep(null);
         setIsImagePreviewOpen(false);
         try {
             // 直テキストモードのタグをdirectTagsに収集
@@ -223,7 +261,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             const sourceEntries = placeholderDirectMode
                 ? directEntries
                 : (placeholderPresets.find(p => p.name === selectedPresetName)?.entries || []);
-            const parsedReplacements = placeholderEntriesToRecord(sourceEntries);
+            const parsedReplacements = placeholderEntriesToRecord(sourceEntries, imageBackend);
             const charReplacement: Record<string, string> | undefined =
                 (!useLeftCharacter && charDirectMode && charDirectText.trim())
                     ? { CHARACTER: charDirectText.trim() }
@@ -233,23 +271,36 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                     ? { ...(parsedReplacements || {}), ...(charReplacement || {}) }
                     : undefined;
 
-            const res = await generateImage(backendUrl, {
-                templateName: selectedTemplate,
+            const request = {
+                templateName: isApi ? '' : selectedTemplate,
                 characterName: effectiveCharacterName,
                 tagSelections: filteredTagSelections,
                 ...(Object.keys(directTags).length > 0 ? { directTags } : {}),
                 ...(directReplacements ? { directReplacements } : {}),
-            });
+                ...(isApi ? { presetName: effectivePreset, backend: 'api' as ImageBackend } : {}),
+                // 自由入力は API サービス用のテスト生成の、その回にだけ使う。
+                ...(isApi && extraPrompt.trim() ? { extraPrompt } : {}),
+            };
+            const res = isApi
+                ? await generateApiServiceTest(backendUrl, request, (stepIx, image) => {
+                    setIntermediateStep(stepIx);
+                    setGeneratedImage(imageDataUrlFromBase64(image));
+                })
+                : await generateImage(backendUrl, request);
             setResult(res);
+            setIntermediateStep(null);
             if (res.success && res.imageBase64 && res.mimeType) {
                 setGeneratedImage(`data:${res.mimeType};base64,${res.imageBase64}`);
+            } else if (!res.success) {
+                setGeneratedImage(null);
             }
         } catch (e: any) {
             setResult({ success: false, error: e.message || GENERATE_TEST.MESSAGES.GENERATE_FAILED });
+            setGeneratedImage(null);
         } finally {
             setIsGenerating(false);
         }
-    }, [backendUrl, selectedTemplate, effectiveCharacterName, tagSelections, tagDirectMode, tagDirectTexts, charDirectMode, charDirectText, placeholderDirectMode, directEntries, placeholderPresets, selectedPresetName, useLeftCharacter]);
+    }, [backendUrl, isApi, imageBackend, selectedTemplate, effectivePreset, effectiveCharacterName, tagSelections, tagDirectMode, tagDirectTexts, charDirectMode, charDirectText, placeholderDirectMode, directEntries, placeholderPresets, selectedPresetName, useLeftCharacter, extraPrompt]);
 
     const handleRegenerate = useCallback(() => {
         handleGenerate();
@@ -285,6 +336,23 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                 <Palette size={16} className="text-purple-400" />
                 {SECTION_NAMES.GENERATE_TEST}
             </h3>
+
+            {/* 生成プリセット（API サービスで、親がプリセットを持たないときだけこのセクション内で選ぶ） */}
+            {isApi && selectedPreset === undefined && (
+                <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.PRESET}</label>
+                    <select
+                        value={ownPreset}
+                        onChange={e => setOwnPreset(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
+                    >
+                        <option value="">{GENERATE_TEST.MESSAGES.COMMON_PRESET_OPTION}</option>
+                        {apiPresets.map(p => (
+                            <option key={p.name} value={p.name}>{p.name}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
 
             {/* キャラクター連動トグル */}
             <div className="flex items-center gap-3 p-2 bg-gray-800/50 border border-purple-600/30 rounded-lg">
@@ -481,17 +549,34 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                 )}
             </div>
 
+            {/* 追加プロンプト（自由入力。API サービス用のテスト生成のみ） */}
+            {isApi && (
+                <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-400" htmlFor="integrated-extra-prompt">{GENERATE_TEST.LABELS.EXTRA_PROMPT}</label>
+                    <textarea
+                        id="integrated-extra-prompt"
+                        rows={3}
+                        value={extraPrompt}
+                        onChange={e => setExtraPrompt(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y"
+                    />
+                    <p className="text-xs text-gray-500">{GENERATE_TEST.MESSAGES.EXTRA_PROMPT_DESC}</p>
+                </div>
+            )}
+
             {/* 生成ボタン */}
             <div className="flex items-center gap-2">
                 <button
                     onClick={handleGenerate}
-                    disabled={isGenerating || !selectedTemplate}
+                    disabled={isGenerating || generateDisabled || (!isApi && !selectedTemplate)}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
                 >
                     {isGenerating ? (
                         <>
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                            {GENERATE_TEST.MESSAGES.GENERATING}
+                            {intermediateStep !== null
+                                ? formatComfyText(GENERATE_TEST.MESSAGES.INTERMEDIATE, { step: intermediateStep + 1 })
+                                : GENERATE_TEST.MESSAGES.GENERATING}
                         </>
                     ) : (
                         <>
@@ -503,7 +588,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                 {generatedImage && (
                     <button
                         onClick={handleRegenerate}
-                        disabled={isGenerating}
+                        disabled={isGenerating || generateDisabled}
                         className="flex items-center gap-1 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg text-sm text-gray-300 transition-colors"
                         title={GENERATE_TEST.MESSAGES.RESEED_TOOLTIP}
                     >
@@ -516,7 +601,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             {/* エラー表示 */}
             {result && !result.success && (
                 <div className="bg-red-900/30 border border-red-700 rounded-lg px-3 py-2 text-sm text-red-300">
-                    {result.error}
+                    {resolveBackendError(uiCatalog, result.error)}
                 </div>
             )}
 
@@ -606,21 +691,28 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                 {result.resolvedPrompt.negative || GENERATE_TEST.PLACEHOLDERS.NONE}
                             </div>
                         )}
-                        <button
-                            onClick={() => setShowLoras(!showLoras)}
-                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
-                        >
-                            {showLoras ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                            {GENERATE_TEST.MESSAGES.APPLIED_LORA} ({result.resolvedPrompt.lorasApplied.length}{COMMON.MESSAGES.COUNT_SUFFIX})
-                        </button>
-                        {showLoras && (
-                            <div className="px-3 py-2 text-gray-300 bg-gray-800/30 break-all">
-                                {result.resolvedPrompt.lorasApplied.length > 0
-                                    ? result.resolvedPrompt.lorasApplied.join(', ')
-                                    : GENERATE_TEST.PLACEHOLDERS.NONE}
-                            </div>
+                        {result.backend !== 'api' && (
+                            <>
+                                <button
+                                    onClick={() => setShowLoras(!showLoras)}
+                                    className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
+                                >
+                                    {showLoras ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                    {GENERATE_TEST.MESSAGES.APPLIED_LORA} ({result.resolvedPrompt.lorasApplied.length}{COMMON.MESSAGES.COUNT_SUFFIX})
+                                </button>
+                                {showLoras && (
+                                    <div className="px-3 py-2 text-gray-300 bg-gray-800/30 break-all">
+                                        {result.resolvedPrompt.lorasApplied.length > 0
+                                            ? result.resolvedPrompt.lorasApplied.join(', ')
+                                            : GENERATE_TEST.PLACEHOLDERS.NONE}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
+                    {result.backend === 'api' && (
+                        <ApiGenerateResultDetails result={result} uiCatalog={uiCatalog} />
+                    )}
                 </div>
             )}
         </div>

@@ -61,6 +61,8 @@ func RegisterProxy(mux *http.ServeMux, deps Deps) {
 		requireGate(deps.Gate, handleGenerateFromChat(deps)))
 
 	proxy := &httputil.ReverseProxy{
+		// テスト生成の途中経過（SSE）を溜めずに流すため、応答は受け取り次第書き出す。
+		FlushInterval: -1,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			// Rewrite 時点で target は確定済み（ハンドラ側で nil を弾いている）。
 			pr.SetURL(deps.Module.BaseURL())
@@ -100,6 +102,8 @@ type generateFromChatRequest struct {
 	AITags        map[string]string `json:"aiTags,omitempty"`
 	DirectTags    map[string]string `json:"directTags,omitempty"`
 	SelectedKeys  map[string]string `json:"selectedKeys,omitempty"`
+	// PresetName は API サービスの生成プリセット名（任意。内蔵経路と同じ扱い）。
+	PresetName string `json:"presetName,omitempty"`
 }
 
 type queuedResponse struct {
@@ -167,6 +171,7 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 				TurnIndex:     req.TurnIndex,
 				CharacterName: req.CharacterName,
 				TemplateName:  req.TemplateName,
+				PresetName:    req.PresetName,
 				AITags:        req.AITags,
 				DirectTags:    req.DirectTags,
 				SelectedKeys:  req.SelectedKeys,
