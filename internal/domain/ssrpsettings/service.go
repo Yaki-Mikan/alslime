@@ -26,6 +26,8 @@ var ErrInvalidLang = errors.New(i18n.KeyErrorInvalidLang)
 // Service は SSRP 単一ファイル設定のユースケースを提供する。
 type Service struct {
 	store *storage.Store
+	// messages は現在の表示言語の UI 辞書を返す。nil なら日本語の既定を使う。
+	messages func() map[string]string
 }
 
 // New は Service を生成する。
@@ -33,9 +35,48 @@ func New(store *storage.Store) *Service {
 	return &Service{store: store}
 }
 
-// Relationships は関係性オプションを返す。
+// WithMessages は、関係性ファイルが無いときの初期の選択肢の名前を引く辞書を返す関数を設定する。
+func (s *Service) WithMessages(messages func() map[string]string) *Service {
+	s.messages = messages
+	return s
+}
+
+// defaultRelationships は relation_options.json が無いときに返す初期の関係性オプション
+// （現行 Node 版 core/ssrp.ts の後方互換デフォルトと同じ内容・順序）。
+// 名前は表示言語の辞書で引き、表示名と保存値の両方に使う（AI へ渡る値も表示言語になる）。
+var defaultRelationships = []struct {
+	key string
+	ja  string
+}{
+	{"ssrp.relationOption.default.realMother", "実母"},
+	{"ssrp.relationOption.default.stepMother", "義母"},
+	{"ssrp.relationOption.default.friend", "友人"},
+	{"ssrp.relationOption.default.lover", "恋人"},
+	{"ssrp.relationOption.default.other", "その他"},
+}
+
+// Relationships は関係性オプションを返す。ファイルが無ければ表示言語の初期の選択肢を返す。
 func (s *Service) Relationships() ([]any, error) {
-	return s.store.LoadRelationships()
+	out, found, err := s.store.LoadRelationships()
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return out, nil
+	}
+	var messages map[string]string
+	if s.messages != nil {
+		messages = s.messages()
+	}
+	defaults := make([]any, 0, len(defaultRelationships))
+	for _, d := range defaultRelationships {
+		name := d.ja
+		if v := messages[d.key]; v != "" {
+			name = v
+		}
+		defaults = append(defaults, map[string]any{"label": name, "value": name})
+	}
+	return defaults, nil
 }
 
 // ReplacementConfig は置換設定を返す。

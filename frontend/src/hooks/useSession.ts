@@ -29,8 +29,9 @@ const readStoredSessionId = (): string | null => {
 export interface Session {
     index: number;
     title: string;
-    timeAgo: string;
     id: string;
+    // 最後に更新した日時（ミリ秒）。履歴の画面で月ごとに分けるのに使う
+    timestamp?: number;
     isSSRP?: boolean;
     modelType?: 'gemini' | 'claude' | 'antigravity' | 'openai_compat';
     // 一覧ホバー時のツールチップ表示用（characters / situations は表示名解決済み）
@@ -98,9 +99,7 @@ export const useSession = ({ backendUrl, onSessionChange, onHistoryLoaded, catal
         setIsLoading(true);
         try {
             await axios.post(`${backendUrl}/api/sessions/new`, { ssrpSettings, modelType });
-            const newTitle = ssrpSettings
-                ? uiText(CHAT_VIEW_I18N_KEYS.newSSRPTitle)
-                : uiText(CHAT_VIEW_I18N_KEYS.newSessionTitle);
+            const newTitle = uiText(CHAT_VIEW_I18N_KEYS.newSessionTitle);
             setCurrentSessionTitle(newTitle);
             setCurrentSessionId(null);
 

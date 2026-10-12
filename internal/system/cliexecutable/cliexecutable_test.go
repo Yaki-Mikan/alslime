@@ -97,3 +97,24 @@ func TestAntigravity_設定とAGY_PATHが空ならOSの既定候補を使う(t *
 		})
 	}
 }
+
+func TestAntigravity_既定の配置先に無ければ追加の探索先を使う(t *testing.T) {
+	t.Setenv(config.EnvAntigravityPath, "")
+	home := t.TempDir()
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	var want string
+	if runtime.GOOS == "windows" {
+		// 既定インストール先には置かず、PATH 上の agy.exe だけを置く。
+		t.Setenv("USERPROFILE", home)
+		want = makeExecutable(t, bin, "agy")
+	} else {
+		// PATH には置かず、ホーム配下の .local/bin だけに置く。
+		t.Setenv("HOME", home)
+		want = makeExecutable(t, filepath.Join(home, ".local", "bin"), "agy")
+	}
+	got, err := Antigravity(newSettings(t, ""))()
+	if err != nil || got != want {
+		t.Fatalf("expected %s, got %q (%v)", want, got, err)
+	}
+}

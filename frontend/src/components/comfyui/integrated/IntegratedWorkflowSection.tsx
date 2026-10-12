@@ -1,5 +1,5 @@
 /**
- * IntegratedWorkflowSection.tsx - 統合設定画面用ワークフロー選択セクション
+ * IntegratedWorkflowSection.tsx - ワークフロー選択（表情画像の生成の窓で使う）
  *
  * テスト生成セクションから独立させたワークフロー（テンプレート）選択。
  * - 選択中ワークフローをデフォルトとして保存するボタン
@@ -33,7 +33,7 @@ interface Props {
     uiCatalog?: I18NCatalog | null;
     // 見出し文言の差し替え（未指定なら「テスト生成用ワークフロー」）。表情画像生成では「ワークフロー設定」
     title?: string;
-    // 「デフォルト保存」の保存先を差し替える（未指定なら画像生成統合設定の既定 defaultTemplateId へ保存）。
+    // 「デフォルト保存」の保存先を差し替える（未指定なら会話の画像の既定 defaultTemplateId へ保存）。
     // 表情画像生成は自分の設定へ保存するために使う
     onSaveDefault?: () => Promise<void>;
 }
@@ -78,7 +78,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
         setSaveError(null);
         try {
             if (onSaveDefault) {
-                // 保存先の差し替え（表情画像生成など、統合設定の既定とは別に持つ画面）
+                // 保存先の差し替え（表情画像生成など、会話の画像の既定とは別に持つ画面）
                 await onSaveDefault();
             } else {
                 const config = await getComfyUIConfig(backendUrl);
@@ -193,14 +193,14 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
     );
 
     return (
-        <div className="border border-green-600/40 rounded-lg overflow-hidden bg-gray-800/30">
+        <div className="border border-line-strong rounded-lg overflow-hidden bg-surface">
             {/* 他セクションと同じ開閉ヘッダー（デフォルト開） */}
             <button
                 onClick={() => setIsSectionOpen(!isSectionOpen)}
-                className="w-full flex items-center gap-2 px-4 py-3 bg-gray-800/80 hover:bg-gray-800 text-sm font-semibold text-green-300 transition-colors"
+                className="w-full flex items-center gap-2 px-4 py-3 bg-surface hover:bg-surface text-sm font-semibold text-fg transition-colors"
             >
                 {isSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                <Workflow size={16} className="text-green-400" />
+                <Workflow size={16} className="text-accent" />
                 {title || SECTION_NAMES.TEST_WORKFLOW_SELECT}
             </button>
             {isSectionOpen && (
@@ -212,7 +212,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     <select
                         value={selectedTemplate}
                         onChange={e => onTemplateChange(e.target.value)}
-                        className="flex-1 w-full min-w-0 bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                        className="flex-1 w-full min-w-0 bg-surface border border-accent rounded-lg px-3 py-2 text-sm text-fg focus:border-accent outline-none"
                     >
                         {templates.map(t => (
                             <option key={t.name} value={t.name}>{t.name}</option>
@@ -223,7 +223,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     <button
                         onClick={handleSaveDefault}
                         disabled={!selectedTemplate || isSavingDefault}
-                        className="p-2 text-gray-500 hover:text-green-400 transition-colors disabled:opacity-30"
+                        className="p-2 text-fg-muted hover:text-ok transition-colors disabled:opacity-30"
                         title={COMMON.MESSAGES.SAVE_DEFAULT_TEMPLATE_TOOLTIP}
                     >
                         {isSavingDefault ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
@@ -231,7 +231,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     <button
                         onClick={handleDownload}
                         disabled={!selectedTemplateHasWorkflow || isDownloading}
-                        className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30"
+                        className="p-2 text-fg-muted hover:text-accent transition-colors disabled:opacity-30"
                         title={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
                         aria-label={COMMON.MESSAGES.DOWNLOAD_SELECTED_WORKFLOW_TOOLTIP}
                     >
@@ -240,7 +240,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     <button
                         onClick={handleDelete}
                         disabled={!selectedTemplate}
-                        className="p-2 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30"
+                        className="p-2 text-fg-muted hover:text-danger transition-colors disabled:opacity-30"
                         title={COMMON.MESSAGES.DELETE_SELECTED_TEMPLATE_TOOLTIP}
                     >
                         <Trash2 size={16} />
@@ -248,29 +248,29 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     </div>
                 </div>
             ) : (
-                <p className="text-xs text-gray-600 text-center py-2">
+                <p className="text-xs text-fg-muted text-center py-2">
                     {COMMON.MESSAGES.NO_TEMPLATE}
                 </p>
             )}
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-fg-muted">
                 {COMMON.MESSAGES.WORKFLOW_SELECT_DESC}
             </p>
 
             {/* デフォルト保存の結果表示 */}
             {saveMessage && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-green-900/30 border border-green-700/50 text-green-300">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-ok/10 border border-line-strong text-ok">
                     <CheckCircle size={14} />
                     {saveMessage}
                 </div>
             )}
             {saveError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/40 text-danger">
                     <AlertCircle size={14} />
                     {saveError}
                 </div>
             )}
             {downloadError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/40 text-danger">
                     <AlertCircle size={14} />
                     {downloadError}
                 </div>
@@ -280,7 +280,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
             <CollapsibleSection
                 title={
                     <>
-                        <Upload size={16} className="text-green-400" />
+                        <Upload size={16} className="text-accent" />
                         {SECTION_NAMES.WORKFLOW_IMPORT}
                     </>
                 }
@@ -292,14 +292,14 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     onDrop={handleDrop}
                     onClick={handleClickUpload}
                     className={`relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${isDragOver
-                        ? 'border-green-400 bg-green-900/20'
-                        : 'border-gray-600 hover:border-green-500 hover:bg-gray-800/50'
+                        ? 'border-accent bg-ok/10'
+                        : 'border-line-strong hover:border-accent hover:bg-surface'
                         }`}
                 >
                     {showNameInput ? (
                         // テンプレート名入力
                         <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-                            <p className="text-sm text-gray-300">{COMMON.MESSAGES.TEMPLATE_NAME_REQUIRED}</p>
+                            <p className="text-sm text-fg-muted">{COMMON.MESSAGES.TEMPLATE_NAME_REQUIRED}</p>
                             <input
                                 type="text"
                                 value={newTemplateName}
@@ -311,7 +311,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                                         handleConfirmUpload();
                                     }
                                 }}
-                                className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500"
+                                className="w-full bg-surface border border-line-strong rounded px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                                 placeholder={COMMON.MESSAGES.TEMPLATE_NAME_PLACEHOLDER}
                             />
                             <div className="flex justify-center gap-2">
@@ -320,14 +320,14 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                                         setShowNameInput(false);
                                         setPendingWorkflow(null);
                                     }}
-                                    className="px-4 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                                    className="px-4 py-1.5 text-xs text-fg-muted hover:text-fg transition-colors"
                                 >
                                     {COMMON.BUTTONS.CANCEL}
                                 </button>
                                 <button
                                     onClick={handleConfirmUpload}
                                     disabled={isUploading || !newTemplateName.trim()}
-                                    className="px-4 py-1.5 text-xs bg-green-600 hover:bg-green-500 text-white rounded transition-colors disabled:opacity-50 flex items-center gap-1"
+                                    className="px-4 py-1.5 text-xs bg-accent hover:brightness-110 text-on-accent rounded transition-colors disabled:opacity-50 flex items-center gap-1"
                                 >
                                     {isUploading && <Loader2 size={12} className="animate-spin" />}
                                     {COMMON.BUTTONS.ADD}
@@ -337,12 +337,12 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
                     ) : (
                         // ドロップ領域
                         <div className="space-y-2">
-                            <Upload size={24} className="mx-auto text-gray-500" />
-                            <p className="text-sm text-gray-400">
+                            <Upload size={24} className="mx-auto text-fg-muted" />
+                            <p className="text-sm text-fg-muted">
                                 {COMMON.MESSAGES.WORKFLOW_DROP_TEXT}<br />
                                 {COMMON.MESSAGES.WORKFLOW_DROP_ACTION}
                             </p>
-                            <p className="text-xs text-gray-600">
+                            <p className="text-xs text-fg-muted">
                                 {COMMON.MESSAGES.WORKFLOW_DROP_HINT}
                             </p>
                         </div>
@@ -358,7 +358,7 @@ export const IntegratedWorkflowSection: React.FC<Props> = ({
 
                 {/* アップロードエラー */}
                 {uploadError && (
-                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-red-900/30 border border-red-700/50 text-red-300">
+                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm bg-danger/10 border border-danger/40 text-danger">
                         <AlertCircle size={14} className="mt-0.5 shrink-0" />
                         <span>{uploadError}</span>
                     </div>

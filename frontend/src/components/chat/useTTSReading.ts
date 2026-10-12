@@ -40,6 +40,8 @@ export const ttsMessageActiveKey = (messageId: string) => `msg:${messageId}`;
 export interface TTSNotice {
     targetKey: string;
     reason: string;
+    // 本体が返した失敗の理由（生成中の失敗のときだけ）
+    detail?: string;
 }
 
 // TTSPlaylistEntry は通し再生の対象（agent メッセージ順の TURN 列）。
@@ -91,6 +93,8 @@ export interface TTSReadingState {
 
 const POLL_INTERVAL_MS = 2000;
 const NOTICE_MS = 2500;
+// 生成中の失敗の知らせは、理由と確かめることを読めるよう長めに出す
+const FAILURE_NOTICE_MS = 8000;
 
 // TrackedJob は追跡中の生成ジョブ1件（ポーリング・既読進捗・逐次再生器をジョブごとに持つ）。
 interface TrackedJob {
@@ -171,10 +175,10 @@ export function useTTSReading(
     const finalAudioRef = useRef<HTMLAudioElement | null>(null);
     const configRef = useRef<TTSConfig | null>(null);
 
-    const showNotice = useCallback((targetKey: string, reason: string) => {
+    const showNotice = useCallback((targetKey: string, reason: string, detail?: string, durationMs: number = NOTICE_MS) => {
         if (noticeTimerRef.current !== null) clearTimeout(noticeTimerRef.current);
-        setNotice({ targetKey, reason });
-        noticeTimerRef.current = setTimeout(() => setNotice(null), NOTICE_MS);
+        setNotice({ targetKey, reason, detail });
+        noticeTimerRef.current = setTimeout(() => setNotice(null), durationMs);
     }, []);
 
     // syncJobState は追跡中ジョブの集合から表示用の状態を作り直す。
@@ -306,6 +310,10 @@ export function useTTSReading(
                 }
             }
             if (status.status === 'completed' || status.status === 'error' || status.status === 'canceled') {
+                // 生成中の失敗は、何も出さずにボタンが戻るだけだと理由が分からないため知らせる
+                if (status.status === 'error') {
+                    showNotice(job.targetKey, 'generationFailed', status.error, FAILURE_NOTICE_MS);
+                }
                 finishJob(jobId, status.status);
                 return;
             }
@@ -316,13 +324,14 @@ export function useTTSReading(
             // （即 stop すると未再生キューが破棄され再生が途切れるため）。
             job.pollFailures += 1;
             if (job.pollFailures >= 3) {
+                showNotice(job.targetKey, 'generic', undefined, FAILURE_NOTICE_MS);
                 finishJob(jobId, 'error');
                 return;
             }
         }
         if (!jobsRef.current.has(jobId)) return;
         job.pollTimer = setTimeout(() => void pollOnce(jobId), POLL_INTERVAL_MS);
-    }, [backendUrl, sessionId, finishJob, refreshIndex]);
+    }, [backendUrl, sessionId, finishJob, refreshIndex, showNotice]);
 
     // trackJob は生成ジョブを追跡対象に登録してポーリングを始める。
     const trackJob = useCallback((job: TrackedJob) => {

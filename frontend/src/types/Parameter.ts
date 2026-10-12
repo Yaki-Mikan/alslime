@@ -103,7 +103,15 @@ export interface ParameterSchemaListItem {
     name: LocalizedString;
 }
 
+// 項目設定の名前を選ぶ言語
+export type ParameterLang = 'ja' | 'en';
+
+// 表示言語の言語コードから、項目設定の名前を選ぶ言語を決める（ja 以外は en の名前。無ければ ja の名前）
+export function parameterLangOf(uiLang: string | null | undefined): ParameterLang {
+    return !uiLang || uiLang === 'ja' ? 'ja' : 'en';
+}
+
 // ローカライズ文字列からテキストを取得
-export function getLocalizedText(ls: LocalizedString, lang: 'ja' | 'en' = 'ja'): string {
+export function getLocalizedText(ls: LocalizedString, lang: ParameterLang = 'ja'): string {
     return ls[lang] || ls.ja;
 }

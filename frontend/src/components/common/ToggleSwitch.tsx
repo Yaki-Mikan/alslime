@@ -1,37 +1,25 @@
 /**
  * ToggleSwitch.tsx - 共通トグルスイッチ
  *
- * UIデザインガイドライン（docs/UIデザインガイドライン.md）準拠の ON/OFF トグル。
- * input type="checkbox" / radio の生使用は禁止し、2状態の切り替えは本コンポーネントを使う。
+ * ON/OFF の切り替え。input type="checkbox" / radio の生使用は避け、2状態の切り替えは本コンポーネントを使う。
  * ON/OFF 以外の2択（表示/非表示のようなモード切替）も、ラベルを工夫してトグルで表現する。
  */
 
 import React from 'react';
 
+// 機能ごとの色分けはやめたため、どの値でも差し色で描く。呼び出し側の指定は互換のために受け取る。
 export type ToggleAccent = 'blue' | 'pink' | 'cyan' | 'green' | 'purple' | 'orange' | 'amber' | 'red';
-
-// Tailwind はクラス名を静的に解析するため、アクセント色ごとに完全なクラス文字列を持つ
-const ACCENT_CLASSES: Record<ToggleAccent, string> = {
-    blue: 'peer-checked:bg-blue-600 peer-focus:ring-blue-500',
-    pink: 'peer-checked:bg-pink-600 peer-focus:ring-pink-500',
-    cyan: 'peer-checked:bg-cyan-600 peer-focus:ring-cyan-500',
-    green: 'peer-checked:bg-green-600 peer-focus:ring-green-500',
-    purple: 'peer-checked:bg-purple-600 peer-focus:ring-purple-500',
-    orange: 'peer-checked:bg-orange-600 peer-focus:ring-orange-500',
-    amber: 'peer-checked:bg-amber-600 peer-focus:ring-amber-500',
-    red: 'peer-checked:bg-red-600 peer-focus:ring-red-500',
-};
 
 const SIZE_CLASSES = {
     md: {
         track: 'w-11 h-6',
         knob: 'after:h-5 after:w-5',
-        label: 'text-sm font-medium text-gray-300',
+        label: 'text-sm font-medium text-fg',
     },
     sm: {
         track: 'w-9 h-5',
         knob: 'after:h-4 after:w-4',
-        label: 'text-xs text-gray-300',
+        label: 'text-xs text-fg',
     },
 } as const;
 
@@ -42,7 +30,7 @@ interface Props {
     label?: React.ReactNode;
     /** ラベルの位置。既定はトグルの左（設定行レイアウト用） */
     labelPosition?: 'left' | 'right';
-    /** 機能のアクセントカラー（ガイドライン第3章の割り当てに従う） */
+    /** 互換のために受け取る。描画はどの値でも差し色 */
     accent?: ToggleAccent;
     size?: 'md' | 'sm';
     disabled?: boolean;
@@ -58,7 +46,6 @@ export const ToggleSwitch: React.FC<Props> = ({
     onChange,
     label,
     labelPosition = 'left',
-    accent = 'blue',
     size = 'md',
     disabled = false,
     className = '',
@@ -85,7 +72,7 @@ export const ToggleSwitch: React.FC<Props> = ({
                     className="sr-only peer"
                 />
                 <div
-                    className={`${sizeCls.track} bg-gray-700 peer-focus:outline-none peer-focus:ring-2 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full ${sizeCls.knob} after:transition-all ${ACCENT_CLASSES[accent]}`}
+                    className={`${sizeCls.track} bg-surface-2 peer-focus:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-accent rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-line-strong after:border after:rounded-full ${sizeCls.knob} after:transition-all peer-checked:bg-accent`}
                 ></div>
             </div>
             {labelPosition === 'right' && labelEl}

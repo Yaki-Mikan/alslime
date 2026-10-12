@@ -7,8 +7,10 @@ import {
     getComfyUIConfig,
     saveComfyUIConfig,
     setApiServiceAutoSoundEffects,
+    setTagEnabled,
     type ComfyUIConfig,
     type NovelAICatalog,
+    type TagMappingBundle,
 } from '../../api/comfyui';
 import { DEFAULT_ANTIGRAVITY_THINKING } from '../../constants/antigravity';
 import { ImageGenDrawerControls } from './ImageGenDrawerControls';
@@ -18,8 +20,9 @@ vi.mock('../../api/comfyui', async (importOriginal) => ({
     getComfyUIConfig: vi.fn(),
     getApiServiceCatalog: vi.fn(),
     saveComfyUIConfig: vi.fn(),
-    getAllTagMappings: vi.fn(),
     setApiServiceAutoSoundEffects: vi.fn(),
+    getAllTagMappings: vi.fn(),
+    setTagEnabled: vi.fn(),
 }));
 
 const baseConfig: ComfyUIConfig = {
@@ -49,14 +52,13 @@ const modeButton = (label: string) => screen.getByRole('button', { name: label }
 const openPanel = (user: ReturnType<typeof userEvent.setup>) =>
     user.click(screen.getByRole('button', { name: HEADER_LABEL }));
 
-describe('左メニューの画像生成ジョブ単位とタグ有効/無効設定', () => {
+describe('クイック設定の画像生成ジョブ単位とタグ有効/無効設定', () => {
     beforeEach(() => {
         vi.mocked(getApiServiceCatalog).mockResolvedValue({ models: [
             { id: 'nai-diffusion-5-full', supportsSoundEffects: true },
         ] } as NovelAICatalog);
         vi.mocked(getComfyUIConfig).mockResolvedValue({ ...baseConfig, imageJobMode: 'split' });
         vi.mocked(saveComfyUIConfig).mockResolvedValue(undefined as never);
-        vi.mocked(getAllTagMappings).mockResolvedValue({ categories: [], mappings: [] });
     });
 
     it('デフォルト閉で、ヘッダを押すと開き、もう一度押すと閉じる', async () => {
@@ -101,10 +103,10 @@ describe('左メニューの画像生成ジョブ単位とタグ有効/無効設
         expect(modeButton(SPLIT_LABEL)).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('ドロワーが閉じている間は読まず、開くたびに設定を読み直して他画面での変更を拾う', async () => {
+    it('クイック設定の欄が閉じている間は読まず、開くたびに設定を読み直して他画面での変更を拾う', async () => {
         const user = userEvent.setup();
         const { rerender } = render(<ImageGenDrawerControls backendUrl="http://backend.invalid" active={false} />);
-        // パネルを開いてもドロワーが閉じていれば読まない。
+        // パネルを開いても欄が閉じていれば読まない。
         await openPanel(user);
         expect(getComfyUIConfig).not.toHaveBeenCalled();
 
@@ -120,15 +122,61 @@ describe('左メニューの画像生成ジョブ単位とタグ有効/無効設
         expect(saveComfyUIConfig).not.toHaveBeenCalled();
     });
 
-    it('タグ有効/無効設定ボタンでモーダルが開く', async () => {
+    const TAG_BUNDLE = {
+        categories: [{ id: 'emotion', label: '表情' }, { id: 'pose', label: '体位・姿勢' }],
+        mappings: [
+            { categoryId: 'emotion', tags: [{ key: '笑顔', prompt: 'smile', lora: [] }, { key: '泣き顔', prompt: 'crying', lora: [], enabled: false }] },
+            { categoryId: 'pose', tags: [{ key: '立ち姿', prompt: 'standing', lora: [{ name: 'pose-a' }] }] },
+        ],
+    } as unknown as TagMappingBundle;
+
+    it('タグのボタンでその場の窓を開き、分類の定義順にタグを並べる', async () => {
         const user = userEvent.setup();
+        vi.mocked(getAllTagMappings).mockResolvedValue(structuredClone(TAG_BUNDLE));
         render(<ImageGenDrawerControls backendUrl="http://backend.invalid" />);
         await openPanel(user);
-        expect(screen.queryByRole('heading', { name: 'タグ有効/無効設定' })).toBeNull();
-
         await user.click(screen.getByRole('button', { name: 'タグ有効/無効設定' }));
-        await screen.findByRole('heading', { name: 'タグ有効/無効設定' });
-        await waitFor(() => expect(getAllTagMappings).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getByText('笑顔')).toBeTruthy());
+        const headings = screen.getAllByRole('heading', { level: 4 }).map(h => h.textContent);
+        expect(headings).toEqual(['表情', '体位・姿勢']);
+        expect(screen.getByText('1 / 2')).toBeTruthy();
+        // 窓を開くたびに読み直す
+        expect(getAllTagMappings).toHaveBeenCalledTimes(1);
+    });
+
+    it('窓のスイッチを切り替えた時点で保存し、失敗したら元に戻して知らせる', async () => {
+        const user = userEvent.setup();
+        vi.mocked(getAllTagMappings).mockResolvedValue(structuredClone(TAG_BUNDLE));
+        vi.mocked(setTagEnabled).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('x'));
+        render(<ImageGenDrawerControls backendUrl="http://backend.invalid" />);
+        await openPanel(user);
+        await user.click(screen.getByRole('button', { name: 'タグ有効/無効設定' }));
+        const smile = await screen.findByRole('checkbox', { name: '笑顔 有効' });
+        expect(smile).toBeChecked();
+
+        await user.click(smile);
+        await waitFor(() => expect(setTagEnabled).toHaveBeenCalledWith('http://backend.invalid', 'emotion', '笑顔', false));
+        expect(smile).not.toBeChecked();
+
+        await user.click(smile);
+        await waitFor(() => expect(screen.getByText('更新に失敗しました')).toBeTruthy());
+        expect(smile).not.toBeChecked();
+    });
+
+    it('「素材づくりで編集」は窓を閉じてから素材づくりを開く。入口が無ければ出さない', async () => {
+        const user = userEvent.setup();
+        vi.mocked(getAllTagMappings).mockResolvedValue(structuredClone(TAG_BUNDLE));
+        const onOpenTags = vi.fn();
+        const { rerender } = render(<ImageGenDrawerControls backendUrl="http://backend.invalid" />);
+        await openPanel(user);
+        await user.click(screen.getByRole('button', { name: 'タグ有効/無効設定' }));
+        await screen.findByText('笑顔');
+        expect(screen.queryByRole('button', { name: '素材づくりで編集' })).toBeNull();
+
+        rerender(<ImageGenDrawerControls backendUrl="http://backend.invalid" onOpenTags={onOpenTags} />);
+        await user.click(screen.getByRole('button', { name: '素材づくりで編集' }));
+        expect(onOpenTags).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(screen.queryByText('笑顔')).toBeNull());
     });
 
     it('応答時の自動画像生成トグルは設定に無ければ OFF で表示し、ON にすると他のキーを保ったまま即時保存する', async () => {

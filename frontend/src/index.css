@@ -1,13 +1,135 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+/* 設計値を Tailwind のユーティリティ名に結び付ける（bg-surface・text-fg-muted・font-head など） */
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-rail: var(--c-rail);
+  --color-panel: var(--c-panel);
+  --color-chat: var(--c-chat);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-fg-muted: var(--c-fg-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-on-accent: var(--c-on-accent);
+  --color-media-btn: var(--c-media-btn);
+  --color-image-gen-edge: var(--c-image-gen-edge);
+  --color-image-gen-icon: var(--c-image-gen-icon);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --color-danger: var(--c-danger);
+  --radius-ui: var(--radius);
+  --radius-ui-lg: var(--radius-lg);
+  --font-ui: var(--ff-ui);
+  --font-head: var(--ff-head);
+  --font-read: var(--ff-read);
+  --font-mono: var(--ff-mono);
+  --animate-fade-in: fade-in 0.15s ease-out;
+  --animate-slide-down: slide-down 0.18s ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-down {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--ff-ui);
+}
+
+/* 画面の地。和紙・墨の質感を地の色の上に重ねる */
+.app-bg {
+  background-color: var(--c-bg);
+  background-image: var(--bg-texture);
+}
+
+/* 他の要素の上に重なって出る欄の地。欄の色は半透明のデザインがあるため、不透明な画面の地の上に重ねて透けないようにする */
+@utility bg-panel-solid {
+  background: linear-gradient(var(--c-panel), var(--c-panel)), var(--c-bg);
+}
+
+/* 窓の地。面の色は半透明のデザインがあるため、不透明な画面の地の上に重ねて、後ろの覆いが透けないようにする */
+@utility bg-surface-solid {
+  background: linear-gradient(var(--c-surface), var(--c-surface)), var(--c-bg);
+}
+
+/* 吹き出し。すりガラスのデザインでは背後をぼかす（--bubble-blur が 0 のデザインでは効かない） */
+.app-bubble {
+  backdrop-filter: blur(var(--bubble-blur));
+  -webkit-backdrop-filter: blur(var(--bubble-blur));
+}
+
+/* 狭い画面の下のタブ。文字を入力している間（ソフトウェアキーボードが出ている間）は隠して、入力欄の場所を空ける */
+.chat-viewport-shell:has(:is(textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, [contenteditable="true"]):focus) .app-tabbar {
+  display: none;
+}
+
+/* 和モダンの切り替え列は、選んでいる項目を左の線で示す */
+:root[data-design="wa"] .app-rail .app-nav-item[aria-current="page"] {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: inset 2px 0 0 var(--c-accent);
 }
 
 html,
 body,
 #root {
   height: 100%;
+}
+
+/* キャレットブラウズが有効でも、表示部分や未選択の入力欄にはキャレットを出さない。
+   実際に文字を入力している欄だけ、通常のキャレットを表示する。 */
+body,
+body * {
+  caret-color: transparent;
+}
+
+input:focus,
+textarea:focus,
+[contenteditable="true"]:focus {
+  caret-color: auto;
+}
+
+/* 押して使うだけの場所（画像・アイコン・ボタン・切り替え・ラベル・開閉の見出し・左の列と下のタブ、
+   ボタンの部品でなくても指の形のカーソルを付けて押せるようにした枠）は、文字として選べないようにする。
+   表示部分のキャレットブラウズが入っていても、選べない場所には入力の点滅の位置が入らない。
+   本文・入力欄・説明文など、文字を読んだり写したりする場所は選べるまま */
+img,
+svg,
+button,
+[role="button"],
+[role="radio"],
+[role="tab"],
+[role="switch"],
+label,
+summary,
+.cursor-pointer,
+.app-rail,
+.app-tabbar {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 上の場所の中にある入力欄・文章欄は、文字を選べて書き込めるままにする */
+label input,
+label textarea,
+button input,
+[role="button"] input,
+.cursor-pointer input,
+.cursor-pointer textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* 画像はつかんで引きずれないようにする */
+img {
+  -webkit-user-drag: none;
 }
 
 /* ソフトウェアキーボードの表示でページ全体に第二のスクロール軸が生えると、
@@ -21,7 +143,8 @@ body {
 body {
   margin: 0;
   min-width: 320px;
-  @apply bg-gray-950 text-white;
+  background-color: var(--c-bg);
+  color: var(--c-fg);
 }
 
 /* 実表示 viewport へぴたりと貼り付ける。
@@ -43,10 +166,10 @@ body {
   }
 }
 
-/* スクロールバー（アプリ全体ダークテーマ） */
+/* スクロールバー */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #4b5563 transparent; /* thumb: gray-600 */
+  scrollbar-color: var(--c-scroll) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -59,12 +182,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #4b5563; /* gray-600 */
+  background-color: var(--c-scroll);
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280; /* gray-500 */
+  background-color: var(--c-fg-muted);
 }
 
 *::-webkit-scrollbar-corner {
@@ -82,11 +205,12 @@ body {
   left: auto;
   z-index: 10;
   max-width: calc(100% - 1.5rem);
-  border: 1px solid #4b5563;
+  border: 1px solid var(--c-line-strong);
   border-radius: 0 0 0.375rem 0.375rem;
-  background-color: #1f2937;
-  color: #e5e7eb;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  background-color: var(--c-panel);
+  color: var(--c-fg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
 }
 .code-editor .cm-panel.cm-search {
   padding: 0.375rem 2rem 0.375rem 0.5rem;
@@ -96,7 +220,7 @@ body {
   display: inline-block;
   min-width: 4.5rem;
   margin: 0 0.25rem 0 0.375rem;
-  color: #9ca3af;
+  color: var(--c-fg-muted);
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -112,37 +236,37 @@ body {
   font-size: 0.75rem;
 }
 .code-editor .cm-panel.cm-search .cm-textfield {
-  background-color: #111827;
-  color: #e5e7eb;
-  border: 1px solid #4b5563;
+  background-color: var(--c-surface);
+  color: var(--c-fg);
+  border: 1px solid var(--c-line-strong);
   border-radius: 0.25rem;
   padding: 0.125rem 0.375rem;
 }
 .code-editor .cm-panel.cm-search .cm-textfield:focus {
   outline: none;
-  border-color: #9ca3af;
+  border-color: var(--c-accent);
 }
 .code-editor .cm-panel.cm-search .cm-button {
   background-image: none;
-  background-color: #374151;
-  color: #e5e7eb;
-  border: 1px solid #4b5563;
+  background-color: var(--c-surface-2);
+  color: var(--c-fg);
+  border: 1px solid var(--c-line-strong);
   border-radius: 0.25rem;
   padding: 0.125rem 0.5rem;
   cursor: pointer;
 }
 .code-editor .cm-panel.cm-search .cm-button:hover {
-  background-color: #4b5563;
+  background-color: var(--c-surface);
 }
 .code-editor .cm-panel.cm-search label {
   margin-left: 0.5rem;
 }
 .code-editor .cm-panel.cm-search button[name="close"] {
-  color: #9ca3af;
+  color: var(--c-fg-muted);
   font-size: 1rem;
   top: 0.25rem;
   right: 0.375rem;
 }
 .code-editor .cm-panel.cm-search button[name="close"]:hover {
-  color: #f3f4f6;
+  color: var(--c-fg);
 }

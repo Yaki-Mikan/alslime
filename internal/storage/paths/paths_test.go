@@ -1,8 +1,10 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -381,4 +383,32 @@ func TestToSlash(t *testing.T) {
 			t.Fatalf("root 外は拒否すべき: err=%v", err)
 		}
 	})
+}
+
+// 同じ深さのフォルダを複数の処理が同時に初めて作っても、どれも失敗しないこと
+// （確かめてから作るまでの間に別の処理が作った段は、既存として扱う）。
+func TestResolveForCreateMkdirAll_同時に作っても失敗しない(t *testing.T) {
+	for round := 0; round < 20; round++ {
+		r, real := newTempResolver(t)
+		const workers = 20
+		var wg sync.WaitGroup
+		errs := make(chan error, workers)
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				if _, err := r.ResolveForCreateMkdirAll(fmt.Sprintf("roleplay/global/secrets/f%d.json", i), 0o700); err != nil {
+					errs <- err
+				}
+			}(i)
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("round %d: 同時作成で失敗した: %v", round, err)
+		}
+		if st, err := os.Stat(filepath.Join(real, "roleplay", "global", "secrets")); err != nil || !st.IsDir() {
+			t.Fatalf("round %d: フォルダが作られていない: %v", round, err)
+		}
+	}
 }

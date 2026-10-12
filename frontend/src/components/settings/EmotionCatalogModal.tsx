@@ -67,9 +67,10 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
     const stripId = (items: EditableEntry[]): EmotionCatalogEntry[] =>
         items.map(({ id: _id, ...rest }) => rest);
 
-    // 変更があるかどうか
+    // 変更があるかどうか。末尾の入力用の空の行は保存されないので、保存時と同じく表情名が空の行を除いて比べる
     const isDirty = useCallback(() => {
-        return JSON.stringify(stripId(emotions)) !== JSON.stringify(originalEmotions);
+        const current = stripId(emotions).filter(e => e.name.trim() !== '');
+        return JSON.stringify(current) !== JSON.stringify(originalEmotions);
     }, [emotions, originalEmotions]);
 
     // 空の表情行を生成
@@ -169,34 +170,34 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
     // 閉じ込められて細く表示される。body 直下へポータル描画して必ず画面中央に出す。
     return createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] border border-gray-700 overflow-hidden flex flex-col">
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] border border-line-strong overflow-hidden flex flex-col">
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface shrink-0">
                     <div className="flex items-center gap-2">
-                        <Smile size={20} className="text-purple-400" />
-                        <h3 className="font-semibold text-gray-100 text-lg">{t(EMOTION_CATALOG_I18N_KEYS.title)}</h3>
+                        <Smile size={20} className="text-accent" />
+                        <h3 className="font-semibold text-fg text-lg">{t(EMOTION_CATALOG_I18N_KEYS.title)}</h3>
                         {isDirty() && (
-                            <span className="text-xs text-amber-400 ml-2">{t(EMOTION_CATALOG_I18N_KEYS.dirty)}</span>
+                            <span className="text-xs text-warn ml-2">{t(EMOTION_CATALOG_I18N_KEYS.dirty)}</span>
                         )}
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                        className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
                 {/* 説明文 */}
-                <div className="px-5 py-3 border-b border-gray-700 bg-gray-800/50 shrink-0">
-                    <p className="text-sm text-gray-400">
+                <div className="px-5 py-3 border-b border-line-strong bg-surface shrink-0">
+                    <p className="text-sm text-fg-muted">
                         {t(EMOTION_CATALOG_I18N_KEYS.description)}
                     </p>
                 </div>
 
                 {/* エラーメッセージ */}
                 {errorMessage && (
-                    <div className="mx-5 mt-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-red-300 shrink-0">
+                    <div className="mx-5 mt-4 p-3 bg-danger/10 border border-danger/40 rounded-lg flex items-center gap-2 text-danger shrink-0">
                         <AlertCircle size={18} />
                         <span>{errorMessage}</span>
                     </div>
@@ -206,12 +207,12 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-12">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                         </div>
                     ) : (
                         <>
                             {/* ヘッダー行 */}
-                            <div className="grid grid-cols-12 gap-3 text-xs text-gray-500 font-medium uppercase tracking-wide">
+                            <div className="grid grid-cols-12 gap-3 text-xs text-fg-muted font-medium uppercase tracking-wide">
                                 <div className="col-span-3">{t(EMOTION_CATALOG_I18N_KEYS.name)}</div>
                                 <div className="col-span-2">{t(EMOTION_CATALOG_I18N_KEYS.label)}</div>
                                 <div className="col-span-4">{t(EMOTION_CATALOG_I18N_KEYS.itemDescription)}</div>
@@ -226,9 +227,9 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
                                     item.name.trim() === '' &&
                                     item.description.trim() === '';
                                 const inputClass = (locked: boolean) =>
-                                    `w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors placeholder-gray-500 ${locked
-                                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                        : 'text-gray-200'
+                                    `w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm outline-none focus:border-accent transition-colors placeholder-fg-muted ${locked
+                                        ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                        : 'text-fg'
                                     }`;
 
                                 return (
@@ -262,9 +263,10 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
 
                                         {/* 説明 */}
                                         <div className="col-span-4">
+                                            {/* default の説明は AI へ渡す日本語の規定値で編集できないため、表示だけ表示言語の訳にする */}
                                             <input
                                                 type="text"
-                                                value={item.description}
+                                                value={isDefaultRow ? t(EMOTION_CATALOG_I18N_KEYS.defaultDescription) : item.description}
                                                 onChange={(e) => updateItem(index, { description: e.target.value })}
                                                 placeholder={t(EMOTION_CATALOG_I18N_KEYS.descriptionPlaceholder)}
                                                 disabled={isDefaultRow}
@@ -288,7 +290,7 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
                                             {!isLastEmptyItem && !isDefaultRow && (
                                                 <button
                                                     onClick={() => removeItem(index)}
-                                                    className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+                                                    className="p-2 text-fg-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
                                                     title={t(COMMON_I18N_KEYS.delete)}
                                                 >
                                                     <Trash2 size={16} />
@@ -303,17 +305,17 @@ export const EmotionCatalogModal: React.FC<EmotionCatalogModalProps> = ({
                 </div>
 
                 {/* フッター */}
-                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-700 bg-gray-800 shrink-0">
+                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-line-strong bg-surface shrink-0">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
+                        className="px-4 py-2 text-fg-muted hover:text-fg hover:bg-surface-2 rounded-lg transition-colors"
                     >
                         {t(COMMON_I18N_KEYS.cancel)}
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={isSaving || !isDirty()}
-                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
+                        className="flex items-center gap-2 px-4 py-2 bg-accent hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-on-accent transition-colors"
                     >
                         <Save size={16} />
                         {isSaving ? t(COMMON_I18N_KEYS.saving) : t(COMMON_I18N_KEYS.save)}

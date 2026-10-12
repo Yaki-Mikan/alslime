@@ -8,7 +8,7 @@ AlSlimeは、自作したキャラクターとの会話を楽しむためのAI C
 
 利用者が導入・認証したGemini CLI、Claude Code、Antigravityを、ブラウザの会話画面から利用します。会話履歴と設定は手元のPCへ保存されます。
 
-![生成した場面を背景にした会話画面](docs/manual/images/ja/09-03-chat-pocket-watch.png)
+![生成した場面を背景にした会話画面](docs/manual/images/ja/10-08-background.png)
 
 *会話から生成した画像を背景にした画面です。画像生成はGitHub Sponsors支援者向けのComfyUI連携機能です。*
 
@@ -20,7 +20,7 @@ AlSlimeは、自作したキャラクターとの会話を楽しむためのAI C
 
 会話中は、キャラクターの状態や関係性を確認できます。会話内の日付と時刻を固定したり、メッセージを送るたびに時間を進めたりすることもできます。
 
-![キャラクターと会話設定](docs/manual/images/ja/03-01-conversation-settings.png)
+![キャラクターと会話設定](docs/manual/images/ja/04-01-characters-tab.png)
 
 ### 好きなAIを会話相手にする
 
@@ -38,13 +38,13 @@ AlSlimeのサーバーは利用者のPCで動作します。キャラクター�
 
 GitHub Sponsors支援者向けのComfyUI連携では、AIが会話の流れを読み、キャラクターや場面に合う画像を生成します。完成した画像はメッセージへ添えて残せるほか、会話画面の背景としても楽しめます。
 
-この機能には、ComfyUI本体、画像生成モデル、対応するGPU環境が別途必要です。詳しくは[ComfyUI連携マニュアル](docs/manual/ja/09-comfyui.md)をご覧ください。
+この機能には、ComfyUI本体、画像生成モデル、対応するGPU環境が別途必要です。詳しくは[ComfyUI連携マニュアル](docs/manual/ja/10-image-generation.md)をご覧ください。
 
 ### 会話を声で聴く
 
 GitHub Sponsors支援者向けのIrodori-TTS連携では、キャラクターの返答をAI音声合成で読み上げます。参照音声から作った声や、言葉で設計した声をキャラクターごとに割り当てられ、絵文字による感情表現にも対応しています。
 
-この機能には、Irodori-TTS-Serverの構築とGPU環境が別途必要です。読み上げられるのは日本語のみです。詳しくは[音声読み上げマニュアル](docs/manual/ja/10-tts.md)をご覧ください。
+この機能には、Irodori-TTS-Serverの構築とGPU環境が別途必要です。読み上げられるのは日本語のみです。詳しくは[音声読み上げマニュアル](docs/manual/ja/11-tts.md)をご覧ください。
 
 ## 主な機能
 
@@ -117,13 +117,13 @@ go build -tags purepublic -o alslime ./cmd/app
 - [日本語マニュアル](docs/manual/index.md)
 - [English Manual](docs/manual/en/index.md)
 
-導入、最初の会話、キャラクター作成、ロールプレイ設定、設定パック、支援者機能、ComfyUI連携、音声読み上げ、トラブルシューティングをご案内しています。
+導入と起動、画面の見かた、はじめての会話、準備・調整、会話の続け方、素材づくり、設定、支援者機能、画像生成、読み上げ、設定パックと更新、データの置き場所とバックアップ、困ったときの対処をご案内しています。
 
 ## GitHub Sponsors
 
 AlSlimeは無料で利用できます。[GitHub Sponsors](https://github.com/sponsors/Yaki-Mikan)では、開発を継続するためのご支援を受け付けています。
 
-支援者向け機能と利用方法は、[支援者機能マニュアル](docs/manual/ja/08-sponsor.md)でご案内しています。
+支援者向け機能と利用方法は、[支援者機能マニュアル](docs/manual/ja/09-sponsor.md)でご案内しています。
 
 ## データとプライバシー
 

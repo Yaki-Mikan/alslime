@@ -379,14 +379,14 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
     if (!characterName) return null;
 
     return (
-        <div className={embedded ? '' : 'mt-4 border border-gray-700 rounded-lg overflow-hidden'}>
+        <div className={embedded ? '' : 'mt-4 border border-line-strong rounded-lg overflow-hidden'}>
             {/* ヘッダー（開閉ボタン）。埋め込み時は常時展開のため出さない */}
             {!embedded && (
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between p-3 bg-gray-800/80 hover:bg-gray-800 transition-colors"
+                className="w-full flex items-center justify-between p-3 bg-surface hover:bg-surface transition-colors"
             >
-                <div className="flex items-center gap-2 text-gray-200">
+                <div className="flex items-center gap-2 text-fg">
                     <ImageIcon size={18} />
                     <span className="font-medium">{t(CHARACTER_IMAGE_I18N_KEYS.title)}</span>
                 </div>
@@ -396,14 +396,14 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
 
             {/* コンテンツ */}
             {isOpen && (
-                <div ref={contentRef} className="p-4 bg-gray-900 space-y-4">
+                <div ref={contentRef} className="p-4 bg-surface space-y-4">
                     {/* wide では画像を右・操作群を左に横並び（flex-row-reverse）、それ以外は画像の下に操作群 */}
                     <div className={layout === 'wide' ? 'flex flex-row-reverse gap-5 items-start' : 'space-y-4'}>
                     {/* 画像プレビュー（ドラッグ&ドロップで選択中の心情の元画像としてアップロード） */}
                     <div className={layout === 'wide' ? 'flex-1 min-w-0 flex justify-center' : 'flex justify-center'}>
                         <div
                             ref={previewRef}
-                            className={`relative ${!embedded ? 'w-32 h-32' : layout === 'wide' ? 'w-72 h-72' : 'w-56 h-56'} rounded-lg overflow-hidden bg-gray-700 flex items-center justify-center transition-shadow ${isDragOver ? 'ring-2 ring-blue-400' : ''}`}
+                            className={`relative ${!embedded ? 'w-32 h-32' : layout === 'wide' ? 'w-72 h-72' : 'w-56 h-56'} rounded-lg overflow-hidden bg-surface-2 flex items-center justify-center transition-shadow ${isDragOver ? 'ring-2 ring-accent' : ''}`}
                             title={t(CHARACTER_IMAGE_I18N_KEYS.dropHint)}
                             onDragOver={(e) => {
                                 e.preventDefault();
@@ -433,8 +433,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                                 }}
                             />
                             {isDragOver && (
-                                <div className="absolute inset-0 bg-blue-600/40 flex items-center justify-center pointer-events-none">
-                                    <Upload size={28} className="text-white drop-shadow" />
+                                <div className="absolute inset-0 bg-accent-soft flex items-center justify-center pointer-events-none">
+                                    <Upload size={28} className="text-fg drop-shadow" />
                                 </div>
                             )}
                         </div>
@@ -445,11 +445,11 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                     {/* 心情プルダウン */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <label className="text-sm text-gray-400">{t(CHARACTER_IMAGE_I18N_KEYS.emotion)}</label>
+                            <label className="text-sm text-fg-muted">{t(CHARACTER_IMAGE_I18N_KEYS.emotion)}</label>
                             {/* 表情種別管理への遷移 */}
                             <button
                                 onClick={() => setIsEmotionCatalogOpen(true)}
-                                className="p-1.5 text-gray-400 hover:text-purple-300 hover:bg-gray-800 rounded transition-colors"
+                                className="p-1.5 text-fg-muted hover:text-accent hover:bg-surface rounded transition-colors"
                                 title={t(EMOTION_CATALOG_I18N_KEYS.manageButton)}
                             >
                                 <SlidersHorizontal size={16} />
@@ -466,7 +466,7 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
 
                     {/* 無効な表情を選択中の注意 */}
                     {selectedEntry && !selectedEntry.enabled && (
-                        <div className="p-2 bg-amber-900/30 border border-amber-700 rounded flex items-center gap-2 text-amber-300 text-sm">
+                        <div className="p-2 bg-warn/10 border border-warn/40 rounded flex items-center gap-2 text-warn text-sm">
                             <AlertCircle size={16} className="shrink-0" />
                             {t(EMOTION_CATALOG_I18N_KEYS.disabledNotice)}
                         </div>
@@ -474,14 +474,14 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
 
                     {/* エラーメッセージ */}
                     {error && (
-                        <div className="p-2 bg-red-900/50 border border-red-700 rounded text-red-300 text-sm">
+                        <div className="p-2 bg-danger/10 border border-danger/40 rounded text-danger text-sm">
                             {error}
                         </div>
                     )}
 
                     {/* 一括削除の結果通知 */}
                     {pruneNotice && (
-                        <div className="p-2 bg-green-900/30 border border-green-700 rounded text-green-300 text-sm">
+                        <div className="p-2 bg-ok/10 border border-line-strong rounded text-ok text-sm">
                             {pruneNotice}
                         </div>
                     )}
@@ -498,8 +498,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                                 disabled={isLoading}
                             />
                             <div className={`flex items-center justify-center gap-1 ${iconOnly ? 'p-2 rounded-md' : 'p-2 rounded-lg'} cursor-pointer transition-colors ${isLoading
-                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                : 'bg-blue-600 hover:bg-blue-500 text-white'
+                                ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                : 'bg-accent hover:brightness-110 text-on-accent'
                                 }`}>
                                 <Upload size={16} />
                                 {!iconOnly && <span className="text-sm">{t(CHARACTER_IMAGE_I18N_KEYS.upload)}</span>}
@@ -512,8 +512,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                             disabled={isLoading || !imageInfo[selectedEmotion]?.hasOriginal}
                             title={iconOnly ? t(CHARACTER_IMAGE_I18N_KEYS.crop) : undefined}
                             className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading || !imageInfo[selectedEmotion]?.hasOriginal
-                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                : 'bg-green-600 hover:bg-green-500 text-white'
+                                ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                : 'bg-accent hover:brightness-110 text-on-accent'
                                 }`}
                         >
                             <Scissors size={16} />
@@ -526,8 +526,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                             disabled={isLoading || (!imageInfo[selectedEmotion]?.hasOriginal && !imageInfo[selectedEmotion]?.hasIcon)}
                             title={iconOnly ? t(CHARACTER_IMAGE_I18N_KEYS.delete) : undefined}
                             className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading || (!imageInfo[selectedEmotion]?.hasOriginal && !imageInfo[selectedEmotion]?.hasIcon)
-                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                : 'bg-red-600 hover:bg-red-500 text-white'
+                                ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                : 'bg-danger hover:brightness-110 text-on-accent'
                                 }`}
                         >
                             <Trash2 size={16} />
@@ -544,8 +544,8 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                                 disabled={isLoading}
                                 title={t(EMOTION_IMAGE_GEN_I18N_KEYS.button)}
                                 className={`${iconOnly ? 'p-2 rounded-md' : 'flex-1 p-2 rounded-lg'} flex items-center justify-center gap-1 transition-colors ${isLoading
-                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                    : 'bg-purple-600 hover:bg-purple-500 text-white'
+                                    ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                    : 'bg-accent hover:brightness-110 text-on-accent'
                                     }`}
                             >
                                 <Sparkles size={16} />
@@ -555,7 +555,7 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                     )}
 
                     {/* 画像状態表示 */}
-                    <div className="text-xs text-gray-500 space-y-1">
+                    <div className="text-xs text-fg-muted space-y-1">
                         <div>{t(CHARACTER_IMAGE_I18N_KEYS.originalImage)}: {imageInfo[selectedEmotion]?.hasOriginal ? `✓ ${t(CHARACTER_IMAGE_I18N_KEYS.available)}` : `✗ ${t(CHARACTER_IMAGE_I18N_KEYS.missing)}`}</div>
                         <div>{t(CHARACTER_IMAGE_I18N_KEYS.icon)}: {imageInfo[selectedEmotion]?.hasIcon ? `✓ ${t(CHARACTER_IMAGE_I18N_KEYS.available)}` : `✗ ${t(CHARACTER_IMAGE_I18N_KEYS.missing)}`}</div>
                     </div>
@@ -564,11 +564,11 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
                     </div>
 
                     {/* 定義に無い表情画像の一括削除（画像・操作群の下） */}
-                    <div className="pt-2 border-t border-gray-800">
+                    <div className="pt-2 border-t border-line">
                         <button
                             onClick={() => setIsPruneConfirmOpen(true)}
                             disabled={isPruning}
-                            className="w-full flex items-center justify-center gap-2 p-2 rounded-lg text-sm border border-red-800 text-red-300 hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="w-full flex items-center justify-center gap-2 p-2 rounded-lg text-sm border border-danger/40 text-danger hover:bg-danger/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                             <Trash2 size={14} />
                             {t(EMOTION_CATALOG_I18N_KEYS.pruneButton)}
@@ -580,31 +580,31 @@ export const CharacterImagePanel: React.FC<CharacterImagePanelProps> = ({
             {/* 一括削除の確認モーダル（祖先の transform の影響を避けるため body 直下へポータル描画） */}
             {isPruneConfirmOpen && createPortal(
                 <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
-                        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-700 bg-gray-800">
-                            <AlertCircle size={20} className="text-red-400" />
-                            <h3 className="font-semibold text-gray-100">{t(EMOTION_CATALOG_I18N_KEYS.pruneConfirmTitle)}</h3>
+                    <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-md border border-line-strong overflow-hidden">
+                        <div className="flex items-center gap-2 px-5 py-4 border-b border-line-strong bg-surface">
+                            <AlertCircle size={20} className="text-danger" />
+                            <h3 className="font-semibold text-fg">{t(EMOTION_CATALOG_I18N_KEYS.pruneConfirmTitle)}</h3>
                         </div>
                         <div className="p-5 space-y-3">
-                            <p className="text-sm text-red-300 font-medium">
+                            <p className="text-sm text-danger font-medium">
                                 {t(EMOTION_CATALOG_I18N_KEYS.pruneConfirmBody)}
                             </p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-fg-muted">
                                 {t(EMOTION_CATALOG_I18N_KEYS.pruneConfirmNote)}
                             </p>
                         </div>
-                        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-700 bg-gray-800">
+                        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-line-strong bg-surface">
                             <button
                                 onClick={() => setIsPruneConfirmOpen(false)}
                                 disabled={isPruning}
-                                className="px-4 py-2 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
+                                className="px-4 py-2 text-fg-muted hover:text-fg hover:bg-surface-2 rounded-lg transition-colors"
                             >
                                 {t(COMMON_I18N_KEYS.cancel)}
                             </button>
                             <button
                                 onClick={handlePrune}
                                 disabled={isPruning}
-                                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-white transition-colors"
+                                className="flex items-center gap-2 px-4 py-2 bg-danger hover:brightness-110 disabled:opacity-50 rounded-lg text-on-accent transition-colors"
                             >
                                 <Trash2 size={16} />
                                 {t(EMOTION_CATALOG_I18N_KEYS.pruneExecute)}

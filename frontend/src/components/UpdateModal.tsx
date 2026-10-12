@@ -267,11 +267,11 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
             onClick={busy ? undefined : onClose}
         >
             <div
-                className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden"
+                className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-md border border-line-strong overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="px-5 py-4 border-b border-gray-700">
-                    <h2 className="text-lg font-semibold text-gray-100">
+                <div className="px-5 py-4 border-b border-line-strong">
+                    <h2 className="text-lg font-semibold text-fg">
                         {app ? t(UPDATE_I18N_KEYS.modalTitle) : t(UPDATE_I18N_KEYS.moduleModalTitle)}
                     </h2>
                 </div>
@@ -279,53 +279,53 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                     {app && (
                         <>
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-400">{t(UPDATE_I18N_KEYS.currentLabel)}</span>
-                                <span className="text-gray-200 font-mono">{app.current}</span>
+                                <span className="text-fg-muted">{t(UPDATE_I18N_KEYS.currentLabel)}</span>
+                                <span className="text-fg font-mono">{app.current}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-400">{t(UPDATE_I18N_KEYS.latestLabel)}</span>
-                                <span className="text-emerald-400 font-mono font-semibold">{app.latest}</span>
+                                <span className="text-fg-muted">{t(UPDATE_I18N_KEYS.latestLabel)}</span>
+                                <span className="text-ok font-mono font-semibold">{app.latest}</span>
                             </div>
                             {app.notes && !applying && (
-                                <div className="text-xs text-gray-300 bg-gray-800/60 border border-gray-700 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                                <div className="text-xs text-fg-muted bg-surface border border-line-strong rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">
                                     {app.notes}
                                 </div>
                             )}
                         </>
                     )}
                     {modules.map((entry) => (
-                        <div key={entry.id} className="rounded border border-gray-700 bg-gray-800/60 px-3 py-3 space-y-2">
-                            <div className="text-sm text-gray-200">{moduleLabel(entry.id)}</div>
+                        <div key={entry.id} className="rounded border border-line-strong bg-surface px-3 py-3 space-y-2">
+                            <div className="text-sm text-fg">{moduleLabel(entry.id)}</div>
                             {entry.hasUpdate && (
-                                <p className="text-xs text-amber-300">
+                                <p className="text-xs text-warn">
                                     {t(UPDATE_I18N_KEYS.moduleUpdateAvailable)
                                         .split('{{version}}').join(entry.latestVersion)}
                                 </p>
                             )}
                             {!entry.hasUpdate && entry.companionPackUpdate && (
-                                <p className="text-xs text-amber-300">{t(UPDATE_I18N_KEYS.moduleCompanionPackUpdate)}</p>
+                                <p className="text-xs text-warn">{t(UPDATE_I18N_KEYS.moduleCompanionPackUpdate)}</p>
                             )}
                             {entry.needsAppUpdate && (
-                                <p className="text-xs text-red-300">{t(UPDATE_I18N_KEYS.moduleNeedsAppUpdate)}</p>
+                                <p className="text-xs text-danger">{t(UPDATE_I18N_KEYS.moduleNeedsAppUpdate)}</p>
                             )}
                             {entry.incompatible && (
-                                <p className="text-xs text-red-300">{t(UPDATE_I18N_KEYS.moduleIncompatible)}</p>
+                                <p className="text-xs text-danger">{t(UPDATE_I18N_KEYS.moduleIncompatible)}</p>
                             )}
                             {moduleOutcomes[entry.id] === 'restarted' && (
-                                <p className="text-xs text-emerald-400">{t(UPDATE_I18N_KEYS.moduleUpdatedRestarted)}</p>
+                                <p className="text-xs text-ok">{t(UPDATE_I18N_KEYS.moduleUpdatedRestarted)}</p>
                             )}
                             {moduleOutcomes[entry.id] === 'restartRequired' && (
-                                <p className="text-xs text-emerald-400">{t(UPDATE_I18N_KEYS.moduleUpdatedRestartRequired)}</p>
+                                <p className="text-xs text-ok">{t(UPDATE_I18N_KEYS.moduleUpdatedRestartRequired)}</p>
                             )}
                             {moduleErrors[entry.id] && (
-                                <p className="text-xs text-red-300">{moduleErrors[entry.id]}</p>
+                                <p className="text-xs text-danger">{moduleErrors[entry.id]}</p>
                             )}
                             {!moduleOutcomes[entry.id] && !entry.needsAppUpdate && !entry.incompatible && (
                                 <button
                                     type="button"
                                     onClick={() => handleInstallOne(entry.id)}
                                     disabled={busy}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-amber-700 rounded-lg text-sm text-gray-300 hover:text-amber-300 transition-colors disabled:opacity-50"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-surface hover:bg-surface-2 border border-warn/40 rounded-lg text-sm text-fg-muted hover:text-warn transition-colors disabled:opacity-50"
                                 >
                                     <Download size={16} />
                                     {installingId === entry.id
@@ -339,7 +339,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                                         type="button"
                                         onClick={() => handleModuleLater(entry.id)}
                                         disabled={busy}
-                                        className="flex-1 px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 text-xs"
+                                        className="flex-1 px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-fg text-xs"
                                     >
                                         {t(UPDATE_I18N_KEYS.later)}
                                     </button>
@@ -347,7 +347,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                                         type="button"
                                         onClick={() => handleModuleSkip(entry)}
                                         disabled={busy}
-                                        className="flex-1 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 text-xs border border-gray-700"
+                                        className="flex-1 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-fg-muted text-xs border border-line-strong"
                                     >
                                         {t(UPDATE_I18N_KEYS.moduleSkip)}
                                     </button>
@@ -357,31 +357,31 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                     ))}
                     {applying && (
                         <div className="space-y-2">
-                            <div className="text-sm text-gray-200">{phaseLabel()}</div>
-                            <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                            <div className="text-sm text-fg">{phaseLabel()}</div>
+                            <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
                                 <div
-                                    className={`h-full bg-emerald-500 transition-all ${phase === 'downloading' ? '' : 'animate-pulse w-full'}`}
+                                    className={`h-full bg-accent transition-all ${phase === 'downloading' ? '' : 'animate-pulse w-full'}`}
                                     style={phase === 'downloading' ? { width: `${percent}%` } : undefined}
                                 />
                             </div>
                             {(phase === 'restarting' || reconnectTimedOut) && (
-                                <div className="text-xs text-gray-400">{t(UPDATE_I18N_KEYS.applyReloadHint)}</div>
+                                <div className="text-xs text-fg-muted">{t(UPDATE_I18N_KEYS.applyReloadHint)}</div>
                             )}
                         </div>
                     )}
                     {errorKey && (
-                        <div className="text-xs text-red-300 bg-red-900/30 border border-red-800 rounded-lg p-3">
+                        <div className="text-xs text-danger bg-danger/10 border border-danger/40 rounded-lg p-3">
                             {t(errorKey)}
                         </div>
                     )}
                 </div>
-                <div className="px-5 py-4 border-t border-gray-700 space-y-2">
+                <div className="px-5 py-4 border-t border-line-strong space-y-2">
                     {app?.canApply && modules.length > 0 && (
                         <button
                             type="button"
                             onClick={handleUpdateAll}
                             disabled={busy}
-                            className="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium"
+                            className="w-full px-4 py-2 rounded-lg bg-accent hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-on-accent text-sm font-medium"
                         >
                             {t(UPDATE_I18N_KEYS.updateAll)}
                         </button>
@@ -393,8 +393,8 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                             disabled={busy}
                             className={`w-full px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
                                 modules.length > 0
-                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white font-medium'
+                                    ? 'bg-surface-2 hover:bg-surface-2 text-fg'
+                                    : 'bg-accent hover:brightness-110 text-on-accent font-medium'
                             }`}
                         >
                             {modules.length > 0 ? t(UPDATE_I18N_KEYS.appOnly) : t(UPDATE_I18N_KEYS.applyNow)}
@@ -407,8 +407,8 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                             disabled={busy}
                             className={`w-full px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
                                 app.canApply
-                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white font-medium'
+                                    ? 'bg-surface-2 hover:bg-surface-2 text-fg'
+                                    : 'bg-accent hover:brightness-110 text-on-accent font-medium'
                             }`}
                         >
                             {t(UPDATE_I18N_KEYS.open)}
@@ -420,7 +420,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                                 type="button"
                                 onClick={onLater}
                                 disabled={busy}
-                                className="flex-1 px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 text-sm"
+                                className="flex-1 px-4 py-2 rounded-lg bg-surface-2 hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-fg text-sm"
                             >
                                 {t(UPDATE_I18N_KEYS.later)}
                             </button>
@@ -428,7 +428,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                                 type="button"
                                 onClick={onSkip}
                                 disabled={busy}
-                                className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-gray-400 text-sm border border-gray-700"
+                                className="flex-1 px-4 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-fg-muted text-sm border border-line-strong"
                             >
                                 {t(UPDATE_I18N_KEYS.skip)}
                             </button>
@@ -438,7 +438,7 @@ export const UpdateModal = ({ isOpen, app, modules, uiCatalog, backendUrl, onClo
                             type="button"
                             onClick={onClose}
                             disabled={busy}
-                            className="w-full px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 text-sm"
+                            className="w-full px-4 py-2 rounded-lg bg-surface-2 hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-fg text-sm"
                         >
                             {t(UPDATE_I18N_KEYS.moduleClose)}
                         </button>

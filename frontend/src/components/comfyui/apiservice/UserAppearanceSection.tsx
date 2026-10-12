@@ -196,29 +196,29 @@ export const UserAppearanceSection: React.FC<UserAppearanceSectionProps> = ({
     return (
         <div className="space-y-3">
             {!hideHeading && (
-                <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                    <User size={16} className="text-pink-400" />
+                <h4 className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                    <User size={16} className="text-accent" />
                     {SECTION_NAMES.USER_APPEARANCE}
                 </h4>
             )}
-            <p className="text-xs text-gray-500">{CHARACTER.HELP.USER_APPEARANCE_DESC}</p>
+            <p className="text-xs text-fg-muted">{CHARACTER.HELP.USER_APPEARANCE_DESC}</p>
             {isLoading ? (
                 <div className="flex justify-center py-6">
-                    <Loader2 size={20} className="animate-spin text-gray-500" />
+                    <Loader2 size={20} className="animate-spin text-fg-muted" />
                 </div>
             ) : (
                 <>
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.USER_NAMES}</label>
+                        <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.USER_NAMES}</label>
                         <input
                             type="text"
                             value={namesText}
                             onChange={(e) => { setNamesText(e.target.value); dirtyRef.current = true; }}
                             onBlur={commitNames}
                             placeholder={CHARACTER.PLACEHOLDERS.USER_NAMES}
-                            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded px-3 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors"
                         />
-                        <p className="text-xs text-gray-600">{CHARACTER.HELP.USER_NAMES_DESC}</p>
+                        <p className="text-xs text-fg-muted">{CHARACTER.HELP.USER_NAMES_DESC}</p>
                     </div>
                     <CharacterApiServiceFields
                         uiCatalog={uiCatalog}
@@ -240,9 +240,9 @@ export const UserAppearanceSection: React.FC<UserAppearanceSectionProps> = ({
                         }}
                     />
                     <div className="flex items-center justify-end gap-2 text-xs min-h-[1.25rem]">
-                        {isSaving && <Loader2 size={12} className="animate-spin text-gray-500" />}
+                        {isSaving && <Loader2 size={12} className="animate-spin text-fg-muted" />}
                         {notice && (
-                            <span className={`flex items-center gap-1 ${notice.ok ? 'text-green-300' : 'text-red-300'}`}>
+                            <span className={`flex items-center gap-1 ${notice.ok ? 'text-ok' : 'text-danger'}`}>
                                 {notice.ok ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
                                 {notice.text}
                             </span>

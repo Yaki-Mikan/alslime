@@ -1,26 +1,37 @@
 /**
- * CharacterTagsEditor - 設定ファイルエディタ（キャラクター種別）右パネル最下部のタグ設定。
+ * CharacterTagsEditor - 設定ファイル（キャラクター種別）の作品・タグ。
  *
  * tags.json の作品（1 つ）とタグ（複数）を編集し、PUT /api/character-tags/{dirName} で保存する。
  * 保存後はサーバー側でキャラタグマスタが再構築されるため、会話設定の選択肢キャッシュを破棄して即時反映する。
+ * 設定ファイルの画面では保存ボタンを隠し、上の帯の「保存」から ref の save を呼ぶ。
  */
 
-import React, { useEffect, useState } from 'react';
-import { Save, X, Tag } from 'lucide-react';
+import React, { useEffect, useImperativeHandle, useState } from 'react';
+import { Save, X } from 'lucide-react';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { getCharacterTags, getCharacterFilters } from '../../../api/files';
 import { saveCharacterTags } from '../../../api/characters';
 import { invalidateSSRPOptionsCache } from '../../SSRP/RolePlaySettings';
 import { CONFIG_EDITOR_I18N_KEYS, CONFIG_EDITOR_TEXT_FALLBACK_JA, COMMON_TEXT_FALLBACK_JA } from '../../../constants/i18n';
+import { Button, Chip, TextField } from '../../ui';
 
 interface Props {
     backendUrl: string;
     /** 保存先のキャラディレクトリ名。null（未保存キャラ）なら無効表示 */
     dirName: string | null;
     uiCatalog?: I18NCatalog | null;
+    /** 保存ボタンを出さない（上の帯の「保存」でまとめて保存するとき） */
+    hideSaveButton?: boolean;
+    /** 保存していない変更があるかの通知 */
+    onDirtyChange?: (dirty: boolean) => void;
 }
 
-export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCatalog = null }) => {
+/** 外から呼ぶ保存。変更が無ければ何もせず true、失敗したら false */
+export interface SaveHandle {
+    save: () => Promise<boolean>;
+}
+
+export const CharacterTagsEditor = React.forwardRef<SaveHandle, Props>(({ backendUrl, dirName, uiCatalog = null, hideSaveButton = false, onDirtyChange }, ref) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, CONFIG_EDITOR_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key);
 
     const [work, setWork] = useState('');
@@ -32,6 +43,8 @@ export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCa
     const [isSaving, setIsSaving] = useState(false);
     const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
     const isComposingRef = React.useRef(false);
+
+    useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
     useEffect(() => {
         let cancelled = false;
@@ -69,8 +82,8 @@ export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCa
         setIsDirty(true);
     };
 
-    const handleSave = async () => {
-        if (!dirName) return;
+    const save = async (): Promise<boolean> => {
+        if (!dirName || !isDirty) return true;
         setIsSaving(true);
         setNotice(null);
         try {
@@ -79,14 +92,18 @@ export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCa
             setTagMaster(result.filters.tags || []);
             invalidateSSRPOptionsCache();
             setIsDirty(false);
-            setNotice({ ok: true, text: t(CONFIG_EDITOR_I18N_KEYS.characterTagsSaved) });
+            if (!hideSaveButton) setNotice({ ok: true, text: t(CONFIG_EDITOR_I18N_KEYS.characterTagsSaved) });
+            return true;
         } catch {
             setNotice({ ok: false, text: t(CONFIG_EDITOR_I18N_KEYS.characterSaveFailed) });
+            return false;
         } finally {
             setIsSaving(false);
             setTimeout(() => setNotice(null), 3000);
         }
     };
+
+    useImperativeHandle(ref, () => ({ save }));
 
     const disabled = !dirName;
     const suggestions = tagInput.trim()
@@ -94,44 +111,36 @@ export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCa
         : [];
 
     return (
-        <div className={`border-t border-gray-700 pt-3 space-y-2 ${disabled ? 'opacity-50' : ''}`}>
-            <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                <Tag size={12} />
-                {t(CONFIG_EDITOR_I18N_KEYS.characterTagsTitle)}
-            </div>
-            {disabled && <p className="text-[10px] text-gray-500">{t(CONFIG_EDITOR_I18N_KEYS.characterSaveFirst)}</p>}
-
+        // 保存前の案内は、この欄を置く付属の欄の上部に出す
+        <div className={`space-y-4 ${disabled ? 'opacity-50' : ''}`}>
             {/* 作品（マスタ候補＋自由入力） */}
-            <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">{t(CONFIG_EDITOR_I18N_KEYS.characterTagsWork)}</label>
-                <input
-                    type="text"
+            <label className="block space-y-1.5">
+                <span className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterTagsWork)}</span>
+                <TextField
                     list="character-tags-work-list"
                     value={work}
                     disabled={disabled}
                     onChange={e => { setWork(e.target.value); setIsDirty(true); }}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-gray-500 disabled:cursor-not-allowed"
                 />
                 <datalist id="character-tags-work-list">
                     {works.map(w => <option key={w} value={w} />)}
                 </datalist>
-            </div>
+            </label>
 
-            {/* タグ（チップ） */}
-            <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">{t(CONFIG_EDITOR_I18N_KEYS.characterTagsTags)}</label>
-                <div className="flex flex-wrap gap-1 mb-1">
-                    {tags.map(tag => (
-                        <span key={tag} className="inline-flex items-center gap-1 bg-gray-700 text-gray-200 text-[11px] rounded-full px-2 py-0.5">
-                            {tag}
-                            <button onClick={() => removeTag(tag)} disabled={disabled} className="text-gray-400 hover:text-red-300">
-                                <X size={10} />
-                            </button>
-                        </span>
-                    ))}
-                </div>
-                <input
-                    type="text"
+            {/* タグ（札） */}
+            <div className="space-y-1.5">
+                <span className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterTagsTags)}</span>
+                {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                        {tags.map(tag => (
+                            <Chip key={tag} selected onClick={() => removeTag(tag)} disabled={disabled}>
+                                {tag}
+                                <X size={11} />
+                            </Chip>
+                        ))}
+                    </div>
+                )}
+                <TextField
                     value={tagInput}
                     disabled={disabled}
                     placeholder={t(CONFIG_EDITOR_I18N_KEYS.characterTagsAddPlaceholder)}
@@ -143,34 +152,28 @@ export const CharacterTagsEditor: React.FC<Props> = ({ backendUrl, dirName, uiCa
                         e.preventDefault();
                         addTag(tagInput);
                     }}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-gray-500 disabled:cursor-not-allowed"
                 />
                 {suggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
+                    <div className="flex flex-wrap gap-1">
                         {suggestions.map(s => (
-                            <button
-                                key={s}
-                                onClick={() => addTag(s)}
-                                className="text-[10px] text-blue-300 hover:text-blue-200 border border-blue-800 hover:border-blue-500 rounded-full px-2 py-0.5"
-                            >
-                                {s}
-                            </button>
+                            <Chip key={s} onClick={() => addTag(s)}>{s}</Chip>
                         ))}
                     </div>
                 )}
             </div>
 
-            <div className="flex items-center justify-between">
-                <span className={`text-[10px] ${notice ? (notice.ok ? 'text-green-400' : 'text-red-400') : 'text-transparent'}`}>{notice?.text || '-'}</span>
-                <button
-                    onClick={handleSave}
-                    disabled={disabled || isSaving || !isDirty}
-                    className="px-3 py-1 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded transition-colors flex items-center gap-1"
-                >
-                    <Save size={12} />
-                    {t(CONFIG_EDITOR_I18N_KEYS.characterSaveTab)}
-                </button>
-            </div>
+            {(!hideSaveButton || notice) && (
+                <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs ${notice ? (notice.ok ? 'text-ok' : 'text-danger') : 'text-transparent'}`}>{notice?.text || '-'}</span>
+                    {!hideSaveButton && (
+                        <Button size="sm" variant="primary" onClick={() => void save()} disabled={disabled || isSaving || !isDirty}>
+                            <Save size={12} />
+                            {t(CONFIG_EDITOR_I18N_KEYS.characterSaveTab)}
+                        </Button>
+                    )}
+                </div>
+            )}
         </div>
     );
-};
+});
+CharacterTagsEditor.displayName = 'CharacterTagsEditor';

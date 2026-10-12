@@ -38,18 +38,18 @@ export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSel
     const preview = previewId ? results.find(r => r.id === previewId) : undefined;
 
     if (results.length === 0) {
-        return <p className="text-sm text-gray-500 text-center py-10 border border-dashed border-gray-700 rounded-lg">{emptyLabel}</p>;
+        return <p className="text-sm text-fg-muted text-center py-10 border border-dashed border-line-strong rounded-lg">{emptyLabel}</p>;
     }
 
     return (
         <div className="space-y-2">
-            <p className="text-[11px] text-gray-500">{hintLabel}</p>
+            <p className="text-xs text-fg-muted">{hintLabel}</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {results.map(result => {
                     const isSelected = result.id === selectedId;
                     if (result.error || !result.base64) {
                         return (
-                            <div key={result.id} className="aspect-square rounded-lg border border-red-800 bg-red-900/20 flex flex-col items-center justify-center gap-1 p-2 text-red-300 text-xs text-center">
+                            <div key={result.id} className="aspect-square rounded-lg border border-danger/40 bg-danger/10 flex flex-col items-center justify-center gap-1 p-2 text-danger text-xs text-center">
                                 <AlertCircle size={18} />
                                 <span className="line-clamp-4">{result.error}</span>
                             </div>
@@ -61,12 +61,12 @@ export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSel
                             type="button"
                             onClick={() => onSelect(result.id)}
                             onDoubleClick={() => setPreviewId(result.id)}
-                            className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/40' : 'border-gray-700 hover:border-blue-500/60'}`}
+                            className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${isSelected ? 'border-accent ring-2 ring-accent/40' : 'border-line-strong hover:border-accent/60'}`}
                         >
                             <img src={generatedImageDataUrl(result)} alt="" className="w-full h-full object-cover" />
-                            {isSelected && <div className="absolute inset-0 bg-blue-600/15 pointer-events-none" />}
+                            {isSelected && <div className="absolute inset-0 bg-accent-soft pointer-events-none" />}
                             {result.warnings && result.warnings.length > 0 && (
-                                <span className="absolute top-1 right-1 rounded-full bg-amber-500/90 text-gray-900 p-0.5" title={result.warnings.join('\n')}>
+                                <span className="absolute top-1 right-1 rounded-full bg-warn text-bg p-0.5" title={result.warnings.join('\n')}>
                                     <AlertCircle size={12} />
                                 </span>
                             )}
@@ -82,19 +82,19 @@ export const GeneratedImageGrid: React.FC<Props> = ({ results, selectedId, onSel
                         <button
                             type="button"
                             onClick={() => setPreviewId(null)}
-                            className="absolute -top-3 -right-3 bg-gray-800 border border-gray-600 rounded-full p-1.5 text-gray-300 hover:text-white"
+                            className="absolute -top-3 -right-3 bg-surface border border-line-strong rounded-full p-1.5 text-fg-muted hover:text-fg"
                         >
                             <X size={16} />
                         </button>
                         <img src={generatedImageDataUrl(preview)} alt="" className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg shadow-2xl" />
                         {preview.warnings && preview.warnings.length > 0 && (
-                            <div className="max-w-[90vw] text-xs text-amber-200 bg-amber-900/40 border border-amber-700/60 rounded px-3 py-2 space-y-0.5">
+                            <div className="max-w-[90vw] text-xs text-warn bg-warn/10 border border-warn/40 rounded px-3 py-2 space-y-0.5">
                                 {warningsLabel && <p className="font-medium">{warningsLabel}</p>}
                                 {preview.warnings.map((w, i) => <p key={i}>{w}</p>)}
                             </div>
                         )}
                         {preview.positivePrompt && (
-                            <p className="max-w-[90vw] text-xs text-gray-300 bg-gray-900/90 border border-gray-700 rounded px-3 py-2 break-words">{preview.positivePrompt}</p>
+                            <p className="max-w-[90vw] text-xs text-fg-muted bg-panel/90 border border-line-strong rounded px-3 py-2 break-words">{preview.positivePrompt}</p>
                         )}
                     </div>
                 </div>,

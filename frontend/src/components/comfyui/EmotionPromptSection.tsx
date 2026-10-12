@@ -179,7 +179,7 @@ export const EmotionPromptSection: React.FC<Props> = ({
         <div className="space-y-3">
             {/* 表情 */}
             <div>
-                <label className="block text-xs text-gray-400 mb-1">{t(CHARACTER_IMAGE_I18N_KEYS.emotion)}</label>
+                <label className="block text-xs text-fg-muted mb-1">{t(CHARACTER_IMAGE_I18N_KEYS.emotion)}</label>
                 <EmotionDropdown
                     emotions={emotions}
                     value={selectedEmotion}
@@ -194,7 +194,7 @@ export const EmotionPromptSection: React.FC<Props> = ({
                     type="button"
                     onClick={handleFetchSample}
                     disabled={isFetchingSample || isSaving}
-                    className="px-3 py-1.5 text-xs text-purple-200 border border-purple-700 hover:border-purple-400 hover:bg-purple-900/30 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-xs text-fg border border-line-strong hover:border-accent hover:bg-accent-soft disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                     {isFetchingSample ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     {t(EMOTION_IMAGE_GEN_I18N_KEYS.sampleButton)}
@@ -203,11 +203,11 @@ export const EmotionPromptSection: React.FC<Props> = ({
 
             {/* 保存済みプロンプトの選択 */}
             <div>
-                <label className="block text-xs text-gray-400 mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptSelect)}</label>
+                <label className="block text-xs text-fg-muted mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptSelect)}</label>
                 <select
                     value={selectedTitle}
                     onChange={e => handleSelectPrompt(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-2 text-sm outline-none focus:border-blue-500"
+                    className="w-full bg-surface border border-line-strong text-fg rounded-lg p-2 text-sm outline-none focus:border-accent"
                 >
                     <option value={NEW_PROMPT}>{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptNew)}</option>
                     {entries.map(e => <option key={e.title} value={e.title}>{e.title}</option>)}
@@ -216,20 +216,20 @@ export const EmotionPromptSection: React.FC<Props> = ({
 
             {/* タイトル＋削除 */}
             <div>
-                <label className="block text-xs text-gray-400 mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptTitle)}</label>
+                <label className="block text-xs text-fg-muted mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptTitle)}</label>
                 <div className="flex gap-2">
                     <input
                         type="text"
                         value={title}
                         onChange={e => setTitle(e.target.value)}
-                        className="flex-1 bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        className="flex-1 bg-surface border border-line-strong text-fg rounded-lg px-3 py-2 text-sm outline-none focus:border-accent"
                     />
                     <button
                         type="button"
                         onClick={() => setIsDeleteConfirmOpen(true)}
                         disabled={!canDelete || isSaving}
                         title={t(EMOTION_IMAGE_GEN_I18N_KEYS.promptDeleteTitle)}
-                        className="p-2 rounded-lg border border-gray-700 text-gray-400 hover:text-red-300 hover:border-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 rounded-lg border border-line-strong text-fg-muted hover:text-danger hover:border-danger/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                         <Trash2 size={16} />
                     </button>
@@ -238,38 +238,38 @@ export const EmotionPromptSection: React.FC<Props> = ({
 
             {/* 本文 */}
             <div>
-                <label className="block text-xs text-gray-400 mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptBody)}</label>
+                <label className="block text-xs text-fg-muted mb-1">{t(EMOTION_IMAGE_GEN_I18N_KEYS.promptBody)}</label>
                 <textarea
                     value={expressionText}
                     onChange={e => onExpressionTextChange(e.target.value)}
                     rows={4}
-                    className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 resize-y font-mono"
+                    className="w-full bg-surface border border-line-strong text-fg rounded-lg px-3 py-2 text-sm outline-none focus:border-accent resize-y font-mono"
                 />
             </div>
 
             {/* 適用先（画像生成バックエンドごとのチェック） */}
-            <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+            <div className="flex flex-wrap items-center gap-4 text-xs text-fg-muted">
                 <label className="flex items-center gap-1.5 cursor-pointer">
                     <input type="checkbox" checked={targets.comfyui}
                         onChange={e => setTargets(prev => ({ ...prev, comfyui: e.target.checked }))}
-                        className="accent-blue-500" />
+                        className="accent-accent" />
                     {t(EMOTION_IMAGE_GEN_I18N_KEYS.promptTargetComfyui)}
                 </label>
                 <label className="flex items-center gap-1.5 cursor-pointer">
                     <input type="checkbox" checked={targets.api}
                         onChange={e => setTargets(prev => ({ ...prev, api: e.target.checked }))}
-                        className="accent-blue-500" />
+                        className="accent-accent" />
                     {t(EMOTION_IMAGE_GEN_I18N_KEYS.promptTargetApi)}
                 </label>
             </div>
 
             <div className="flex items-center justify-between">
-                <span className="text-xs text-green-400">{notice || ''}</span>
+                <span className="text-xs text-ok">{notice || ''}</span>
                 <button
                     type="button"
                     onClick={handleSave}
                     disabled={!title.trim() || isSaving}
-                    className="px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                     <Save size={14} />
                     {t(EMOTION_IMAGE_GEN_I18N_KEYS.promptSave)}

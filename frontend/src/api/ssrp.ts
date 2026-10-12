@@ -60,13 +60,14 @@ export const listPresets = async (backendUrl: string): Promise<string[]> => {
     return [];
 };
 
+// 保存は POST /api/presets に { name, data } を送り、取得は { name, data } の data を設定として返す。
 export const savePreset = async (backendUrl: string, name: string, settings: SSRPSettings): Promise<void> => {
-    await axios.post(`${backendUrl}/api/presets/${name}`, settings);
+    await axios.post(`${backendUrl}/api/presets`, { name, data: settings });
 };
 
 export const loadPreset = async (backendUrl: string, name: string): Promise<SSRPSettings | null> => {
-    const res = await axios.get(`${backendUrl}/api/presets/${name}`);
-    return res.data;
+    const res = await axios.get(`${backendUrl}/api/presets/${encodeURIComponent(name)}`);
+    return res.data?.data ?? null;
 };
 
 export interface RelationshipOption {

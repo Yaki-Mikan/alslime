@@ -11,7 +11,7 @@ import type {
     ParameterElement,
     ParameterGroupState
 } from '../../types/Parameter';
-import { getLocalizedText } from '../../types/Parameter';
+import { getLocalizedText, parameterLangOf, type ParameterLang } from '../../types/Parameter';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 import { PARAMETER_ELEMENTS_I18N_KEYS, PARAMETER_ELEMENTS_TEXT_FALLBACK_JA } from '../../constants/i18n';
 
@@ -58,9 +58,10 @@ interface ParameterSliderProps {
     element: ParameterElement;
     value: number;
     onChange: (value: number) => void;
+    lang?: ParameterLang;
 }
 
-export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value, onChange }) => {
+export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value, onChange, lang = 'ja' }) => {
     const min = element.config?.min ?? 0;
     const max = element.config?.max ?? 100;
     const step = element.config?.step ?? 1;
@@ -85,8 +86,8 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
         <div className="space-y-1">
             {/* 上段: ラベルと値入力 */}
             <div className="flex items-center justify-between gap-2">
-                <label className="flex-1 min-w-0 text-sm font-medium text-gray-300">
-                    {getLocalizedText(element.displayName)}
+                <label className="flex-1 min-w-0 text-sm font-medium text-fg-muted">
+                    {getLocalizedText(element.displayName, lang)}
                 </label>
                 {/* 値入力（テキスト編集可能） */}
                 <input
@@ -101,7 +102,7 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                             (e.target as HTMLInputElement).blur();
                         }
                     }}
-                    className="w-14 shrink-0 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-center text-sm"
+                    className="w-14 shrink-0 bg-surface border border-line-strong rounded px-2 py-0.5 text-center text-sm"
                 />
             </div>
             {/* 下段: スライダーとステッパー */}
@@ -114,7 +115,7 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                     step={step}
                     value={value}
                     onChange={(e) => onChange(parseInt(e.target.value))}
-                    className="flex-1 min-w-0 accent-blue-500"
+                    className="flex-1 min-w-0 accent-accent"
                 />
                 {/* ステッパー [-] [+] */}
                 <button
@@ -123,7 +124,7 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                         const newVal = Math.max(min, value - step);
                         onChange(newVal);
                     }}
-                    className="w-7 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white transition-colors flex-shrink-0"
+                    className="w-7 h-7 flex items-center justify-center bg-surface-2 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors flex-shrink-0"
                     disabled={value <= min}
                 >
                     <Minus size={14} />
@@ -134,13 +135,13 @@ export const ParameterSlider: React.FC<ParameterSliderProps> = ({ element, value
                         const newVal = Math.min(max, value + step);
                         onChange(newVal);
                     }}
-                    className="w-7 h-7 flex items-center justify-center bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white transition-colors flex-shrink-0"
+                    className="w-7 h-7 flex items-center justify-center bg-surface-2 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors flex-shrink-0"
                     disabled={value >= max}
                 >
                     <Plus size={14} />
                 </button>
             </div>
-            <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+            <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
         </div>
     );
 };
@@ -150,28 +151,29 @@ interface ParameterDropdownProps {
     element: ParameterElement;
     value: any;
     onChange: (value: any) => void;
+    lang?: ParameterLang;
 }
 
-export const ParameterDropdown: React.FC<ParameterDropdownProps> = ({ element, value, onChange }) => {
+export const ParameterDropdown: React.FC<ParameterDropdownProps> = ({ element, value, onChange, lang = 'ja' }) => {
     const options = element.config?.options || [];
 
     return (
         <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">
-                {getLocalizedText(element.displayName)}
+            <label className="text-sm font-medium text-fg-muted">
+                {getLocalizedText(element.displayName, lang)}
             </label>
             <select
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
+                className="w-full bg-surface border border-line-strong rounded px-3 py-2 text-sm"
             >
                 {options.map((opt: any, idx: number) => (
                     <option key={idx} value={opt.value}>
-                        {getLocalizedText(opt.label)}
+                        {getLocalizedText(opt.label, lang)}
                     </option>
                 ))}
             </select>
-            <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+            <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
         </div>
     );
 };
@@ -181,26 +183,27 @@ interface ParameterTextProps {
     element: ParameterElement;
     value: string;
     onChange: (value: string) => void;
+    lang?: ParameterLang;
 }
 
-export const ParameterText: React.FC<ParameterTextProps> = ({ element, value, onChange }) => {
+export const ParameterText: React.FC<ParameterTextProps> = ({ element, value, onChange, lang = 'ja' }) => {
     const placeholder = element.config?.placeholder
-        ? getLocalizedText(element.config.placeholder)
+        ? getLocalizedText(element.config.placeholder, lang)
         : '';
 
     return (
         <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">
-                {getLocalizedText(element.displayName)}
+            <label className="text-sm font-medium text-fg-muted">
+                {getLocalizedText(element.displayName, lang)}
             </label>
             <input
                 type="text"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
+                className="w-full bg-surface border border-line-strong rounded px-3 py-2 text-sm"
             />
-            <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+            <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
         </div>
     );
 };
@@ -210,27 +213,28 @@ interface ParameterTextareaProps {
     element: ParameterElement;
     value: string;
     onChange: (value: string) => void;
+    lang?: ParameterLang;
 }
 
-export const ParameterTextarea: React.FC<ParameterTextareaProps> = ({ element, value, onChange }) => {
+export const ParameterTextarea: React.FC<ParameterTextareaProps> = ({ element, value, onChange, lang = 'ja' }) => {
     const placeholder = element.config?.placeholder
-        ? getLocalizedText(element.config.placeholder)
+        ? getLocalizedText(element.config.placeholder, lang)
         : '';
     const rows = element.config?.rows ?? 3;
 
     return (
         <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">
-                {getLocalizedText(element.displayName)}
+            <label className="text-sm font-medium text-fg-muted">
+                {getLocalizedText(element.displayName, lang)}
             </label>
             <textarea
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
                 rows={rows}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm resize-none"
+                className="w-full bg-surface border border-line-strong rounded px-3 py-2 text-sm resize-none"
             />
-            <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+            <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
         </div>
     );
 };
@@ -240,20 +244,21 @@ interface ParameterToggleProps {
     element: ParameterElement;
     value: boolean;
     onChange: (value: boolean) => void;
+    lang?: ParameterLang;
 }
 
-export const ParameterToggle: React.FC<ParameterToggleProps> = ({ element, value, onChange }) => {
+export const ParameterToggle: React.FC<ParameterToggleProps> = ({ element, value, onChange, lang = 'ja' }) => {
     return (
         <div className="flex items-center justify-between py-2">
             <div>
-                <label className="text-sm font-medium text-gray-300">
-                    {getLocalizedText(element.displayName)}
+                <label className="text-sm font-medium text-fg-muted">
+                    {getLocalizedText(element.displayName, lang)}
                 </label>
-                <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+                <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
             </div>
             <button
                 onClick={() => onChange(!value)}
-                className={`relative w-12 h-6 rounded-full transition-colors ${value ? 'bg-blue-600' : 'bg-gray-700'}`}
+                className={`relative w-12 h-6 rounded-full transition-colors ${value ? 'bg-accent' : 'bg-surface-2'}`}
             >
                 <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${value ? 'translate-x-7' : 'translate-x-1'}`} />
             </button>
@@ -267,9 +272,10 @@ interface ParameterCompositeProps {
     value: any;
     onChange: (value: any) => void;
     uiCatalog?: I18NCatalog | null;
+    lang?: ParameterLang;
 }
 
-export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element, value, onChange, uiCatalog = null }) => {
+export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element, value, onChange, uiCatalog = null, lang = 'ja' }) => {
     const compositeType = element.config?.compositeType;
 
     if (compositeType === 'yearMonthDay') {
@@ -277,14 +283,14 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
 
         return (
             <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">
-                    {getLocalizedText(element.displayName)}
+                <label className="text-sm font-medium text-fg-muted">
+                    {getLocalizedText(element.displayName, lang)}
                 </label>
                 <div className="flex items-center gap-2">
                     <select
                         value={currentValue.years ?? 0}
                         onChange={(e) => onChange({ ...currentValue, years: parseInt(e.target.value) })}
-                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1 text-sm"
                     >
                         {[...Array(101)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.yearUnit), { count: i })}</option>
@@ -293,7 +299,7 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                     <select
                         value={currentValue.months ?? 0}
                         onChange={(e) => onChange({ ...currentValue, months: parseInt(e.target.value) })}
-                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1 text-sm"
                     >
                         {[...Array(12)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.monthUnit), { count: i })}</option>
@@ -302,7 +308,7 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                     <select
                         value={currentValue.days ?? 0}
                         onChange={(e) => onChange({ ...currentValue, days: parseInt(e.target.value) })}
-                        className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1 text-sm"
                     >
                         {[...Array(31)].map((_, i) => (
                             <option key={i} value={i}>{formatParameterText(resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.dayUnit), { count: i })}</option>
@@ -313,7 +319,7 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                 <div className="flex flex-col items-start gap-1">
                     <select
                         defaultValue=""
-                        className="w-full min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                        className="w-full min-w-0 bg-surface border border-line-strong rounded px-2 py-1 text-sm"
                         onChange={(e) => {
                             if (e.target.value) {
                                 const [y, m, d] = e.target.value.split(',').map(Number);
@@ -330,9 +336,9 @@ export const ParameterComposite: React.FC<ParameterCompositeProps> = ({ element,
                         <option value="1,0,0">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.oneYear)}</option>
                         <option value="2,0,0">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.twoYears)}</option>
                     </select>
-                    <span className="text-xs text-gray-500">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.quickApplyHint)}</span>
+                    <span className="text-xs text-fg-muted">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.quickApplyHint)}</span>
                 </div>
-                <p className="text-xs text-gray-500">{getLocalizedText(element.description)}</p>
+                <p className="text-xs text-fg-muted">{getLocalizedText(element.description, lang)}</p>
             </div>
         );
     }
@@ -350,6 +356,7 @@ interface RenderElementProps {
 }
 
 export const RenderElement: React.FC<RenderElementProps> = ({ element, groupState, onValueChange, uiCatalog = null }) => {
+    const lang = parameterLangOf(uiCatalog?.lang);
     const value = groupState.values[element.id] ?? element.defaultValue;
 
     // 条件付き表示の評価
@@ -364,17 +371,17 @@ export const RenderElement: React.FC<RenderElementProps> = ({ element, groupStat
 
     switch (element.type) {
         case 'slider':
-            return <ParameterSlider key={element.id} element={element} value={value} onChange={handleChange} />;
+            return <ParameterSlider key={element.id} element={element} value={value} onChange={handleChange} lang={lang} />;
         case 'dropdown':
-            return <ParameterDropdown key={element.id} element={element} value={value} onChange={handleChange} />;
+            return <ParameterDropdown key={element.id} element={element} value={value} onChange={handleChange} lang={lang} />;
         case 'text':
-            return <ParameterText key={element.id} element={element} value={value} onChange={handleChange} />;
+            return <ParameterText key={element.id} element={element} value={value} onChange={handleChange} lang={lang} />;
         case 'textarea':
-            return <ParameterTextarea key={element.id} element={element} value={value} onChange={handleChange} />;
+            return <ParameterTextarea key={element.id} element={element} value={value} onChange={handleChange} lang={lang} />;
         case 'toggle':
-            return <ParameterToggle key={element.id} element={element} value={value} onChange={handleChange} />;
+            return <ParameterToggle key={element.id} element={element} value={value} onChange={handleChange} lang={lang} />;
         case 'composite':
-            return <ParameterComposite key={element.id} element={element} value={value} onChange={handleChange} uiCatalog={uiCatalog} />;
+            return <ParameterComposite key={element.id} element={element} value={value} onChange={handleChange} uiCatalog={uiCatalog} lang={lang} />;
         default:
             return null;
     }
@@ -390,33 +397,34 @@ interface RenderGroupProps {
 }
 
 export const RenderGroup: React.FC<RenderGroupProps> = ({ groupDef, groupState, onGroupStateChange, onValueChange, uiCatalog = null }) => {
+    const lang = parameterLangOf(uiCatalog?.lang);
     const isOpen = groupState.isOpen;
     const isEnabled = groupState.enabled;
     const isFixed = groupDef.isFixed;
 
     return (
-        <div className="border border-gray-700 rounded-lg overflow-hidden mb-4">
+        <div className="border border-line-strong rounded-lg overflow-hidden mb-4">
             {/* グループヘッダー */}
-            <div className={`flex items-center justify-between p-3 ${isEnabled ? 'bg-gray-800' : 'bg-gray-900 opacity-60'}`}>
+            <div className={`flex items-center justify-between p-3 ${isEnabled ? 'bg-surface' : 'bg-surface opacity-60'}`}>
                 <button
                     onClick={() => onGroupStateChange({ isOpen: !isOpen })}
                     className="flex items-center gap-2 text-left flex-1"
                 >
                     {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    <span className="font-medium">{getLocalizedText(groupDef.displayName)}</span>
-                    {isFixed && <Lock size={14} className="text-gray-500" />}
+                    <span className="font-medium">{getLocalizedText(groupDef.displayName, lang)}</span>
+                    {isFixed && <Lock size={14} className="text-fg-muted" />}
                 </button>
 
                 {/* 有効/無効トグル */}
                 {!isFixed ? (
                     <button
                         onClick={() => onGroupStateChange({ enabled: !isEnabled })}
-                        className={`relative w-10 h-5 rounded-full transition-colors ${isEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${isEnabled ? 'bg-accent' : 'bg-surface-2'}`}
                     >
                         <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow ${isEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </button>
                 ) : (
-                    <span className="text-xs text-gray-500">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.alwaysEnabled)}</span>
+                    <span className="text-xs text-fg-muted">{resolveParameterText(uiCatalog, PARAMETER_ELEMENTS_I18N_KEYS.alwaysEnabled)}</span>
                 )}
             </div>
 

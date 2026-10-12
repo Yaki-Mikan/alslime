@@ -131,6 +131,59 @@ func TestSubmit_Status_Abort(t *testing.T) {
 	}
 }
 
+func TestSubmit_置換後の本文を受け付けの応答で返す(t *testing.T) {
+	runner := newBlockingRunner()
+	defer runner.complete()
+	mux := http.NewServeMux()
+	q := jobsvc.NewQueue(process.NewManager(), runner, seqID())
+	var gotSessionID, gotMessage string
+	var gotSSRP any
+	Register(mux, Deps{
+		Queue: q,
+		ReplaceUserMessage: func(sessionID, message string, ssrpSettings any) string {
+			gotSessionID, gotMessage, gotSSRP = sessionID, message, ssrpSettings
+			return strings.ReplaceAll(message, "{{char}}", "雪")
+		},
+	})
+
+	body := `{"message":"{{char}}と話す","sessionId":"s1","model":"gemini-3.1-pro-preview","ssrpSettings":{"userName":"Reader"}}`
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodPost, config.APIPrefix+"/chat/submit", strings.NewReader(body)))
+	if res.Code != http.StatusOK {
+		t.Fatalf("submit status=%d body=%s", res.Code, res.Body.String())
+	}
+	var submitted submitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &submitted); err != nil {
+		t.Fatalf("submit response decode: %v", err)
+	}
+	if submitted.UserMessage != "雪と話す" {
+		t.Fatalf("置換後の本文を返すはず: %#v", submitted)
+	}
+	if gotSessionID != "s1" || gotMessage != "{{char}}と話す" {
+		t.Fatalf("置換へ渡す値が想定外: session=%q message=%q", gotSessionID, gotMessage)
+	}
+	if ssrp, ok := gotSSRP.(map[string]any); !ok || ssrp["userName"] != "Reader" {
+		t.Fatalf("送られてきた会話設定を置換へ渡すはず: %#v", gotSSRP)
+	}
+}
+
+func TestSubmit_置換が無ければ受け取った本文をそのまま返す(t *testing.T) {
+	runner := newBlockingRunner()
+	defer runner.complete()
+	mux := newTestMux(runner)
+
+	body := `{"message":"{{char}}と話す","sessionId":"s1","model":"gemini-3.1-pro-preview"}`
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodPost, config.APIPrefix+"/chat/submit", strings.NewReader(body)))
+	var submitted submitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &submitted); err != nil {
+		t.Fatalf("submit response decode: %v", err)
+	}
+	if submitted.UserMessage != "{{char}}と話す" {
+		t.Fatalf("受け取った本文をそのまま返すはず: %#v", submitted)
+	}
+}
+
 func TestResponseBackupSettingIsPassedToSubmitAndRegenerateJobs(t *testing.T) {
 	tests := []struct {
 		name string

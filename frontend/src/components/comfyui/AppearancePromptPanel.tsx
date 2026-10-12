@@ -4,8 +4,8 @@
  * 画像生成設定フォームのキャラクタープロンプト欄のボタンから開く。対象キャラの設定ファイル本文を
  * AI に読ませ、容姿を表す Danbooru タグをグループごとの行で受け取る。行クリックでコピー、
  * 「追加」でキャラクタープロンプト欄へ追記する（LoRA のトリガーワード取得と同じ動き）。
- * 状態は親（ConfigEditorHub）のフックが持つため、小窓を閉じても分析は続く。
- * 統合設定モーダル（z-[80]）の上に出すため z-[90]。
+ * 状態は親（素材づくりの画面 MaterialView）のフックが持つため、小窓を閉じても分析は続く。
+ * ほかの窓の上に出すため z-[90]。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -149,24 +149,24 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
     const statusText = (): React.ReactNode => {
         switch (handle.status) {
             case 'running':
-                return <span className="flex items-center gap-1 text-xs text-orange-300"><Loader2 size={12} className="animate-spin" />{t(APPEARANCE_PROMPT_I18N_KEYS.statusRunning)}</span>;
+                return <span className="flex items-center gap-1 text-xs text-accent"><Loader2 size={12} className="animate-spin" />{t(APPEARANCE_PROMPT_I18N_KEYS.statusRunning)}</span>;
             case 'completed':
-                return <span className="text-xs text-green-400">{t(APPEARANCE_PROMPT_I18N_KEYS.statusCompleted)}</span>;
+                return <span className="text-xs text-ok">{t(APPEARANCE_PROMPT_I18N_KEYS.statusCompleted)}</span>;
             case 'failed':
                 return (
-                    <span className="text-xs text-red-400">
+                    <span className="text-xs text-danger">
                         {t(APPEARANCE_PROMPT_I18N_KEYS.statusFailed)}
-                        {handle.errorKey && <span className="ml-1 text-gray-500">{resolveMessage(uiCatalog, handle.errorKey, APPEARANCE_PROMPT_TEXT_FALLBACK_JA[handle.errorKey] || handle.errorKey)}</span>}
+                        {handle.errorKey && <span className="ml-1 text-fg-muted">{resolveMessage(uiCatalog, handle.errorKey, APPEARANCE_PROMPT_TEXT_FALLBACK_JA[handle.errorKey] || handle.errorKey)}</span>}
                     </span>
                 );
             case 'canceled':
-                return <span className="text-xs text-gray-400">{t(APPEARANCE_PROMPT_I18N_KEYS.statusCanceled)}</span>;
+                return <span className="text-xs text-fg-muted">{t(APPEARANCE_PROMPT_I18N_KEYS.statusCanceled)}</span>;
             default:
                 return null;
         }
     };
 
-    const labelCls = 'block text-xs text-gray-400 mb-1';
+    const labelCls = 'block text-xs text-fg-muted mb-1';
 
     return (
         <DraggablePanel
@@ -180,10 +180,10 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
             closeTitle={t(APPEARANCE_PROMPT_I18N_KEYS.close)}
             footer={(
                 <>
-                    {toast && <span className="text-xs text-green-400 mr-auto">{toast}</span>}
+                    {toast && <span className="text-xs text-ok mr-auto">{toast}</span>}
                     {!toast && <span className="mr-auto">{statusText()}</span>}
                     {running ? (
-                        <button onClick={handle.cancel} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-red-800 hover:bg-red-700 text-white">
+                        <button onClick={handle.cancel} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-danger hover:brightness-110 text-on-accent">
                             <Square size={14} />
                             {t(APPEARANCE_PROMPT_I18N_KEYS.cancel)}
                         </button>
@@ -191,7 +191,7 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
                         <button
                             onClick={handleRun}
                             disabled={!canRun}
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-pink-700 hover:bg-pink-600 text-white disabled:opacity-40"
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-accent hover:brightness-110 text-on-accent disabled:opacity-40"
                         >
                             <Play size={14} />
                             {t(APPEARANCE_PROMPT_I18N_KEYS.run)}
@@ -201,14 +201,14 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
             )}
         >
             {/* 対象 */}
-            <div className="text-sm text-gray-200">
-                <span className="text-xs text-gray-400 mr-2">{t(APPEARANCE_PROMPT_I18N_KEYS.target)}</span>
+            <div className="text-sm text-fg">
+                <span className="text-xs text-fg-muted mr-2">{t(APPEARANCE_PROMPT_I18N_KEYS.target)}</span>
                 <span className="font-medium">{handle.target?.displayName || '-'}</span>
                 {handle.target && handle.target.fileName !== handle.target.displayName && (
-                    <span className="ml-2 text-xs text-gray-500">{t(APPEARANCE_PROMPT_I18N_KEYS.settingFile)}: {handle.target.fileName}</span>
+                    <span className="ml-2 text-xs text-fg-muted">{t(APPEARANCE_PROMPT_I18N_KEYS.settingFile)}: {handle.target.fileName}</span>
                 )}
             </div>
-            {isDirty && <p className="text-xs text-yellow-500/90">{t(APPEARANCE_PROMPT_I18N_KEYS.unsavedNote)}</p>}
+            {isDirty && <p className="text-xs text-warn/90">{t(APPEARANCE_PROMPT_I18N_KEYS.unsavedNote)}</p>}
 
             {/* モデル選択 */}
             <ModelSelector
@@ -240,7 +240,7 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
             <button
                 onClick={handleSetDefault}
                 disabled={!resolved.effectiveModel}
-                className="flex items-center gap-1 text-xs text-pink-300 hover:text-pink-200 underline decoration-dotted disabled:opacity-40"
+                className="flex items-center gap-1 text-xs text-accent hover:text-fg underline decoration-dotted disabled:opacity-40"
             >
                 <Save size={12} />
                 {t(APPEARANCE_PROMPT_I18N_KEYS.setDefault)}
@@ -250,23 +250,23 @@ export const AppearancePromptPanel: React.FC<Props> = ({ backendUrl, handle, isD
             <div>
                 <label className={labelCls}>{t(APPEARANCE_PROMPT_I18N_KEYS.result)}</label>
                 {lines.length === 0 ? (
-                    <p className="text-xs text-gray-500">{t(APPEARANCE_PROMPT_I18N_KEYS.noResult)}</p>
+                    <p className="text-xs text-fg-muted">{t(APPEARANCE_PROMPT_I18N_KEYS.noResult)}</p>
                 ) : (
                     <ul className="space-y-1">
                         {lines.map(line => (
-                            <li key={line.key} className="flex items-start gap-2 bg-gray-800/70 border border-gray-700 rounded px-2 py-1.5">
-                                <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded ${line.key === 'all' ? 'bg-pink-900/60 text-pink-200 border border-pink-700/60' : 'bg-gray-700 text-gray-300'}`}>{line.label}</span>
+                            <li key={line.key} className="flex items-start gap-2 bg-surface border border-line-strong rounded px-2 py-1.5">
+                                <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded ${line.key === 'all' ? 'bg-accent-soft text-fg border border-line-strong' : 'bg-surface-2 text-fg-muted'}`}>{line.label}</span>
                                 <span
                                     onClick={() => copyLine(line.formatted)}
                                     title={t(APPEARANCE_PROMPT_I18N_KEYS.copyTooltip)}
-                                    className={`flex-1 min-w-0 text-xs break-words cursor-pointer transition-colors ${copiedLine === line.formatted ? 'text-green-300' : 'text-gray-200 hover:text-white'}`}
+                                    className={`flex-1 min-w-0 text-xs break-words cursor-pointer transition-colors ${copiedLine === line.formatted ? 'text-ok' : 'text-fg hover:text-fg'}`}
                                 >
                                     {copiedLine === line.formatted ? t(APPEARANCE_PROMPT_I18N_KEYS.copied) : line.formatted}
                                 </span>
                                 <button
                                     onClick={() => appendLine(line.formatted)}
                                     title={t(APPEARANCE_PROMPT_I18N_KEYS.addTooltip)}
-                                    className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-pink-800 hover:bg-pink-700 text-white"
+                                    className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-accent hover:brightness-110 text-on-accent"
                                 >
                                     <Plus size={12} />
                                     {t(APPEARANCE_PROMPT_I18N_KEYS.add)}

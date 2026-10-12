@@ -8,27 +8,25 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Code2, Menu, FolderTree, Plus, History, Settings, X, Edit, Activity, NotebookPen, Trash2, ListChecks } from 'lucide-react';
+import { MessageSquare, History, Package, Settings, X } from 'lucide-react';
 import axios from '../lib/axios';
 
 // Components
-import { StatusDrawer } from './StatusDrawer';
+import { Sheet } from './ui';
 import { CharacterStatusPanel } from './CharacterStatusPanel';
 import { SessionTimePanel } from './SessionTimePanel';
-import { SettingsModal } from './SettingsModal';
 import { UpdateModal } from './UpdateModal';
-import { AIModelSettingsModal } from './settings/AIModelSettingsModal';
-import { DEFAULT_SETTINGS } from '../types/Settings';
+import type { LeaveGuard, SettingsCategory } from './settings/SettingsView';
+import { DEFAULT_SETTINGS, normalizeSettings } from '../types/Settings';
 import type { Settings as SettingsType } from '../types/Settings';
+import { useAppearance } from '../hooks/useAppearance';
 import { JobProgressModal } from './JobProgressModal';
-import { ConfigEditorHub, type ConfigEditorTab } from './settings/ConfigEditorHub';
-import type { OpenFileRequest } from './settings/ConfigEditorModal';
+import type { MaterialRequest } from './material/MaterialView';
 import { TagJudgeWorkflowDrawerPanel } from './comfyui/TagJudgeWorkflowDrawerPanel';
 import { ImageGenDrawerControls } from './comfyui/ImageGenDrawerControls';
 import { ApiServiceBalancePanel } from './comfyui/apiservice/ApiServiceBalancePanel';
 import type { BackendSelection } from './comfyui/BackendTabs';
 import { TTSDrawerPanel } from './tts/TTSDrawerPanel';
-import type { ApiProviderInstructionTarget } from '../api/api-providers';
 import { FEATURE_COMFYUI, FEATURE_TTS, isFeatureEnabled, isImageGenAvailable } from '../constants/features';
 import { MODULE_COMFY, MODULE_TTS } from '../api/sponsor';
 import { useComfyModuleActive } from '../hooks/useComfyModuleActive';
@@ -37,9 +35,14 @@ import { getTTSEmojiList } from '../api/tts';
 import { MessageList } from './chat/MessageList';
 
 import { MessageInput } from './chat/MessageInput';
+import { ChatHeader } from './chat/ChatHeader';
+import { ChatEmptyState } from './chat/ChatEmptyState';
+import { HistoryView } from './history/HistoryView';
+import { NavRail, TabBar, type AppNavItem } from './shell/AppNav';
 import { modelTypeForNewSession, resolveRestoredModelSelection } from './chat/sessionModelRestore';
 import { extractCharacterDirectoryName, extractSettingName } from './chat/characterImagePath';
-import { HamburgerMenu } from './SSRP/HamburgerMenu';
+import { isCharacterSetDifferent, isSSRPConfigDifferent } from './chat/ssrpDiff';
+import { mergeResponseAdvancedSettings } from './chat/responseAdvancedSettings';
 import { RolePlaySettings } from './SSRP/RolePlaySettings';
 import type { RolePlaySettingsHandlers } from './SSRP/RolePlaySettings';
 import { getGlobalSettings } from '../api/global-settings';
@@ -55,6 +58,7 @@ import {
 } from '../constants/i18n';
 import {
     fetchI18NCatalog,
+    joinNames,
     resolveMessage,
     type I18NCatalog
 } from '../api/i18n';
@@ -72,8 +76,14 @@ import {
 import { useChat } from '../hooks/useChat';
 import { useSession } from '../hooks/useSession';
 import { useTempCharacterImport } from '../hooks/useTempCharacterImport';
-import type { Session } from '../hooks/useSession';
 import { usePullToReload } from '../hooks/usePullToReload';
+import { lazyWithReload, registerBeforeLazyReload } from '../lib/lazyWithReload';
+import {
+    clearLazyReloadRecovery,
+    readLazyReloadRecovery,
+    saveLazyReloadRecovery,
+} from '../lib/lazyReloadRecovery';
+import { ReloadBoundary } from './ReloadBoundary';
 
 const DEFAULT_SSRP_LANGUAGE = 'ja';
 
@@ -84,61 +94,51 @@ interface ChatProps {
 
 const cloneSSRPConfig = (config: any) => config ? JSON.parse(JSON.stringify(config)) : null;
 
-// キー順に依存しない比較用のstringify（オブジェクトのキーを再帰的にソート）
-const stableStringify = (value: any): string => {
-    if (value === null || typeof value !== 'object') {
-        return JSON.stringify(value);
-    }
-    if (Array.isArray(value)) {
-        return `[${value.map(stableStringify).join(',')}]`;
-    }
-    const keys = Object.keys(value).sort();
-    return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
-};
-
-// dirty比較用の正規化。
-// lastModel等の実行記録キーと、characterDetails内のUI開閉状態は設定差分として扱わない。
-const normalizeSSRPForComparison = (config: any): any => {
-    if (!config) return null;
-    const normalized = cloneSSRPConfig(config);
-    delete normalized.lastModel;
-    if (normalized.characterDetails && typeof normalized.characterDetails === 'object') {
-        for (const key of Object.keys(normalized.characterDetails)) {
-            const detail = normalized.characterDetails[key];
-            if (detail && typeof detail === 'object') {
-                delete detail.isOpen;
-                delete detail.isCorrelationOpen;
-            }
-        }
-    }
-    return normalized;
-};
-
-const isSSRPConfigDifferent = (a: any, b: any): boolean =>
-    stableStringify(normalizeSSRPForComparison(a)) !== stableStringify(normalizeSSRPForComparison(b));
+const SettingsView = lazyWithReload(() => import('./settings/SettingsView'));
+const MaterialView = lazyWithReload(() => import('./material/MaterialView'));
 
 export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
+    // 更新で遅延読込ファイルが入れ替わり再読み込みした場合、直前の画面と未反映の
+    // 準備・調整内容を引き継ぐ。通常の画面切替ではこの保存先を使用しない。
+    const [lazyReloadRecovery] = useState(() => readLazyReloadRecovery());
+    const hasAppliedLazyRecoveryRef = React.useRef(!lazyReloadRecovery?.ssrpSettings);
+    const hasLoadedRecoveredViewRef = React.useRef(lazyReloadRecovery?.activeView !== 'material');
     // UI State (ローカル)
     // セッション状態ドロワー（ヘッダー左のハンバーガーメニューから開く）
+    // 表示中の画面。素材づくり・設定は画面ができるまで今の窓を開く
+    const [activeView, setActiveView] = useState<'chat' | 'history' | 'settings' | 'material'>(
+        () => lazyReloadRecovery?.activeView ?? 'chat',
+    );
+    // 設定画面を開いたときに見せる分類（入力欄の「モデル設定を開く」は AI と接続）
+    const [settingsCategory, setSettingsCategory] = useState<SettingsCategory>(
+        () => lazyReloadRecovery?.settingsCategory ?? 'general',
+    );
+    // 設定画面から別の画面へ移る前に、保存していない変更を確かめる関所
+    const settingsLeaveGuardRef = React.useRef<LeaveGuard | null>(null);
+    const registerSettingsLeaveGuard = React.useCallback((guard: LeaveGuard | null) => {
+        settingsLeaveGuardRef.current = guard;
+    }, []);
     const [isStatusDrawerOpen, setIsStatusDrawerOpen] = useState(false);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState(false);
     // チャット欄のモデル選択右のアイコンボタンから直接開くAIモデル設定モーダル
-    const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false);
     const [isJobProgressOpen, setIsJobProgressOpen] = useState(false);
     const [runningJobCount, setRunningJobCount] = useState(0);
 
-    const [isRolePlaySettingsOpen, setIsRolePlaySettingsOpen] = useState(false);
-    const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
-    // ConfigEditorHub を開いた時に表示するタブ（設定メニューの画像生成設定からは imageGen 指定で開く）
-    const [configEditorInitialTab, setConfigEditorInitialTab] = useState<ConfigEditorTab>('config');
-    const [openApiProviderInstruction, setOpenApiProviderInstruction] = useState<ApiProviderInstructionTarget | null>(null);
-    // 会話設定のキャラ詳細設定横アイコンから画像生成統合設定タブを開く時の初期選択キャラクター名
-    const [integratedInitialCharacter, setIntegratedInitialCharacter] = useState('');
-    // 会話設定のキャラ詳細横アイコンから、設定ファイルエディタでそのキャラクター本体を開く指定
-    const [configEditorOpenFile, setConfigEditorOpenFile] = useState<OpenFileRequest | null>(null);
+    const [isRolePlaySettingsOpen, setIsRolePlaySettingsOpen] = useState(
+        () => lazyReloadRecovery?.prepareOpen ?? false,
+    );
+    // 素材づくりへの依頼（どのタブ・どのファイルで開くか）。受け取ったら消す
+    const [materialRequest, setMaterialRequest] = useState<MaterialRequest | null>(
+        () => lazyReloadRecovery?.materialRequest ?? null,
+    );
+    // 素材づくりは一度開いたら隠すだけにする（設定自動生成の進み具合の読み取りを続けるため）
+    const [isMaterialMounted, setIsMaterialMounted] = useState(
+        () => lazyReloadRecovery?.activeView === 'material',
+    );
 
     // 設定 State
     const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
+    useAppearance(settings);
     const [chatBackgroundUrl, setChatBackgroundUrl] = useState<string | null>(null);
 
     // SSRP設定リセット用キー
@@ -194,6 +194,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [isRestoringSession, setIsRestoringSession] = useState(false);
     // SSRP設定がセッション保存値から変更されているか（反映ボタン表示用）
     const [isSSRPDirty, setIsSSRPDirty] = useState(false);
+    // 会話中に準備・調整欄で話す相手（キャラ）を替えたか。替えていれば「新しく始める」を主ボタンにする
+    const [charactersChangedFromSession, setCharactersChangedFromSession] = useState(false);
+    // 準備・調整欄で選択中のキャラ。発言前の新しい会話では、見出しの参加者をここから出す
+    const [prepareCharacters, setPrepareCharacters] = useState<string[]>([]);
     // このセッションでは送信時の反映確認モーダルを出さない（中間ファイルのuiStateに永続化）
     const [suppressApplyConfirm, setSuppressApplyConfirm] = useState(false);
     // 送信時の反映確認モーダル
@@ -204,7 +208,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     const [applyToSessionState, setApplyToSessionState] = useState<'idle' | 'applying' | 'done'>('idle');
     const applyDoneTimerRef = React.useRef<number | null>(null);
     // セッション復元が開始されたかどうか（起動時デフォルトプリセット自動適用のレース防止用）
-    const hasSessionContextRef = React.useRef(false);
+    const hasSessionContextRef = React.useRef(!!lazyReloadRecovery?.ssrpSettings);
 
     // SSRPモードフラグ（常時true: 全セッションがSSRPモード）
     const isSSRP = true;
@@ -212,7 +216,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     // 言語設定 State
     const [languageSettings, setLanguageSettings] = useState<Record<string, string>>({});
     // backend の tier gate（機能フラグ）。ここで一度だけ取得して子コンポーネントへ配布する
-    //（MessageList / SettingsModal での都度取得をやめる。04調査 中#4）。
+    //（MessageList / 設定画面での都度取得をやめる。04調査 中#4）。
     const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
     // UI表示用 i18n 辞書 State
     const [uiCatalog, setUiCatalog] = useState<I18NCatalog | null>(null);
@@ -238,8 +242,6 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         key,
         CHAT_VIEW_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
-    const formatText = (template: string, values: Record<string, string | number>) =>
-        Object.entries(values).reduce((text, [key, value]) => text.split(`{{${key}}}`).join(String(value)), template);
 
     // UI辞書は SSRP 置換用 languageSettings と別系統で管理する。
     const loadUICatalog = React.useCallback(async (lang: string) => {
@@ -493,7 +495,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         const fetchSettings = async () => {
             try {
                 const res = await axios.get(`${BACKEND_URL}/api/settings`);
-                const loadedSettings = { ...DEFAULT_SETTINGS, ...res.data };
+                const loadedSettings = normalizeSettings(res.data);
                 setSettings(loadedSettings);
                 await loadUICatalog(loadedSettings.uiLanguage || DEFAULT_UI_LANGUAGE);
 
@@ -540,7 +542,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
 
     const saveSettings = async (newSettings: SettingsType) => {
         try {
-            const normalizedSettings = { ...DEFAULT_SETTINGS, ...newSettings };
+            const normalizedSettings = normalizeSettings(newSettings);
             await axios.post(`${BACKEND_URL}/api/settings`, normalizedSettings);
             setSettings(normalizedSettings);
             await loadUICatalog(normalizedSettings.uiLanguage || DEFAULT_UI_LANGUAGE);
@@ -553,14 +555,12 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     // Session Hook
     const {
         sessions,
-        isSessionModalOpen,
-        setIsSessionModalOpen,
         currentSessionTitle,
         currentSessionId,
         setCurrentSessionId,
+        setCurrentSessionTitle,
         handleNewSession: sessionHandleNewSession,
         handleResumeSession: sessionHandleResumeSession,
-        openSessionModal,
         fetchSessions,
         takeRestoreSessionId,
         updateSessionTitle,
@@ -601,6 +601,8 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         selectAntigravityThinking,
         antigravityStreamGuardLimit,
         selectAntigravityStreamGuardLimit,
+        responseTimeoutMinutes,
+        selectResponseTimeoutMinutes,
         actionChoices,
         selectedChoice,
         setSelectedChoice,
@@ -633,7 +635,17 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 setIsConversationPresetChanged(false);
             }
             pendingSendSSRPConfigRef.current = null;
-            // タイトル更新（必要に応じて）
+            // 本体が最初の発言から作った題を見出しへ反映する。
+            // 読み直しの間に別の会話へ移っていたら、その会話の題を上書きしない。
+            void fetchSessions().then(list => {
+                const created = list.find(s => s.id === newSessionId);
+                if (created?.title && currentSessionIdRef.current === newSessionId) {
+                    setCurrentSessionTitle(created.title);
+                }
+            });
+        },
+        onResponseCompleted: (sessionId) => {
+            void syncSessionSettingsAfterResponse(sessionId);
         },
         disableAutoLoadHistory: true, // useSession側でロードするのでuseChat側では無効化
         ssrpSettings: currentSessionConfig,
@@ -650,10 +662,6 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     useEffect(() => {
         if (!currentSessionId) setIsStatusDrawerOpen(false);
     }, [currentSessionId]);
-
-    // タイトル編集用 State
-    const [isTitleEditing, setIsTitleEditing] = useState(false);
-    const [titleEditValue, setTitleEditValue] = useState('');
 
     // 入力変更
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -702,6 +710,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 console.warn('[Chat] Session resume failed; keeping current state');
                 return;
             }
+            setActiveView('chat');
 
             // SSRP設定はresume APIのレスポンスから取得（一覧APIはconfigを含まない）
             const activeConfig = result.config;
@@ -777,87 +786,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         })();
     }, [models]);
 
-    // セッション削除の確認対象（履歴モーダルのゴミ箱ボタンで設定し、確認モーダルを開く）
-    const [deleteConfirmSession, setDeleteConfirmSession] = useState<{ id: string; title: string } | null>(null);
-
-    const handleDeleteSessionConfirm = async () => {
-        if (!deleteConfirmSession) return;
-        const target = deleteConfirmSession;
-        setDeleteConfirmSession(null);
-        const ok = await deleteSession(target.id);
-        if (!ok) {
-            window.alert(t(CHAT_VIEW_I18N_KEYS.deleteSessionFailed));
-            return;
-        }
-        // 開いているセッション自身を削除した場合は、消えた履歴を表示し続けないよう新規セッション状態へ戻す
-        if (currentSessionId === target.id) {
-            await handleNewSessionWrapper();
-        }
-    };
-
-    // 履歴行ホバー時のセッション情報ツールチップ（大画面のみ表示。モーダルが
-    // overflow-y-auto でクリップするため fixed 配置し、行の右横へ出す）
-    const [hoveredSessionInfo, setHoveredSessionInfo] = useState<{ session: Session; top: number; left: number } | null>(null);
-
-    // まとめて削除モード（履歴モーダル右上のボタンで切替。モーダルを閉じると解除される）
-    const [isSessionSelectMode, setIsSessionSelectMode] = useState(false);
-    const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
-    const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
-
-    const resetSessionSelectMode = () => {
-        setIsSessionSelectMode(false);
-        setSelectedSessionIds(new Set());
-        setIsBulkDeleteConfirmOpen(false);
-    };
-
-    const openSessionModalWrapper = async () => {
-        resetSessionSelectMode();
-        await openSessionModal();
-    };
-
-    const closeSessionModal = () => {
-        setIsSessionModalOpen(false);
-        resetSessionSelectMode();
-    };
-
-    const toggleSessionSelectMode = () => {
-        if (isSessionSelectMode) {
-            resetSessionSelectMode();
-        } else {
-            setIsSessionSelectMode(true);
-        }
-    };
-
-    const toggleSessionSelection = (sessionId: string) => {
-        setSelectedSessionIds(prev => {
-            const next = new Set(prev);
-            if (next.has(sessionId)) {
-                next.delete(sessionId);
-            } else {
-                next.add(sessionId);
-            }
-            return next;
-        });
-    };
-
-    const handleBulkDeleteConfirm = async () => {
-        const targetIds = Array.from(selectedSessionIds);
-        setIsBulkDeleteConfirmOpen(false);
-        if (targetIds.length === 0) return;
-        const { deletedIds, failedCount } = await deleteSessions(targetIds);
-        // 消えた分は選択からも外す（失敗した分は選択を残して再試行できるようにする）
-        setSelectedSessionIds(prev => {
-            const next = new Set(prev);
-            deletedIds.forEach(id => next.delete(id));
-            return next;
-        });
-        if (failedCount > 0) {
-            window.alert(t(CHAT_VIEW_I18N_KEYS.deleteSessionFailed));
-        }
-        // 開いているセッションが削除対象に含まれていた場合は新規セッション状態へ戻す
-        if (currentSessionId && deletedIds.includes(currentSessionId)) {
-            await handleNewSessionWrapper();
-        }
+    // 履歴の画面を開く（開くたびに一覧を読み直す）
+    const openHistoryView = async () => {
+        await fetchSessions();
+        setActiveView('history');
     };
 
     // SSRP設定メニューを開く
@@ -878,9 +810,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
 
     // セッションからの一時キャラクター取り込み。進行状態は画面本体で保持し、小窓を閉じても続く。
     const currentSessionIdRef = React.useRef<string | null>(null);
-    useEffect(() => {
-        currentSessionIdRef.current = currentSessionId || null;
-    }, [currentSessionId]);
+    currentSessionIdRef.current = currentSessionId || null;
     // サーバー側で会話設定が更新されたとき（分析完了・一時キャラの本文更新／削除・キャラ設定登録）に
     // 保持値と会話設定メニューの UI を差し替える。保存値スナップショットも揃えて dirty にしない。
     const handleSessionSettingsUpdated = React.useCallback((saved: any) => {
@@ -891,7 +821,30 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         setIsSSRPDirty(false);
         rolePlaySettingsRef.current?.applySettings(cloneSSRPConfig(saved));
     }, []);
-    const tempImport = useTempCharacterImport(BACKEND_URL, async (sessionId) => {
+    // 応答の確定で本体が進めた会話の設定（日付時刻・付き合いの長さ）を読み直す。
+    // 読み直さないと状態の欄に古い時刻が残り、そのまま反映すると本体の時刻を古い値で戻してしまう。
+    const sessionHistoryConfigRef = React.useRef<any>(null);
+    sessionHistoryConfigRef.current = sessionHistoryConfig;
+    const syncSessionSettingsAfterResponse = async (sessionId: string) => {
+        try {
+            const res = await applySSRPSettingsToSession(BACKEND_URL, sessionId, null);
+            const saved = res.ssrpSettings;
+            if (!saved || currentSessionIdRef.current !== sessionId) return;
+            const ui = rolePlaySettingsRef.current?.getCurrentSettings();
+            const history = sessionHistoryConfigRef.current;
+            if (!ui || !history || !isSSRPConfigDifferent(ui, history)) {
+                handleSessionSettingsUpdated(saved);
+                return;
+            }
+            // 準備・調整欄に反映していない変更があるときは、それを残して本体が進めた値だけを差し替える
+            setCurrentSessionConfig((prev: any) => mergeResponseAdvancedSettings(prev ?? saved, saved));
+            setSessionHistoryConfig(cloneSSRPConfig(saved));
+            rolePlaySettingsRef.current?.applySettings(mergeResponseAdvancedSettings(ui, saved));
+        } catch (error) {
+            console.error('[Chat] Failed to reload SSRP settings after response:', error);
+        }
+    };
+    const tempImport =useTempCharacterImport(BACKEND_URL, async (sessionId) => {
         // 分析完了時の登録はサーバー側で済んでいる。会話設定を読み直して画面へ反映する。
         try {
             const res = await applySSRPSettingsToSession(BACKEND_URL, sessionId, null);
@@ -925,6 +878,56 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         return settings;
     }, [currentSessionConfig, selectedModel]);
 
+    // 遅延読込は画面切替の描画中に失敗し得るため、登録済みハンドラから常に最新の
+    // 遷移先を読めるよう ref へ同期する。
+    const lazyReloadContextRef = React.useRef({
+        activeView,
+        materialRequest,
+        settingsCategory,
+        prepareOpen: isRolePlaySettingsOpen,
+    });
+    lazyReloadContextRef.current = {
+        activeView,
+        materialRequest,
+        settingsCategory,
+        prepareOpen: isRolePlaySettingsOpen,
+    };
+
+    useEffect(() => registerBeforeLazyReload(() => {
+        const context = lazyReloadContextRef.current;
+        saveLazyReloadRecovery({
+            sessionId: currentSessionIdRef.current,
+            ssrpSettings: cloneSSRPConfig(rolePlaySettingsRef.current?.getCurrentSettings() ?? currentSessionConfig),
+            activeView: context.activeView === 'history' ? 'chat' : context.activeView,
+            materialRequest: context.materialRequest,
+            settingsCategory: context.settingsCategory,
+            prepareOpen: context.prepareOpen,
+        });
+    }), [currentSessionConfig]);
+
+    const clearCompletedLazyRecovery = React.useCallback(() => {
+        if (hasAppliedLazyRecoveryRef.current && hasLoadedRecoveredViewRef.current) {
+            clearLazyReloadRecovery();
+        }
+    }, []);
+
+    // RolePlaySettings 自身の非同期初期化が完了してから未反映内容を重ね、初期化処理による
+    // 上書きを防ぐ。開始済みセッションは useSession の再開完了後まで待つ。
+    const applyLazyReloadRecovery = React.useCallback(() => {
+        if (hasAppliedLazyRecoveryRef.current || !lazyReloadRecovery?.ssrpSettings) return;
+        if (lazyReloadRecovery.sessionId && currentSessionIdRef.current !== lazyReloadRecovery.sessionId) return;
+        const target = rolePlaySettingsRef.current;
+        if (!target) return;
+        target.applySettings(cloneSSRPConfig(lazyReloadRecovery.ssrpSettings));
+        hasAppliedLazyRecoveryRef.current = true;
+        clearCompletedLazyRecovery();
+    }, [clearCompletedLazyRecovery, lazyReloadRecovery]);
+
+    // 閉じた準備・調整欄は初期化処理が走らないため、セッション復元後に親側から戻す。
+    useEffect(() => {
+        if (!lazyReloadRecovery?.prepareOpen) applyLazyReloadRecovery();
+    }, [applyLazyReloadRecovery, currentSessionId, lazyReloadRecovery]);
+
     // dirty監視: セッション保存値スナップショット(sessionHistoryConfig)とUI現在値を定期比較する。
     // RolePlaySettings内部の全変更に個別フックを張るより、この軽量ポーリングのほうが確実。
     // ただしUIから設定を変更できるのはメニューが開いている間だけなので、ポーリングもその間に限定する。
@@ -933,6 +936,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
     useEffect(() => {
         if (!currentSessionId || !sessionHistoryConfig) {
             setIsSSRPDirty(false);
+            setCharactersChangedFromSession(false);
             return;
         }
         const check = () => {
@@ -940,9 +944,11 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 const ui = rolePlaySettingsRef.current?.getCurrentSettings() ?? currentSessionConfig;
                 if (!ui) {
                     setIsSSRPDirty(false);
+                    setCharactersChangedFromSession(false);
                     return;
                 }
                 setIsSSRPDirty(isSSRPConfigDifferent(ui, sessionHistoryConfig));
+                setCharactersChangedFromSession(isCharacterSetDifferent(ui.characters, sessionHistoryConfig.characters));
             } catch {
                 // 取得失敗時は判定を変えない
             }
@@ -1095,6 +1101,88 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         doSend(base, false);
     };
 
+    // 空の状態に出す「選んでいるキャラの数」。準備・調整欄の選択を、空の状態を出している間だけ見に行く
+    const [selectedCharacterCount, setSelectedCharacterCount] = useState(0);
+    const isConversationStarted = !!currentSessionId || !!currentSessionConfig;
+    const isEmptyStateVisible = activeView === 'chat' && messages.length === 0 && !isConversationStarted;
+    useEffect(() => {
+        if (!isEmptyStateVisible) return;
+        const check = () => {
+            try {
+                const chars = rolePlaySettingsRef.current?.getCurrentSettings()?.characters;
+                setSelectedCharacterCount(Array.isArray(chars) ? chars.length : 0);
+            } catch {
+                // 読めなければ前の値のまま
+            }
+        };
+        check();
+        const id = window.setInterval(check, 1500);
+        return () => window.clearInterval(id);
+    }, [isEmptyStateVisible]);
+
+    // 会話が始まった後は反映済みの参加者を出す。発言前の新しい会話はまだ会話設定が確定していないため、
+    // 準備・調整欄の選択（外した・足したキャラ）をそのまま出す
+    const headerCharacters: unknown[] = currentSessionId
+        ? (currentSessionConfig?.characters || [])
+        : (currentSessionConfig ? prepareCharacters : []);
+    const participantNames: string[] = headerCharacters
+        .filter((p: unknown): p is string => typeof p === 'string' && p !== '')
+        .map((p: string) => extractSettingName(p) || p.split('/').pop()?.replace(/\.md$/i, '') || p);
+    const startedTitle = currentSessionId
+        ? currentSessionTitle
+        // 言語設定でカスタムした SSRP_SESSION_TITLE を最優先し、
+        // 無ければ UI 辞書（→JAフォールバック）で解決する（PWA版と同じ優先順。04調査 中#1）。
+        : (languageSettings['SSRP_SESSION_TITLE'] || t(CHAT_VIEW_I18N_KEYS.newSessionTitle));
+
+    // 設定画面にいるときは、関所を通してから移る
+    const leaveCurrentView = (proceed: () => void) => {
+        const guard = activeView === 'settings' ? settingsLeaveGuardRef.current : null;
+        if (guard) guard(proceed); else proceed();
+    };
+    // 素材づくりを開く（依頼が無ければ前に見ていたタブのまま）
+    const openMaterialView = (request?: MaterialRequest) => {
+        setIsMaterialMounted(true);
+        if (request) setMaterialRequest(request);
+        setActiveView('material');
+    };
+    const openSettingsView = (category: SettingsCategory) => {
+        setSettingsCategory(category);
+        setActiveView('settings');
+    };
+    const navItems: AppNavItem[] = [
+        {
+            id: 'chat',
+            label: t(CHAT_VIEW_I18N_KEYS.navChat),
+            icon: <MessageSquare size={20} />,
+            active: activeView === 'chat',
+            onSelect: () => leaveCurrentView(() => setActiveView('chat')),
+        },
+        {
+            id: 'history',
+            label: t(CHAT_VIEW_I18N_KEYS.navHistory),
+            icon: <History size={20} />,
+            active: activeView === 'history',
+            onSelect: () => leaveCurrentView(() => { void openHistoryView(); }),
+        },
+        {
+            id: 'material',
+            label: t(CHAT_VIEW_I18N_KEYS.navMaterial),
+            icon: <Package size={20} />,
+            active: activeView === 'material',
+            onSelect: () => leaveCurrentView(() => openMaterialView({ tab: 'files' })),
+        },
+        {
+            id: 'settings',
+            label: t(CHAT_VIEW_I18N_KEYS.navSettings),
+            icon: <Settings size={20} />,
+            active: activeView === 'settings',
+            onSelect: () => openSettingsView('general'),
+        },
+    ];
+
+    // クイック設定に並べる、すべての会話に効く支援者向けの欄があるか
+    const hasSupportPanels = (isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive)
+        || (isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive && (settings.uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja');
     const useChatAreaBackground =
         settings.enableBackgroundImage &&
         (settings.backgroundImageFit ?? 'cover') === 'cover' &&
@@ -1104,13 +1192,19 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
         : (settings.backgroundChatInputAreaOpacity ?? 0.45);
 
     return (
-        <div className="chat-viewport-shell flex flex-col bg-gray-950 text-gray-100 relative">
-            {/* セッション状態ドロワー（ハンバーガーメニューから開く。💛状態と⌚時刻を埋め込み表示） */}
-            <StatusDrawer
-                isOpen={isStatusDrawerOpen}
+        <div className="chat-viewport-shell flex app-bg text-fg">
+            <NavRail items={navItems} className="hidden md:flex" />
+            <div className="flex-1 min-w-0 flex flex-col relative">
+            {/* 状態欄（見出しの「状態」から開く。キャラの状態と時刻を埋め込み表示）。クイック設定と同じく右から出す */}
+            <Sheet
+                open={isStatusDrawerOpen}
                 onClose={() => setIsStatusDrawerOpen(false)}
-                uiCatalog={uiCatalog}
+                side="right"
+                title={t(CHAT_VIEW_I18N_KEYS.statusMenu)}
+                closeLabel={t(COMMON_I18N_KEYS.close)}
+                widthClassName="w-full sm:w-[400px]"
             >
+                <div className="p-3 space-y-3">
                 {/* キャラクター状態パネル */}
                 <CharacterStatusPanel
                     sessionId={currentSessionId}
@@ -1156,49 +1250,70 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     />
                 )}
 
-                {/* タグ判定・ワークフロー設定パネル（支援者機能が有効 かつ モジュール
-                    連携済みのときのみ表示。他の画像生成系 UI と同条件） */}
-                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
-                    <TagJudgeWorkflowDrawerPanel
-                        backendUrl={BACKEND_URL}
-                        uiCatalog={uiCatalog}
-                        active={isStatusDrawerOpen}
-                        onBackendChange={setImageBackendSelection}
-                    />
-                )}
+                </div>
+            </Sheet>
 
-                {/* API サービスの残高パネル（バックエンドが API サービスのときだけ中身が表示される） */}
-                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
-                    <ApiServiceBalancePanel
-                        backendUrl={BACKEND_URL}
-                        uiCatalog={uiCatalog}
-                        active={isStatusDrawerOpen}
-                        selection={imageBackendSelection}
-                    />
-                )}
+            {/* クイック設定（見出しの「クイック設定」から開く。刷新前の左メニューにあった、すべての会話に効く設定） */}
+            <Sheet
+                open={isQuickSettingsOpen}
+                onClose={() => setIsQuickSettingsOpen(false)}
+                side="right"
+                title={t(CHAT_VIEW_I18N_KEYS.headerQuickSettings)}
+                closeLabel={t(COMMON_I18N_KEYS.close)}
+                widthClassName="w-full sm:w-[400px]"
+            >
+                <div className="p-3 space-y-3">
+                        <>
+                        {/* タグ判定・ワークフロー設定パネル（支援者機能が有効 かつ モジュール
+                            連携済みのときのみ表示。他の画像生成系 UI と同条件） */}
+                        {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                            <TagJudgeWorkflowDrawerPanel
+                                backendUrl={BACKEND_URL}
+                                uiCatalog={uiCatalog}
+                                active={isQuickSettingsOpen}
+                                onBackendChange={setImageBackendSelection}
+                            />
+                        )}
 
-                {/* 画像生成ジョブの単位（分析と生成をまとめる／分ける）とタグ有効/無効設定。
-                    他のパネルと同じ開閉パネル（デフォルト閉）。表示条件はタグ判定・ワークフロー設定パネルと同じ。
-                    パネルが開いていてドロワーが開くたびに設定を読み直す（他画面での変更を拾う） */}
-                {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
-                    <ImageGenDrawerControls
-                        backendUrl={BACKEND_URL}
-                        uiCatalog={uiCatalog}
-                        active={isStatusDrawerOpen}
-                    />
-                )}
+                        {/* API サービスの残高パネル（バックエンドが API サービスのときだけ中身が表示される） */}
+                        {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                            <ApiServiceBalancePanel
+                                backendUrl={BACKEND_URL}
+                                uiCatalog={uiCatalog}
+                                active={isQuickSettingsOpen}
+                                selection={imageBackendSelection}
+                            />
+                        )}
 
-                {/* TTS設定パネル（支援者機能が有効 かつ TTS連携済み かつ 日本語表示。
-                    要件4章の「チャット欄左のメニュー」のトグル類。設計04の4章） */}
-                {isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
-                    && (settings.uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja' && (
-                    <TTSDrawerPanel
-                        backendUrl={BACKEND_URL}
-                        uiCatalog={uiCatalog}
-                        active={isStatusDrawerOpen}
-                    />
-                )}
-            </StatusDrawer>
+                        {/* 画像生成ジョブの単位（分析と生成をまとめる／分ける）とタグ有効/無効設定。
+                            他のパネルと同じ開閉パネル（デフォルト閉）。表示条件はタグ判定・ワークフロー設定パネルと同じ。
+                            パネルが開いていてドロワーが開くたびに設定を読み直す（他画面での変更を拾う） */}
+                        {isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive && (
+                            <ImageGenDrawerControls
+                                backendUrl={BACKEND_URL}
+                                uiCatalog={uiCatalog}
+                                active={isQuickSettingsOpen}
+                                onOpenTags={() => {
+                                    // 素材づくりへ移る前にクイック設定を閉じる（重なった欄の後ろに素材づくりが隠れないように）
+                                    setIsQuickSettingsOpen(false);
+                                    openMaterialView({ tab: 'tags' });
+                                }}
+                            />
+                        )}
+
+                        {/* TTS設定パネル（支援者機能が有効 かつ TTS連携済み かつ 日本語表示。
+                            要件4章の「チャット欄左のメニュー」のトグル類。設計04の4章） */}
+                        {isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
+                            && (settings.uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja' && (
+                            <TTSDrawerPanel
+                                backendUrl={BACKEND_URL}
+                                uiCatalog={uiCatalog}
+                                active={isQuickSettingsOpen}
+                            />
+                        )}
+                        </>
+                </div>
+            </Sheet>
 
             {/* ジョブ進行状況モーダル */}
             <JobProgressModal
@@ -1207,60 +1322,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 uiCatalog={uiCatalog}
             />
 
-            {/* 設定ファイルエディタ（支援者は画像生成統合設定とタブ切り替え可。設計 §9） */}
-            <ConfigEditorHub
-                isOpen={isConfigEditorOpen}
-                onClose={() => {
-                    setIsConfigEditorOpen(false);
-                    // キャラ詳細設定横アイコン経由の初期選択指定は開いている間だけ有効
-                    //（残すと次回、設定メニュー経由で開いた時にも初期選択されてしまう）
-                    setIntegratedInitialCharacter('');
-                }}
-                backendUrl={BACKEND_URL}
-                uiCatalog={uiCatalog}
-                initialTab={configEditorInitialTab}
-                imageGenEnabled={isImageGenAvailable(enabledFeatures, comfyModuleActive)}
-                ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
-                comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
-                openApiProviderInstruction={openApiProviderInstruction}
-                onOpenApiProviderInstructionConsumed={() => setOpenApiProviderInstruction(null)}
-                integratedInitialCharacter={integratedInitialCharacter}
-                initialOpenFile={configEditorOpenFile}
-                onInitialOpenFileConsumed={() => setConfigEditorOpenFile(null)}
-            />
 
-            {/* 設定モーダル */}
-            <SettingsModal
-                isOpen={isSettingsOpen}
-                onClose={() => setIsSettingsOpen(false)}
-                settings={settings}
-                onSave={saveSettings}
-                onLogout={onLogout}
-                uiCatalog={uiCatalog}
-                onModelsChanged={refreshModels}
-                onModulesChanged={modules => {
-                    setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
-                    setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
-                    void refreshFeatures();
-                }}
-                onOpenApiProviderInstruction={target => {
-                    setOpenApiProviderInstruction(target);
-                    setConfigEditorInitialTab('config');
-                    setIsConfigEditorOpen(true);
-                }}
-                onOpenImageGenSettings={isImageGenAvailable(enabledFeatures, comfyModuleActive)
-                    ? () => {
-                        setConfigEditorInitialTab('imageGen');
-                        setIsConfigEditorOpen(true);
-                    }
-                    : undefined}
-                onOpenTTSSettings={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
-                    ? () => {
-                        setConfigEditorInitialTab('tts');
-                        setIsConfigEditorOpen(true);
-                    }
-                    : undefined}
-            />
 
             {/* 本体・モジュール統合の更新告知モーダル（起動時チェックで更新検知時のみ） */}
             <UpdateModal
@@ -1299,10 +1361,10 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 <div
                     className={`fixed top-2 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 px-4 py-2 rounded-lg border shadow-lg text-sm ${
                         moduleApplyBanner === 'applying'
-                            ? 'bg-gray-900/95 border-amber-700 text-amber-200'
+                            ? 'bg-panel/95 border-warn/40 text-warn'
                             : moduleApplyBanner === 'done'
-                                ? 'bg-gray-900/95 border-emerald-700 text-emerald-300'
-                                : 'bg-gray-900/95 border-red-800 text-red-300'
+                                ? 'bg-panel/95 border-line-strong text-ok'
+                                : 'bg-panel/95 border-danger/40 text-danger'
                     }`}
                 >
                     <span>
@@ -1313,7 +1375,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     <button
                         type="button"
                         onClick={() => setModuleApplyBanner(null)}
-                        className="text-gray-400 hover:text-gray-200 transition-colors"
+                        className="text-fg-muted hover:text-fg transition-colors"
                         aria-label="close"
                     >
                         <X size={16} />
@@ -1321,256 +1383,45 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                 </div>
             )}
 
-            {/* AIモデル設定モーダル（チャット欄のモデル選択右のアイコンボタンから直接開く） */}
-            <AIModelSettingsModal
-                isOpen={isModelSettingsOpen}
-                onClose={() => setIsModelSettingsOpen(false)}
-                uiCatalog={uiCatalog}
-                onModelsChanged={refreshModels}
-            />
 
             {/* SSRP設定 未反映のまま送信時の確認モーダル */}
             {applyConfirmOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-700 bg-gray-800">
-                            <h3 className="font-semibold text-gray-100">
+                    <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-md border border-line-strong overflow-hidden">
+                        <div className="px-4 py-3 border-b border-line-strong bg-surface">
+                            <h3 className="font-semibold text-fg">
                                 {t(CHAT_VIEW_I18N_KEYS.applyConfirmTitle)}
                             </h3>
                         </div>
                         <div className="p-4 space-y-4">
-                            <p className="text-sm text-gray-300">
+                            <p className="text-sm text-fg-muted">
                                 {t(CHAT_VIEW_I18N_KEYS.applyConfirmMessage)}
                             </p>
-                            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+                            <label className="flex items-center gap-2 text-sm text-fg-muted cursor-pointer select-none">
                                 <input
                                     type="checkbox"
                                     checked={applyConfirmDontAsk}
                                     onChange={(e) => setApplyConfirmDontAsk(e.target.checked)}
-                                    className="rounded border-gray-600 bg-gray-800"
+                                    className="rounded border-line-strong bg-surface"
                                 />
                                 {t(CHAT_VIEW_I18N_KEYS.applyConfirmDontAsk)}
                             </label>
                             <div className="flex flex-col gap-2">
                                 <button
                                     onClick={handleApplyConfirmApplyAndSend}
-                                    className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-semibold text-white transition-colors"
+                                    className="w-full px-4 py-2.5 bg-accent hover:brightness-110 rounded-lg text-sm font-semibold text-on-accent transition-colors"
                                 >
                                     {t(CHAT_VIEW_I18N_KEYS.applyConfirmApplyAndSend)}
                                 </button>
                                 <button
                                     onClick={handleApplyConfirmSendWithoutApply}
-                                    className="w-full px-4 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium text-gray-200 transition-colors"
+                                    className="w-full px-4 py-2.5 bg-surface-2 hover:bg-surface-2 rounded-lg text-sm font-medium text-fg transition-colors"
                                 >
                                     {t(CHAT_VIEW_I18N_KEYS.applyConfirmSendWithoutApply)}
                                 </button>
                                 <button
                                     onClick={() => setApplyConfirmOpen(false)}
-                                    className="w-full px-4 py-2 hover:bg-gray-800 rounded-lg text-sm text-gray-400 transition-colors"
-                                >
-                                    {t(COMMON_I18N_KEYS.cancel)}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* セッション履歴モーダル */}
-            {isSessionModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
-                            <h3 className="flex items-center gap-2 font-semibold text-gray-100">
-                                <History size={18} className="text-blue-400" />
-                                {t(CHAT_VIEW_I18N_KEYS.sessionHistory)}
-                            </h3>
-                            <div className="flex items-center gap-1">
-                                <button
-                                    onClick={toggleSessionSelectMode}
-                                    className={`p-1.5 hover:bg-gray-700 rounded transition-colors ${isSessionSelectMode ? 'text-blue-400 bg-gray-700/50' : 'text-gray-400 hover:text-gray-200'}`}
-                                    title={t(CHAT_VIEW_I18N_KEYS.deleteSessionSelectMode)}
-                                >
-                                    <ListChecks size={18} />
-                                </button>
-                                <button
-                                    onClick={closeSessionModal}
-                                    className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                        </div>
-                        <div className="max-h-96 overflow-y-auto">
-                            {sessions.length === 0 ? (
-                                <div className="p-4 text-center text-gray-500">
-                                    {t(CHAT_VIEW_I18N_KEYS.noSessionHistory)}
-                                </div>
-                            ) : (
-                                sessions.map((session) => (
-                                    <div
-                                        key={session.id}
-                                        className="flex items-center border-b border-gray-700/50"
-                                        onMouseEnter={(e) => {
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            setHoveredSessionInfo({ session, top: rect.top, left: rect.right + 8 });
-                                        }}
-                                        onMouseLeave={() => setHoveredSessionInfo(null)}
-                                    >
-                                        {isSessionSelectMode ? (
-                                            // 選択モード中は行クリックでチェックをトグルする（再開はしない）
-                                            <button
-                                                onClick={() => toggleSessionSelection(session.id)}
-                                                className="flex-1 min-w-0 flex items-center gap-3 text-left px-4 py-3 hover:bg-gray-800 transition-colors"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedSessionIds.has(session.id)}
-                                                    readOnly
-                                                    className="pointer-events-none shrink-0 rounded border-gray-600 bg-gray-800"
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-medium text-gray-200 truncate">
-                                                        {session.title}
-                                                    </div>
-                                                    <div className="text-xs text-gray-500">
-                                                        {session.timeAgo}
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    onClick={() => handleResumeSessionWrapper(session)}
-                                                    className="flex-1 min-w-0 text-left px-4 py-3 hover:bg-gray-800 transition-colors"
-                                                >
-                                                    <div className="font-medium text-gray-200 truncate">
-                                                        {session.title}
-                                                    </div>
-                                                    <div className="text-xs text-gray-500">
-                                                        {session.timeAgo}
-                                                    </div>
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setHoveredSessionInfo(null);
-                                                        setDeleteConfirmSession({ id: session.id, title: session.title });
-                                                    }}
-                                                    className="p-2 mr-2 hover:bg-gray-700 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0"
-                                                    title={t(CHAT_VIEW_I18N_KEYS.deleteSession)}
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        {/* 選択モード中のみ表示するまとめて削除フッター */}
-                        {isSessionSelectMode && (
-                            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700 bg-gray-800">
-                                <span className="text-sm text-gray-400">
-                                    {formatText(t(COMMON_I18N_KEYS.selectedCount), { count: selectedSessionIds.size })}
-                                </span>
-                                <button
-                                    onClick={() => setIsBulkDeleteConfirmOpen(true)}
-                                    disabled={selectedSessionIds.size === 0}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:pointer-events-none rounded-lg text-sm font-semibold text-white transition-colors"
-                                >
-                                    {t(COMMON_I18N_KEYS.delete)}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                    {/* 履歴行ホバー時のセッション情報ツールチップ（lg以上の大画面のみ。
-                        モーダルのスクロール領域にクリップされないよう fixed で行の右横へ出す） */}
-                    {hoveredSessionInfo && (() => {
-                        const info = hoveredSessionInfo.session;
-                        const rows = [
-                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoPreset), value: info.presetName || '' },
-                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoCharacters), value: (info.characters || []).join(', ') },
-                            { label: t(CHAT_VIEW_I18N_KEYS.sessionInfoSituations), value: (info.situations || []).join(', ') },
-                        ].filter((row) => row.value);
-                        if (rows.length === 0) return null;
-                        return (
-                            <div
-                                className="hidden lg:block fixed z-[60] w-64 pointer-events-none bg-gray-800 border border-gray-600 rounded-lg shadow-xl px-3 py-2 space-y-1"
-                                style={{
-                                    top: Math.min(hoveredSessionInfo.top, window.innerHeight - 160),
-                                    left: hoveredSessionInfo.left
-                                }}
-                            >
-                                {rows.map((row) => (
-                                    <div key={row.label} className="text-xs">
-                                        <span className="text-gray-500">{row.label}: </span>
-                                        <span className="text-gray-200 break-all">{row.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </div>
-            )}
-
-            {/* セッション削除の確認モーダル（履歴モーダルの上に重ねる） */}
-            {deleteConfirmSession && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-700 bg-gray-800">
-                            <h3 className="font-semibold text-gray-100">
-                                {t(CHAT_VIEW_I18N_KEYS.deleteSession)}
-                            </h3>
-                        </div>
-                        <div className="p-4 space-y-4">
-                            <div className="font-medium text-gray-200 truncate">
-                                {deleteConfirmSession.title}
-                            </div>
-                            <p className="text-sm text-gray-300">
-                                {t(CHAT_VIEW_I18N_KEYS.deleteSessionConfirmMessage)}
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <button
-                                    onClick={handleDeleteSessionConfirm}
-                                    className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-semibold text-white transition-colors"
-                                >
-                                    {t(COMMON_I18N_KEYS.delete)}
-                                </button>
-                                <button
-                                    onClick={() => setDeleteConfirmSession(null)}
-                                    className="w-full px-4 py-2 hover:bg-gray-800 rounded-lg text-sm text-gray-400 transition-colors"
-                                >
-                                    {t(COMMON_I18N_KEYS.cancel)}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* まとめて削除の確認モーダル（履歴モーダルの上に重ねる） */}
-            {isBulkDeleteConfirmOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-700 bg-gray-800">
-                            <h3 className="font-semibold text-gray-100">
-                                {t(CHAT_VIEW_I18N_KEYS.deleteSession)}
-                            </h3>
-                        </div>
-                        <div className="p-4 space-y-4">
-                            <p className="text-sm text-gray-300">
-                                {formatText(t(CHAT_VIEW_I18N_KEYS.deleteSessionBulkConfirmMessage), { count: selectedSessionIds.size })}
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <button
-                                    onClick={handleBulkDeleteConfirm}
-                                    className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-semibold text-white transition-colors"
-                                >
-                                    {t(COMMON_I18N_KEYS.delete)}
-                                </button>
-                                <button
-                                    onClick={() => setIsBulkDeleteConfirmOpen(false)}
-                                    className="w-full px-4 py-2 hover:bg-gray-800 rounded-lg text-sm text-gray-400 transition-colors"
+                                    className="w-full px-4 py-2 hover:bg-surface rounded-lg text-sm text-fg-muted transition-colors"
                                 >
                                     {t(COMMON_I18N_KEYS.cancel)}
                                 </button>
@@ -1584,7 +1435,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
             {pullToReload.pullDistance > 0 && (
                 <div
                     className={`absolute top-0 left-0 right-0 z-30 flex items-end justify-center overflow-hidden pointer-events-none text-xs font-semibold transition-colors ${
-                        pullToReload.isReady ? 'bg-pink-600/90 text-white' : 'bg-gray-800/90 text-gray-300'
+                        pullToReload.isReady ? 'bg-accent text-on-accent' : 'bg-surface text-fg-muted'
                     }`}
                     style={{ height: `${Math.min(pullToReload.pullDistance, 96)}px` }}
                     aria-live="polite"
@@ -1596,79 +1447,72 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     </span>
                 </div>
             )}
-            {/* ヘッダーは常に1段。狭い幅ではアプリ名の文字を隠してボタン群を優先し、
-                横方向のはみ出しを出さない（@container で自身の幅を基準に判定） */}
-            <header ref={headerRef} className="@container px-4 py-2 sm:py-0 border-b border-gray-700 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-10 sm:h-16 flex justify-between items-center">
-                <div className="flex items-center gap-3 min-w-0">
-                    {/* セッション状態ドロワーを開く。会話中のみ表示し、💛状態と同じピンク色にする */}
-                    {currentSessionId && (
-                        <button
-                            onClick={() => setIsStatusDrawerOpen(true)}
-                            className="p-2 -ml-2 shrink-0 hover:bg-gray-800 rounded-lg text-pink-400 hover:text-pink-300 transition-colors"
-                            title={t(CHAT_VIEW_I18N_KEYS.statusMenu)}
-                        >
-                            <Menu size={24} />
-                        </button>
-                    )}
-                    <div className="flex items-center gap-2 min-w-0">
-                        <img src="/icons/app.png" alt="AlSlime" className="w-6 h-6 shrink-0" />
-                        {/* ボタン6個とアイコン類が収まらない幅ではアプリ名を隠す。
-                            コンテナクエリは左右余白を除いた内側幅で判定するため、
-                            380px は画面幅では約 412px に相当する */}
-                        <h1 className="font-bold text-lg truncate hidden @min-[380px]:block">AlSlime</h1>
-                    </div>
-                </div>
+            {activeView === 'history' && (
+                <HistoryView
+                    sessions={sessions}
+                    currentSessionId={currentSessionId}
+                    uiCatalog={uiCatalog}
+                    onResume={(session) => { void handleResumeSessionWrapper(session); }}
+                    onNew={() => { void handleNewSessionWrapper(); setActiveView('chat'); }}
+                    deleteSession={deleteSession}
+                    deleteSessions={deleteSessions}
+                    onCurrentDeleted={() => handleNewSessionWrapper()}
+                />
+            )}
 
-                {/* ボタン群：sm未満は新規セッションを設定の右隣に置き、sm以上では先頭へ戻す */}
-                <div className="flex items-center gap-0 sm:gap-2 shrink-0">
-                    <button
-                        onClick={openSessionModalWrapper}
-                        className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-blue-400 transition-colors"
-                        title={t(CHAT_VIEW_I18N_KEYS.sessionHistory)}
-                    >
-                        <History size={20} />
-                    </button>
-                    <button
-                        onClick={() => setIsJobProgressOpen(true)}
-                        className="relative p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-gray-200 transition-colors"
-                        title={t(CHAT_VIEW_I18N_KEYS.jobProgress)}
-                    >
-                        <Activity size={20} />
-                        {runningJobCount > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 text-[10px] font-bold bg-blue-500 text-white rounded-full flex items-center justify-center leading-none">
-                                {runningJobCount}
-                            </span>
-                        )}
-                    </button>
-                    <button
-                        onClick={() => { setConfigEditorInitialTab('config'); setIsConfigEditorOpen(true); }}
-                        className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-purple-400 transition-colors"
-                        title={t(CHAT_VIEW_I18N_KEYS.configEditor)}
-                    >
-                        <NotebookPen size={20} />
-                    </button>
-                    <button
-                        onClick={() => setIsSettingsOpen(true)}
-                        className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-yellow-400 transition-colors"
-                        title={t(CHAT_VIEW_I18N_KEYS.settings)}
-                    >
-                        <Settings size={20} />
-                    </button>
-                    <button
-                        onClick={() => handleNewSessionWrapper()}
-                        className="sm:order-first p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-green-400 transition-colors"
-                        title={t(CHAT_VIEW_I18N_KEYS.newSession)}
-                    >
-                        <Plus size={20} />
-                    </button>
-                    <HamburgerMenu
-                        isOpen={isRolePlaySettingsOpen}
-                        onClick={handleOpenRolePlaySettings}
+            {activeView === 'settings' && (
+                <ReloadBoundary message={t(CHAT_VIEW_I18N_KEYS.viewLoadFailed)} reloadLabel={t(CHAT_VIEW_I18N_KEYS.reloadPage)}>
+                <React.Suspense fallback={<div className="flex-1" />}>
+                    <SettingsView
+                        settings={settings}
+                        onSave={saveSettings}
                         uiCatalog={uiCatalog}
+                        onLogout={onLogout}
+                        onModelsChanged={refreshModels}
+                        onModulesChanged={modules => {
+                            setComfyModuleActive(modules.some(m => m.id === MODULE_COMFY && m.active));
+                            setTtsModuleActive(modules.some(m => m.id === MODULE_TTS && m.active));
+                            void refreshFeatures();
+                        }}
+                        onOpenApiProviderInstruction={target => openMaterialView({ tab: 'files', apiProviderInstruction: target })}
+                        imageGenAvailable={isImageGenAvailable(enabledFeatures, comfyModuleActive)}
+                        ttsAvailable={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
+                        onOpenMaterial={tab => openMaterialView({ tab })}
+                        initialCategory={settingsCategory}
+                        registerLeaveGuard={registerSettingsLeaveGuard}
                     />
-                </div>
-            </header>
+                </React.Suspense>
+                </ReloadBoundary>
+            )}
 
+            {isMaterialMounted && (
+                <div className={activeView === 'material' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
+                    <ReloadBoundary message={t(CHAT_VIEW_I18N_KEYS.viewLoadFailed)} reloadLabel={t(CHAT_VIEW_I18N_KEYS.reloadPage)}>
+                    <React.Suspense fallback={<div className="flex-1" />}>
+                        <MaterialView
+                            backendUrl={BACKEND_URL}
+                            uiCatalog={uiCatalog}
+                            imageGenEnabled={isImageGenAvailable(enabledFeatures, comfyModuleActive)}
+                            ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
+                            comfyDirectiveVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
+                            active={activeView === 'material'}
+                            request={materialRequest}
+                            onRequestConsumed={() => {
+                                setMaterialRequest(null);
+                                if (lazyReloadRecovery?.activeView === 'material') {
+                                    hasLoadedRecoveredViewRef.current = true;
+                                    clearCompletedLazyRecovery();
+                                }
+                            }}
+                            sessionCharacterPaths={currentSessionConfig?.characters || []}
+                        />
+                    </React.Suspense>
+                    </ReloadBoundary>
+                </div>
+            )}
+
+            {/* 会話の画面。履歴を見ている間も会話設定の欄の状態を残すため、消さずに隠す */}
+            <div className={activeView === 'chat' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
             <div className="flex flex-1 min-h-0 overflow-hidden relative">
                 <main className="flex-1 min-h-0 overflow-hidden flex flex-col relative w-full h-full min-w-0">
                     {useChatAreaBackground && chatBackgroundUrl && (
@@ -1681,80 +1525,53 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             />
                         </div>
                     )}
-                    {/* タイトル表示エリア（セッション開始後のみ） */}
-                    {currentSessionId && (
-                        <div className="relative z-[1] border-b border-gray-700 bg-gray-950/80 backdrop-blur-sm">
-                            {isTitleEditing ? (
-                                <div className="p-3">
-                                    <textarea
-                                        value={titleEditValue}
-                                        onChange={(e) => setTitleEditValue(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded p-2 text-sm resize-none outline-none focus:border-blue-500 transition-colors"
-                                        rows={2}
-                                        autoFocus
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Escape') {
-                                                setIsTitleEditing(false);
-                                            }
-                                        }}
-                                    />
-                                    <div className="flex gap-2 mt-2">
-                                        <button
-                                            onClick={async () => {
-                                                if (currentSessionId && titleEditValue.trim()) {
-                                                    const success = await updateSessionTitle(currentSessionId, titleEditValue.trim());
-                                                    if (success) {
-                                                        setIsTitleEditing(false);
-                                                    }
-                                                }
-                                            }}
-                                            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white transition-colors"
-                                        >
-                                            {t(COMMON_I18N_KEYS.save)}
-                                        </button>
-                                        <button
-                                            onClick={() => setIsTitleEditing(false)}
-                                            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                                        >
-                                            {t(COMMON_I18N_KEYS.cancel)}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="px-4 py-2 flex items-center justify-between group">
-                                    <h2 className="text-sm font-medium text-gray-300">{currentSessionTitle}</h2>
-                                    <button
-                                        onClick={() => {
-                                            setTitleEditValue(currentSessionTitle);
-                                            setIsTitleEditing(true);
-                                        }}
-                                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white"
-                                        title={t(CHAT_VIEW_I18N_KEYS.titleEdit)}
-                                    >
-                                        <Edit size={16} />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    <ChatHeader
+                        headerRef={headerRef}
+                        title={currentSessionId ? currentSessionTitle : t(CHAT_VIEW_I18N_KEYS.headerNewConversation)}
+                        subtitle={joinNames(uiCatalog, participantNames) || (isConversationStarted ? '' : t(CHAT_VIEW_I18N_KEYS.headerReadyHint))}
+                        canEditTitle={!!currentSessionId}
+                        showStatus={!!currentSessionId}
+                        runningJobCount={runningJobCount}
+                        isPrepareOpen={isRolePlaySettingsOpen}
+                        onOpenStatus={() => setIsStatusDrawerOpen(true)}
+                        showQuickSettings={hasSupportPanels}
+                        isQuickSettingsOpen={isQuickSettingsOpen}
+                        onToggleQuickSettings={() => setIsQuickSettingsOpen(v => !v)}
+                        onTogglePrepare={isRolePlaySettingsOpen ? handleCloseRolePlaySettings : handleOpenRolePlaySettings}
+                        onOpenJobs={() => setIsJobProgressOpen(true)}
+                        onSaveTitle={(title) => (currentSessionId ? updateSessionTitle(currentSessionId, title) : Promise.resolve(false))}
+                        t={t}
+                        keys={{
+                            status: CHAT_VIEW_I18N_KEYS.headerStatus,
+                            prepare: CHAT_VIEW_I18N_KEYS.headerPrepare,
+                            quickSettings: CHAT_VIEW_I18N_KEYS.headerQuickSettings,
+                            jobsRunning: CHAT_VIEW_I18N_KEYS.headerJobsRunning,
+                            titleEdit: CHAT_VIEW_I18N_KEYS.titleEdit,
+                            save: COMMON_I18N_KEYS.save,
+                            cancel: COMMON_I18N_KEYS.cancel,
+                        }}
+                    />
 
                     {messages.length === 0 ? (
-                        <div className="relative z-[1] flex-1 flex items-center justify-center p-4">
-                            <div className="text-center text-gray-500 max-w-md">
-                                <div className="flex justify-center gap-4 mb-6">
-                                    <Code2 size={40} className="text-gray-700" />
-                                    <FolderTree size={40} className="text-gray-700" />
-                                </div>
-                                <p className="font-medium mb-2">
-                                    {!currentSessionId
-                                        // 言語設定でカスタムした SSRP_SESSION_TITLE を最優先し、
-                                        // 無ければ UI 辞書（→JAフォールバック）で解決する（PWA版と同じ優先順。04調査 中#1）。
-                                        ? (languageSettings['SSRP_SESSION_TITLE'] || t(CHAT_VIEW_I18N_KEYS.newSessionTitle))
-                                        : currentSessionTitle}
-                                </p>
-                                <p className="text-sm">{t(CHAT_VIEW_I18N_KEYS.emptyInstruction)}</p>
-                            </div>
-                        </div>
+                        <ChatEmptyState
+                            started={isConversationStarted}
+                            startedTitle={startedTitle}
+                            selectedCharacterCount={selectedCharacterCount}
+                            onOpenPrepare={handleOpenRolePlaySettings}
+                            t={t}
+                            keys={{
+                                title: CHAT_VIEW_I18N_KEYS.emptyTitle,
+                                lead: CHAT_VIEW_I18N_KEYS.emptyLead,
+                                step1: CHAT_VIEW_I18N_KEYS.emptyStep1,
+                                step1Count: CHAT_VIEW_I18N_KEYS.emptyStep1Count,
+                                step1None: CHAT_VIEW_I18N_KEYS.emptyStep1None,
+                                step2: CHAT_VIEW_I18N_KEYS.emptyStep2,
+                                step2Note: CHAT_VIEW_I18N_KEYS.emptyStep2Note,
+                                step3: CHAT_VIEW_I18N_KEYS.emptyStep3,
+                                step3Note: CHAT_VIEW_I18N_KEYS.emptyStep3Note,
+                                startedInstruction: CHAT_VIEW_I18N_KEYS.emptyInstruction,
+                            }}
+                        />
                     ) : (
                         <MessageList
                             messages={messages}
@@ -1778,6 +1595,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onActiveBackgroundChange={setChatBackgroundUrl}
                             uiCatalog={uiCatalog}
                             enabledFeatures={enabledFeatures}
+                            imageGenEnabled={isImageGenAvailable(enabledFeatures, comfyModuleActive)}
                             ttsEnabled={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
                             ttsEmojiList={ttsEmojiList}
                             getTTSPresetVoiceDesign={getTTSPresetVoiceDesign}
@@ -1790,6 +1608,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
 
                     <div className="relative z-[1] shrink-0">
                         <MessageInput
+                            modelPickerTopBoundaryRef={headerRef}
                             input={input}
                             isLoading={isLoading}
                             disabled={isRestoringSession || tempImport.running}
@@ -1801,13 +1620,15 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                             onSelectModel={setSelectedModel}
                             selectedModelProvider={selectedModelProvider}
                             onSelectModelProvider={setSelectedModelProvider}
-                            onOpenModelSettings={() => setIsModelSettingsOpen(true)}
+                            onOpenModelSettings={() => openSettingsView('ai')}
                             claudeEffort={claudeEffort}
                             onSelectClaudeEffort={selectClaudeEffort}
                             antigravityThinking={antigravityThinking}
                             onSelectAntigravityThinking={selectAntigravityThinking}
                             antigravityStreamGuardLimit={antigravityStreamGuardLimit}
                             onSelectAntigravityStreamGuardLimit={selectAntigravityStreamGuardLimit}
+                            responseTimeoutMinutes={responseTimeoutMinutes}
+                            onSelectResponseTimeoutMinutes={selectResponseTimeoutMinutes}
                             geminiTempFileMode={geminiTempFileMode}
                             onToggleGeminiTempFileMode={setGeminiTempFileMode}
                             showBackgroundThrough={useChatAreaBackground && !!chatBackgroundUrl}
@@ -1827,6 +1648,7 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     onClose={handleCloseRolePlaySettings}
                     onStartSession={handleNewSessionWrapper}
                     initialSettings={currentSessionConfig}
+                    onInitialized={applyLazyReloadRecovery}
                     backendUrl={BACKEND_URL}
                     canRestoreSessionSettings={!!currentSessionId && !!sessionHistoryConfig}
                     onConversationPresetChanged={handleConversationPresetChanged}
@@ -1835,38 +1657,37 @@ export const Chat: React.FC<ChatProps> = ({ onLogout }) => {
                     defaultUserNameSetting={settings.defaultUserName}
                     onOpenCharacterEditor={target => {
                         // 設定ファイルエディタ（設定ファイルタブ）でそのキャラクター本体を開く
-                        setConfigEditorOpenFile({ categoryId: 'character', dirName: target.dirName, fileName: target.fileName });
-                        setConfigEditorInitialTab('config');
-                        setIsConfigEditorOpen(true);
+                        openMaterialView({ tab: 'files', openFile: { categoryId: 'character', dirName: target.dirName, fileName: target.fileName } });
                     }}
                     imageGenSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive}
                     onOpenIntegratedImageSettings={isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI) && comfyModuleActive
                         ? characterName => {
-                            // 設定メニュー経由と同じ ConfigEditorHub の imageGen タブで開く
-                            //（タブ・設定ファイルエディタで開くボタンを含めて同一画面に統一）
-                            setIntegratedInitialCharacter(characterName);
-                            setConfigEditorInitialTab('imageGen');
-                            setIsConfigEditorOpen(true);
+                            // 素材づくりのキャラで、そのキャラを選んで開く
+                            openMaterialView({ tab: 'images', character: characterName });
                         }
                         : undefined}
                     ttsSettingsVisible={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive}
                     onOpenIntegratedTTSSettings={isFeatureEnabled(enabledFeatures, FEATURE_TTS) && ttsModuleActive
                         ? characterName => {
-                            // 設定メニュー経由と同じ ConfigEditorHub の tts タブで開く
-                            setIntegratedInitialCharacter(characterName);
-                            setConfigEditorInitialTab('tts');
-                            setIsConfigEditorOpen(true);
+                            // 声の紐づけも素材づくりのキャラにあるので、そのキャラを選び、声の紐づけを開く
+                            openMaterialView({ tab: 'images', character: characterName, section: 'voice' });
                         }
                         : undefined}
                     uiCatalog={uiCatalog}
                     canApplyToSession={!!currentSessionId && isSSRPDirty}
+                    charactersChangedFromSession={!!currentSessionId && charactersChangedFromSession}
                     onApplyToSession={handleApplyToSession}
                     applyToSessionState={applyToSessionState}
                     sessionId={currentSessionId}
                     messages={messages}
                     tempImport={tempImport}
                     onSessionSettingsUpdated={handleSessionSettingsUpdated}
+                    onCharactersChange={setPrepareCharacters}
                 />
+            </div>
+            </div>
+
+            <TabBar items={navItems} className="flex md:hidden" />
             </div>
         </div>
     );

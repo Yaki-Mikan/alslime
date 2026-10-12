@@ -94,11 +94,12 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
         }, template);
     };
     // UI状態
-    const [isOpen, setIsOpen] = useState(false);
+    // 状態欄に埋め込んだときは、開いた時点で中身を見せる
+    const [isOpen, setIsOpen] = useState(embedded);
     const [isLoading, setIsLoading] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
 
-    // キャラクター毎の状態セクション開閉（デフォルトどちらも閉）
+    // キャラクター毎の状態セクション開閉。操作していないキャラは、状態欄に埋め込んだときは開き、それ以外は閉じる
     const [openCharPaths, setOpenCharPaths] = useState<Record<string, boolean>>({});
 
     // 編集中のキャラクターと編集データ（ローカルコピー）。同時編集は1キャラのみ
@@ -286,8 +287,8 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
             onClick={onApplyToSession}
             disabled={applyToSessionState === 'applying'}
             className={`p-1.5 rounded transition-colors ${applyToSessionState === 'done'
-                ? 'text-emerald-400'
-                : 'text-emerald-400 hover:text-emerald-300 hover:bg-gray-700 disabled:opacity-60'}`}
+                ? 'text-ok'
+                : 'text-ok hover:text-ok hover:bg-surface-2 disabled:opacity-60'}`}
             title={t(CHAT_VIEW_I18N_KEYS.applyToSession)}
         >
             <SaveAll size={14} className={applyToSessionState === 'applying' ? 'animate-pulse' : ''} />
@@ -301,17 +302,17 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
     };
 
     return (
-        <div ref={panelRef} data-panel="status" className={embedded ? 'w-full border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} left-4 z-30`}>
+        <div ref={panelRef} data-panel="status" className={embedded ? 'w-full border border-line-strong rounded-lg overflow-hidden bg-surface' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} left-4 z-30`}>
             {embedded ? (
                 /* 埋め込み時はドロワー内の他パネルと同じ器。ヘッダ全体が開閉ボタンで、反映ボタンは右端に置く */
                 <div className="flex items-center">
                     <button
                         type="button"
                         onClick={toggleOpen}
-                        className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                        className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
                     >
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        <Heart size={14} className={`text-pink-400 ${hasAnyDetail ? 'fill-pink-400/20' : ''}`} />
+                        <Heart size={14} className={`text-accent ${hasAnyDetail ? 'fill-accent/20' : ''}`} />
                         <span>{t(CHARACTER_STATUS_I18N_KEYS.title)}</span>
                     </button>
                     {isOpen && applyButton && (
@@ -321,29 +322,29 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
             ) : !isOpen ? (
                 <button
                     onClick={toggleOpen}
-                    className="flex items-center gap-2 bg-gray-800/80 backdrop-blur border border-gray-700 text-pink-400 px-3 py-2 rounded-full shadow-lg hover:bg-gray-700 transition-all font-medium text-sm group"
+                    className="flex items-center gap-2 bg-surface backdrop-blur border border-line-strong text-accent px-3 py-2 rounded-full shadow-lg hover:bg-surface-2 transition-all font-medium text-sm group"
                 >
-                    <Heart size={16} className={`group-hover:scale-110 transition-transform ${hasAnyDetail ? 'fill-pink-400/20' : ''}`} />
+                    <Heart size={16} className={`group-hover:scale-110 transition-transform ${hasAnyDetail ? 'fill-accent/20' : ''}`} />
                     <span>{t(CHARACTER_STATUS_I18N_KEYS.closedTitle)}</span>
-                    <ChevronRight size={14} className="text-gray-500" />
+                    <ChevronRight size={14} className="text-fg-muted" />
                 </button>
             ) : null}
             {isOpen && (
                 <div className={embedded
-                    ? 'border-t border-gray-700/60 flex flex-col'
-                    : 'bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-xl shadow-2xl w-96 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200'}>
+                    ? 'border-t border-line-strong flex flex-col'
+                    : 'bg-panel/95 backdrop-blur-md border border-line-strong rounded-xl shadow-2xl w-96 overflow-hidden flex flex-col animate-slide-down'}>
                     {/* Header（浮遊時のみ。埋め込み時は上の開閉ヘッダが兼ねる） */}
                     {!embedded && (
-                        <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-pink-400 font-medium">
-                                <Heart size={16} className="fill-pink-400/20" />
+                        <div className="px-4 py-3 bg-surface border-b border-line-strong flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-accent font-medium">
+                                <Heart size={16} className="fill-accent/20" />
                                 <span>{t(CHARACTER_STATUS_I18N_KEYS.title)}</span>
                             </div>
                             <div className="flex items-center gap-1">
                                 {applyButton}
                                 <button
                                     onClick={toggleOpen}
-                                    className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+                                    className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                                 >
                                     <ChevronDown size={16} />
                                 </button>
@@ -351,21 +352,21 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                         </div>
                     )}
 
-                    {/* Content: キャラクター毎の状態セクション（開閉可能・デフォルト閉） */}
+                    {/* Content: キャラクター毎の状態セクション（開閉可能） */}
                     <div className="p-3 space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
                         {selectedCharacters.map(charPath => {
-                            const isCharOpen = !!openCharPaths[charPath];
+                            const isCharOpen = openCharPaths[charPath] ?? embedded;
                             const isEditingThis = editingCharPath === charPath;
                             const detail = isEditingThis ? editingDetail : (characterDetails ? characterDetails[charPath] : null);
                             const isParamOpen = paramOpenByChar[charPath] ?? true;
                             const isCorrelationOpen = correlationOpenByChar[charPath] ?? true;
                             return (
-                                <div key={charPath} className="border border-gray-700/60 rounded-lg overflow-hidden">
+                                <div key={charPath} className="border border-line-strong rounded-lg overflow-hidden">
                                     {/* キャラクターセクションヘッダー */}
-                                    <div className="flex items-center bg-gray-800/60">
+                                    <div className="flex items-center bg-surface">
                                         <button
                                             onClick={() => setOpenCharPaths(prev => ({ ...prev, [charPath]: !isCharOpen }))}
-                                            className="flex-1 flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                                            className="flex-1 flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
                                         >
                                             {isCharOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                             <span>{formatText(t(CHARACTER_STATUS_I18N_KEYS.characterSection), { name: getCharacterName(charPath) })}</span>
@@ -374,7 +375,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                         {isCharOpen && editingCharPath === null && (
                                             <button
                                                 onClick={() => handleStartEdit(charPath)}
-                                                className="p-1.5 mr-2 hover:bg-gray-700 rounded text-gray-400 hover:text-blue-400 transition-colors"
+                                                className="p-1.5 mr-2 hover:bg-surface-2 rounded text-fg-muted hover:text-accent transition-colors"
                                                 title={t(COMMON_I18N_KEYS.edit)}
                                             >
                                                 <Edit2 size={14} />
@@ -385,7 +386,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                     {isCharOpen && (
                                         <div className="p-3 space-y-4">
                                             {!detail ? (
-                                                <div className="text-center py-4 text-gray-500 text-sm">
+                                                <div className="text-center py-4 text-fg-muted text-sm">
                                                     {t(CHARACTER_STATUS_I18N_KEYS.noData)}
                                                 </div>
                                             ) : (
@@ -397,9 +398,9 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                         { label: t(CHARACTER_STATUS_I18N_KEYS.individualBackground), items: (detail.individualBackgrounds || (detail.individualBackground ? [detail.individualBackground] : [])).filter(Boolean) },
                                                     ] as { label: string; items: string[] }[]).map(({ label, items }) =>
                                                         items.length > 0 && (
-                                                            <div key={label} className="text-xs text-gray-400 leading-tight">
-                                                                <span className="text-gray-500 block mb-0.5">{label}:</span>
-                                                                <div className="space-y-0.5 pl-2 border-l border-gray-700">
+                                                            <div key={label} className="text-xs text-fg-muted leading-tight">
+                                                                <span className="text-fg-muted block mb-0.5">{label}:</span>
+                                                                <div className="space-y-0.5 pl-2 border-l border-line-strong">
                                                                     {items.map((item, idx) => (
                                                                         <div key={idx}>{item.split('/').pop()?.replace('.md', '')}</div>
                                                                     ))}
@@ -413,7 +414,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                         <div>
                                                             <button
                                                                 onClick={() => setParamOpenByChar(prev => ({ ...prev, [charPath]: !isParamOpen }))}
-                                                                className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2 w-full"
+                                                                className="flex items-center gap-2 text-sm font-medium text-fg-muted mb-2 w-full"
                                                             >
                                                                 {isParamOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                                 {t(CHARACTER_STATUS_I18N_KEYS.parameters)}
@@ -446,7 +447,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                         <div>
                                                             <button
                                                                 onClick={() => setCorrelationOpenByChar(prev => ({ ...prev, [charPath]: !isCorrelationOpen }))}
-                                                                className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2 w-full"
+                                                                className="flex items-center gap-2 text-sm font-medium text-fg-muted mb-2 w-full"
                                                             >
                                                                 {isCorrelationOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                                 <Users size={14} />
@@ -456,19 +457,19 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                             {isCorrelationOpen && (
                                                                 <div className="space-y-3 pl-2">
                                                                     {detail.correlations.map(corr => (
-                                                                        <div key={corr.targetId} className="border border-gray-700/50 rounded p-2 space-y-2">
-                                                                            <div className="text-xs font-medium text-gray-400">
+                                                                        <div key={corr.targetId} className="border border-line-strong rounded p-2 space-y-2">
+                                                                            <div className="text-xs font-medium text-fg-muted">
                                                                                 {formatText(t(CHARACTER_STATUS_I18N_KEYS.target), { name: corr.targetName })}
                                                                             </div>
 
                                                                             {/* 関係性 */}
                                                                             <div className="flex items-center gap-2">
-                                                                                <span className="text-xs text-gray-500 w-12">{t(CHARACTER_STATUS_I18N_KEYS.relationship)}</span>
+                                                                                <span className="text-xs text-fg-muted w-12">{t(CHARACTER_STATUS_I18N_KEYS.relationship)}</span>
                                                                                 {isEditingThis ? (
                                                                                     <select
                                                                                         value={corr.relationship || ''}
                                                                                         onChange={(e) => handleCorrelationChange(corr.targetId, 'relationship', e.target.value)}
-                                                                                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
+                                                                                        className="flex-1 bg-surface border border-line-strong rounded px-2 py-1 text-xs"
                                                                                     >
                                                                                         <option value="">{t(CHARACTER_STATUS_I18N_KEYS.unset)}</option>
                                                                                         {relationshipOptions.map(opt => (
@@ -478,7 +479,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                                                         ))}
                                                                                     </select>
                                                                                 ) : (
-                                                                                    <span className="text-xs text-gray-300">
+                                                                                    <span className="text-xs text-fg-muted">
                                                                                         {corr.relationship || t(CHARACTER_STATUS_I18N_KEYS.unset)}
                                                                                     </span>
                                                                                 )}
@@ -486,7 +487,7 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
 
                                                                             {/* 好感度 */}
                                                                             <div className="flex items-center gap-2">
-                                                                                <span className="text-xs text-gray-500 w-12">{t(CHARACTER_STATUS_I18N_KEYS.favorability)}</span>
+                                                                                <span className="text-xs text-fg-muted w-12">{t(CHARACTER_STATUS_I18N_KEYS.favorability)}</span>
                                                                                 {isEditingThis ? (
                                                                                     <div className="flex-1 flex items-center gap-2">
                                                                                         <input
@@ -495,23 +496,23 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                                                             max={100}
                                                                                             value={corr.favorability ?? 0}
                                                                                             onChange={(e) => handleCorrelationChange(corr.targetId, 'favorability', parseInt(e.target.value))}
-                                                                                            className="flex-1 h-1.5 accent-pink-500"
+                                                                                            className="flex-1 h-1.5 accent-accent"
                                                                                         />
-                                                                                        <span className="text-xs w-8 text-right text-pink-400">
+                                                                                        <span className="text-xs w-8 text-right text-accent">
                                                                                             {corr.favorability ?? 0}
                                                                                         </span>
                                                                                     </div>
                                                                                 ) : (
                                                                                     <div className="flex-1 flex items-center gap-2">
-                                                                                        <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                                                                        <div className="flex-1 h-1.5 bg-surface rounded-full overflow-hidden">
                                                                                             <div
-                                                                                                className="h-full bg-pink-500"
+                                                                                                className="h-full bg-accent"
                                                                                                 style={{
                                                                                                     width: `${Math.max(0, ((corr.favorability ?? 0) + 100) / 200 * 100)}%`
                                                                                                 }}
                                                                                             />
                                                                                         </div>
-                                                                                        <span className="text-xs w-8 text-right text-pink-400">
+                                                                                        <span className="text-xs w-8 text-right text-accent">
                                                                                             {corr.favorability ?? 0}
                                                                                         </span>
                                                                                     </div>
@@ -521,17 +522,17 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
                                                                             {/* 詳細 */}
                                                                             {(corr.details || isEditingThis) && (
                                                                                 <div>
-                                                                                    <span className="text-xs text-gray-500">{t(CHARACTER_STATUS_I18N_KEYS.details)}</span>
+                                                                                    <span className="text-xs text-fg-muted">{t(CHARACTER_STATUS_I18N_KEYS.details)}</span>
                                                                                     {isEditingThis ? (
                                                                                         <textarea
                                                                                             value={corr.details || ''}
                                                                                             onChange={(e) => handleCorrelationChange(corr.targetId, 'details', e.target.value)}
-                                                                                            className="w-full mt-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs resize-none"
+                                                                                            className="w-full mt-1 bg-surface border border-line-strong rounded px-2 py-1 text-xs resize-none"
                                                                                             rows={2}
                                                                                             placeholder={t(CHARACTER_STATUS_I18N_KEYS.detailsPlaceholder)}
                                                                                         />
                                                                                     ) : (
-                                                                                        <p className="text-xs text-gray-400 mt-1">
+                                                                                        <p className="text-xs text-fg-muted mt-1">
                                                                                             {corr.details || t(CHARACTER_STATUS_I18N_KEYS.noDetails)}
                                                                                         </p>
                                                                                     )}
@@ -548,17 +549,17 @@ export const CharacterStatusPanel: React.FC<CharacterStatusPanelProps> = ({
 
                                             {/* 編集中の保存・キャンセル */}
                                             {isEditingThis && (
-                                                <div className="flex gap-2 pt-1 border-t border-gray-700/50">
+                                                <div className="flex gap-2 pt-1 border-t border-line-strong">
                                                     <button
                                                         onClick={handleCancel}
-                                                        className="flex-1 py-1.5 text-xs text-gray-300 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                                                        className="flex-1 py-1.5 text-xs text-fg-muted bg-surface-2 hover:bg-surface-2 rounded transition-colors"
                                                     >
                                                         {t(COMMON_I18N_KEYS.cancel)}
                                                     </button>
                                                     <button
                                                         onClick={handleSave}
                                                         disabled={isLoading}
-                                                        className="flex-1 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 rounded transition-colors flex items-center justify-center gap-1"
+                                                        className="flex-1 py-1.5 text-xs text-on-accent bg-accent hover:brightness-110 rounded transition-colors flex items-center justify-center gap-1"
                                                     >
                                                         <Save size={14} />
                                                         {t(COMMON_I18N_KEYS.save)}

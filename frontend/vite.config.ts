@@ -36,7 +36,20 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
-          disableDevLogs: true
+          disableDevLogs: true,
+          // 画面のプログラムが既定の上限（2MiB）に近いため、先読みから外れないよう広げる
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+          // 字体（しっぽり明朝）は文字の範囲ごとに分かれた多数のファイル。先読みせず、使った分だけ保存する
+          runtimeCaching: [
+            {
+              urlPattern: /\.woff2$/,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'alslime-fonts',
+                expiration: { maxEntries: 800, maxAgeSeconds: 60 * 60 * 24 * 365 }
+              }
+            }
+          ]
         },
         manifest: {
           name: appName,

@@ -56,9 +56,10 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
     // エラーメッセージ
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    // 変更があるかどうか
+    // 変更があるかどうか。末尾の入力用の空の行は保存されないので、保存時と同じく置換対象が空の行を除いて比べる
     const isDirty = useCallback(() => {
-        return JSON.stringify(replacements) !== JSON.stringify(originalReplacements);
+        const current = replacements.filter(r => r.target.trim() !== '');
+        return JSON.stringify(current) !== JSON.stringify(originalReplacements);
     }, [replacements, originalReplacements]);
 
     // 設定を読み込み
@@ -163,34 +164,34 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] border border-gray-700 overflow-hidden flex flex-col">
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] border border-line-strong overflow-hidden flex flex-col">
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface shrink-0">
                     <div className="flex items-center gap-2">
-                        <RefreshCw size={20} className="text-purple-400" />
-                        <h3 className="font-semibold text-gray-100 text-lg">{t(REPLACEMENT_CONFIG_I18N_KEYS.title)}</h3>
+                        <RefreshCw size={20} className="text-accent" />
+                        <h3 className="font-semibold text-fg text-lg">{t(REPLACEMENT_CONFIG_I18N_KEYS.title)}</h3>
                         {isDirty() && (
-                            <span className="text-xs text-amber-400 ml-2">{t(REPLACEMENT_CONFIG_I18N_KEYS.dirty)}</span>
+                            <span className="text-xs text-warn ml-2">{t(REPLACEMENT_CONFIG_I18N_KEYS.dirty)}</span>
                         )}
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                        className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
                 {/* 説明文 */}
-                <div className="px-5 py-3 border-b border-gray-700 bg-gray-800/50 shrink-0">
-                    <p className="text-sm text-gray-400">
+                <div className="px-5 py-3 border-b border-line-strong bg-surface shrink-0">
+                    <p className="text-sm text-fg-muted">
                         {t(REPLACEMENT_CONFIG_I18N_KEYS.description)}
                     </p>
                 </div>
 
                 {/* エラーメッセージ */}
                 {errorMessage && (
-                    <div className="mx-5 mt-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-red-300 shrink-0">
+                    <div className="mx-5 mt-4 p-3 bg-danger/10 border border-danger/40 rounded-lg flex items-center gap-2 text-danger shrink-0">
                         <AlertCircle size={18} />
                         <span>{errorMessage}</span>
                     </div>
@@ -200,12 +201,12 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-12">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                         </div>
                     ) : (
                         <>
                             {/* ヘッダー行 */}
-                            <div className="grid grid-cols-12 gap-3 text-xs text-gray-500 font-medium uppercase tracking-wide">
+                            <div className="grid grid-cols-12 gap-3 text-xs text-fg-muted font-medium uppercase tracking-wide">
                                 <div className="col-span-3">{t(REPLACEMENT_CONFIG_I18N_KEYS.target)}</div>
                                 <div className="col-span-3">{t(REPLACEMENT_CONFIG_I18N_KEYS.source)}</div>
                                 <div className="col-span-3">{t(REPLACEMENT_CONFIG_I18N_KEYS.value)}</div>
@@ -233,7 +234,7 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                                                 value={item.target}
                                                 onChange={(e) => updateItem(index, { target: e.target.value })}
                                                 placeholder="{{userName}}"
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors placeholder-gray-500"
+                                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors placeholder-fg-muted"
                                             />
                                         </div>
 
@@ -244,7 +245,7 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                                                 onChange={(e) => updateItem(index, {
                                                     replacementSource: e.target.value as ReplacementSource
                                                 })}
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
+                                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors"
                                             >
                                                 {sourceOptions.map(opt => (
                                                     <option key={opt.value} value={opt.value}>
@@ -262,9 +263,9 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                                                 onChange={(e) => updateItem(index, { manualValue: e.target.value })}
                                                 placeholder={isManualSource ? t(REPLACEMENT_CONFIG_I18N_KEYS.manualPlaceholder) : t(REPLACEMENT_CONFIG_I18N_KEYS.autoPlaceholder)}
                                                 disabled={!isManualSource}
-                                                className={`w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors placeholder-gray-500 ${!isManualSource
-                                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                                    : 'text-gray-200'
+                                                className={`w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm outline-none focus:border-accent transition-colors placeholder-fg-muted ${!isManualSource
+                                                    ? 'bg-surface-2 text-fg-muted cursor-not-allowed'
+                                                    : 'text-fg'
                                                     }`}
                                             />
                                         </div>
@@ -276,7 +277,7 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                                                 value={item.description || ''}
                                                 onChange={(e) => updateItem(index, { description: e.target.value })}
                                                 placeholder={t(REPLACEMENT_CONFIG_I18N_KEYS.descriptionPlaceholder)}
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors placeholder-gray-500"
+                                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors placeholder-fg-muted"
                                             />
                                         </div>
 
@@ -285,7 +286,7 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                                             {!isLastEmptyItem && (
                                                 <button
                                                     onClick={() => removeItem(index)}
-                                                    className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+                                                    className="p-2 text-fg-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
                                                     title={t(COMMON_I18N_KEYS.delete)}
                                                 >
                                                     <Trash2 size={16} />
@@ -300,17 +301,17 @@ export const ReplacementConfigModal: React.FC<ReplacementConfigModalProps> = ({
                 </div>
 
                 {/* フッター */}
-                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-700 bg-gray-800 shrink-0">
+                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-line-strong bg-surface shrink-0">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
+                        className="px-4 py-2 text-fg-muted hover:text-fg hover:bg-surface-2 rounded-lg transition-colors"
                     >
                         {t(COMMON_I18N_KEYS.cancel)}
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={isSaving || !isDirty()}
-                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
+                        className="flex items-center gap-2 px-4 py-2 bg-accent hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-on-accent transition-colors"
                     >
                         <Save size={16} />
                         {isSaving ? t(COMMON_I18N_KEYS.saving) : t(COMMON_I18N_KEYS.save)}

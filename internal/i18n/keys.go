@@ -85,6 +85,7 @@ const (
 	KeyErrorInvalidProcessLimit       = "error.invalidProcessLimit"
 	KeyErrorInvalidServerPort         = "error.invalidServerPort"
 	KeyErrorInvalidBindAddress        = "error.invalidBindAddress"
+	KeyErrorUnknownCLI                = "error.unknownCLI"
 	KeyErrorJobRunnerMissing          = "error.jobRunnerMissing"
 	KeyErrorJobRunnerNotImplemented   = "error.jobRunnerNotImplemented"
 	KeyErrorUnsupportedImageJobType   = "error.unsupportedImageJobType"
@@ -300,6 +301,30 @@ const (
 	// プロンプト文言（API 経路専用。PromptLocale＝ja/en）。
 	KeyPromptParametersAPIInstruction   = "prompt.parameters.apiInstruction"
 	KeyPromptWritingStyleAPIInstruction = "prompt.writingStyle.apiInstruction"
+)
+
+// AI の CLI が失敗したときに応答の位置へ出す文。会話の実行では表示言語の辞書
+// （PromptLocale）で引き、タグ判定では鍵のまま返して画面が辞書で引く。
+const (
+	KeyErrorGeminiNoResponse       = "error.geminiNoResponse"
+	KeyErrorGeminiAPIError         = "error.geminiApiError"
+	KeyErrorGeminiTempFileMissing  = "error.geminiTempFileMissing"
+	KeyErrorClaudeFileRelayMissing = "error.claudeFileRelayMissing"
+	KeyLabelCLIErrorOutput         = "label.cliErrorOutput"
+	KeyLabelCLIStderrEmpty         = "label.cliStderrEmpty"
+	KeyLabelRetryWithRegenerate    = "label.retryWithRegenerate"
+)
+
+// ComfyUI から生成結果を受け取れなかったときの文。補足 status=<HTTP 状態コード> を差し込む。
+const (
+	KeyErrorComfyUIHistoryFetchFailed = "error.comfyuiHistoryFetchFailed"
+	KeyErrorComfyUIImageFetchFailed   = "error.comfyuiImageFetchFailed"
+)
+
+// 画像生成ジョブの失敗理由として画面まで届く文。
+const (
+	KeyErrorComfyUIInvalidInput = "error.comfyuiInvalidInput"
+	KeyErrorTagExtractionFailed = "error.tagExtractionFailed"
 )
 
 // 入力の不備の文面へ差し込む入力欄の名前（識別子は comfyui の NovelAIInputField* と同じ綴り）。

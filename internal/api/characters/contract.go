@@ -17,6 +17,8 @@ const (
 	routeCharacterFilters        = "/character-filters"
 	routeCharacterFiltersRebuild = "/character-filters/rebuild"
 	routeCharacterEmotions       = "/characters/emotions"
+	// routeCharacterMaterialStatus は素材づくりのキャラ一覧に出す、全キャラの表情画像の作成状況。
+	routeCharacterMaterialStatus = "/characters/material-status"
 	routeEmotionCatalog          = "/characters/emotion-catalog"
 	routeEmotionImagePrune       = "/characters/emotion-images/prune"
 	routeCharacterImages         = "/characters/{name}/images"

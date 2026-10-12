@@ -1,8 +1,8 @@
 /**
- * ApiServiceBalancePanel.tsx - 左メニュー用の API サービス残高パネル
+ * ApiServiceBalancePanel.tsx - クイック設定の API サービス残高パネル
  *
  * 画像生成バックエンドが API サービスのときだけ表示し、プラン・Anlas 残高・無料枠・
- * 使用量枠を出す。取得はドロワーが開くたび（active）と再取得ボタン。取得に失敗したときは
+ * 使用量枠を出す。取得はクイック設定の欄が開くたび（active）と再取得ボタン。取得に失敗したときは
  * 前回の値を薄く残して失敗印を添える。バックエンドの選択は親（タグ判定パネルの切替タブ）
  * から受け取り、受け取れていないときは自分で設定を読む。
  */
@@ -20,7 +20,7 @@ import { BalanceRefreshButton, SubscriptionSummary } from './ApiServiceConnectio
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
-    // ドロワーが開いているか。true になるたびに残高を読み直す（未指定なら常に有効）。
+    // クイック設定の欄が開いているか。true になるたびに残高を読み直す（未指定なら常に有効）。
     active?: boolean;
     // 親が把握している全画面共用の選択。null なら自分で設定を読む。
     selection?: BackendSelection | null;
@@ -75,7 +75,7 @@ export const ApiServiceBalancePanel: React.FC<Props> = ({ backendUrl, uiCatalog 
         }
     }, [backendUrl, service]);
 
-    // ドロワーが開くたび、表示対象になった直後、サービスが変わったときに読み直す。
+    // 欄が開くたび、表示対象になった直後、サービスが変わったときに読み直す。
     useEffect(() => {
         if (!visible || !active) return;
         void refresh();
@@ -84,32 +84,32 @@ export const ApiServiceBalancePanel: React.FC<Props> = ({ backendUrl, uiCatalog 
     if (!visible) return null;
 
     return (
-        <div className="border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40">
+        <div className="border border-line-strong rounded-lg overflow-hidden bg-surface">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
             >
                 {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <Coins size={14} className="text-amber-400" />
+                <Coins size={14} className="text-warn" />
                 <span>{API_SERVICE.LABELS.BALANCE_PANEL}</span>
-                {failed && <AlertCircle size={14} className="ml-auto text-amber-400" />}
+                {failed && <AlertCircle size={14} className="ml-auto text-warn" />}
             </button>
             {isOpen && (
-                <div className="p-3 border-t border-gray-700/60 space-y-2">
+                <div className="p-3 border-t border-line-strong space-y-2">
                     {subscription ? (
                         <div className={failed ? 'opacity-60' : ''}>
                             <SubscriptionSummary subscription={subscription} uiCatalog={uiCatalog} compact />
                         </div>
                     ) : loading ? (
-                        <p className="flex items-center gap-1 text-xs text-gray-500">
+                        <p className="flex items-center gap-1 text-xs text-fg-muted">
                             <Loader2 size={12} className="animate-spin" />
                             {API_SERVICE.MESSAGES.BALANCE_LOADING}
                         </p>
                     ) : (
-                        <p className="text-xs text-gray-500">{API_SERVICE.MESSAGES.BALANCE_UNAVAILABLE}</p>
+                        <p className="text-xs text-fg-muted">{API_SERVICE.MESSAGES.BALANCE_UNAVAILABLE}</p>
                     )}
                     {failed && subscription && (
-                        <p className="flex items-center gap-1 text-[11px] text-amber-300">
+                        <p className="flex items-center gap-1 text-xs text-warn">
                             <AlertCircle size={11} />
                             {API_SERVICE.MESSAGES.BALANCE_STALE}
                         </p>

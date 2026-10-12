@@ -14,5 +14,7 @@ type Payload struct {
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
 	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
-	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
+	// ResponseTimeoutMinutes は画面で指定した応答の待ち時間（分）。0 以下は未指定。
+	ResponseTimeoutMinutes int  `json:"responseTimeoutMinutes,omitempty"`
+	EnableResponseBackup   bool `json:"enableResponseBackup,omitempty"`
 }

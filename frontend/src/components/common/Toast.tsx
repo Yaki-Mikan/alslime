@@ -28,10 +28,10 @@ const ToastItem: React.FC<{ msg: ToastMessage; onDismiss: (id: string) => void; 
     }, [msg.id, onDismiss, duration]);
 
     const isError = msg.type === 'error';
-    const borderColor = isError ? 'border-red-700/50' : 'border-cyan-700/50';
-    const bgColor = isError ? 'bg-red-900/30' : 'bg-cyan-900/30';
-    const textColor = isError ? 'text-red-300' : 'text-cyan-300';
-    const iconColor = isError ? 'text-red-400' : 'text-cyan-400';
+    const borderColor = isError ? 'border-danger/40' : 'border-line-strong';
+    const bgColor = isError ? 'bg-danger/10' : 'bg-accent-soft';
+    const textColor = isError ? 'text-danger' : 'text-accent';
+    const iconColor = isError ? 'text-danger' : 'text-accent';
 
     return (
         <div
@@ -40,7 +40,7 @@ const ToastItem: React.FC<{ msg: ToastMessage; onDismiss: (id: string) => void; 
         >
             {isError ? <AlertTriangle size={16} className={`${iconColor} mt-0.5 shrink-0`} /> : <Info size={16} className={`${iconColor} mt-0.5 shrink-0`} />}
             <span className={`text-sm ${textColor} flex-1`}>{msg.text}</span>
-            <button onClick={() => onDismiss(msg.id)} className="text-gray-500 hover:text-gray-300 transition-colors shrink-0 mt-0.5">
+            <button onClick={() => onDismiss(msg.id)} className="text-fg-muted hover:text-fg-muted transition-colors shrink-0 mt-0.5">
                 <X size={14} />
             </button>
         </div>

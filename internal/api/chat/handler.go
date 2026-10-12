@@ -21,6 +21,9 @@ import (
 // Deps は chat API の依存。
 type Deps struct {
 	Queue *jobsvc.Queue
+	// ReplaceUserMessage は送信・保存される本文（置換設定を当てた後）を求める（coreapi.Core の同名メソッド）。
+	// nil なら置き換えず、受け取った本文をそのまま返す。
+	ReplaceUserMessage func(sessionID, message string, ssrpSettings any) string
 }
 
 // Register は chat 系の最小 API を mux へ登録する。
@@ -43,6 +46,7 @@ type submitRequest struct {
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
 	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
+	ResponseTimeoutMinutes    int      `json:"responseTimeoutMinutes,omitempty"`
 	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
 
@@ -56,12 +60,16 @@ type regenerateRequest struct {
 	ClaudeEffort              string   `json:"claudeEffort,omitempty"`
 	AntigravityThinking       string   `json:"antigravityThinking,omitempty"`
 	AntigravityMaxStreamCalls int      `json:"antigravityMaxStreamCalls,omitempty"`
+	ResponseTimeoutMinutes    int      `json:"responseTimeoutMinutes,omitempty"`
 	EnableResponseBackup      bool     `json:"enableResponseBackup,omitempty"`
 }
 
 type submitResponse struct {
 	JobID  string `json:"jobId"`
 	Status string `json:"status"`
+	// UserMessage は送信・保存される本文（置換設定を当てた後）。chat の受け付けだけが返し、
+	// 画面は送信直後に出した吹き出しをこれへ差し替える。
+	UserMessage string `json:"userMessage,omitempty"`
 }
 
 type duplicateResponse struct {
@@ -113,6 +121,7 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 			ClaudeEffort:              req.ClaudeEffort,
 			AntigravityThinking:       req.AntigravityThinking,
 			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
+			ResponseTimeoutMinutes:    req.ResponseTimeoutMinutes,
 			EnableResponseBackup:      req.EnableResponseBackup,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{
@@ -131,7 +140,11 @@ func handleSubmit(deps Deps) http.HandlerFunc {
 			writeDuplicate(w, added.ExistingJobID)
 			return
 		}
-		writeJSON(w, submitResponse{JobID: added.JobID, Status: string(jobsvc.StatusPending)})
+		userMessage := req.Message
+		if deps.ReplaceUserMessage != nil {
+			userMessage = deps.ReplaceUserMessage(req.SessionID, req.Message, req.SSRPSettings)
+		}
+		writeJSON(w, submitResponse{JobID: added.JobID, Status: string(jobsvc.StatusPending), UserMessage: userMessage})
 	}
 }
 
@@ -157,6 +170,7 @@ func handleRegenerate(deps Deps) http.HandlerFunc {
 			ClaudeEffort:              req.ClaudeEffort,
 			AntigravityThinking:       req.AntigravityThinking,
 			AntigravityMaxStreamCalls: req.AntigravityMaxStreamCalls,
+			ResponseTimeoutMinutes:    req.ResponseTimeoutMinutes,
 			EnableResponseBackup:      req.EnableResponseBackup,
 		}
 		added := deps.Queue.Add(jobsvc.Spec{

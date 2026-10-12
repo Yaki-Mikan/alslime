@@ -42,15 +42,17 @@ interface Props {
     // モジュール配置状態の変化を親へ伝える（会話設定の画像生成設定欄など、
     // モーダル外の表示条件を画面更新なしで追随させる）。
     onModulesChanged?: (modules: ModuleStatusEntry[]) => void;
+    /** 設定画面に埋め込む（外枠・見出し・閉じるを出さない。isOpen は true で渡す） */
+    embedded?: boolean;
 }
 
 // 状態別のバッジ色（SystemDiagnosticsModal の STATUS_CLASSES と同系統）。
 const STATE_CLASSES: Record<EntitlementState, string> = {
-    valid: 'border-emerald-800 bg-emerald-950/30 text-emerald-300',
-    grace: 'border-amber-800 bg-amber-950/30 text-amber-300',
-    none: 'border-gray-700 bg-gray-800 text-gray-400',
-    expired: 'border-red-800 bg-red-950/30 text-red-300',
-    invalid: 'border-red-800 bg-red-950/30 text-red-300',
+    valid: 'border-line-strong bg-ok/10 text-ok',
+    grace: 'border-warn/40 bg-warn/10 text-warn',
+    none: 'border-line-strong bg-surface text-fg-muted',
+    expired: 'border-danger/40 bg-danger/10 text-danger',
+    invalid: 'border-danger/40 bg-danger/10 text-danger',
 };
 
 const STATE_FALLBACK_JA: Record<EntitlementState, string> = {
@@ -68,7 +70,7 @@ const LOGIN_POLL_INTERVAL_MS = 2000;
 const SPONSOR_URL = 'https://github.com/sponsors/Yaki-Mikan';
 
 
-export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, uiLanguage, onModulesChanged }) => {
+export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiCatalog = null, uiLanguage, onModulesChanged, embedded = false }) => {
     const [status, setStatus] = useState<SponsorStatus | null>(null);
     const [authUrl, setAuthUrl] = useState<string | null>(null);
     const [loginExpiresAt, setLoginExpiresAt] = useState<string | null>(null);
@@ -85,6 +87,11 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
     const [actionChoiceEnabled, setActionChoiceEnabled] = useState(true);
     const [isTogglingChoice, setIsTogglingChoice] = useState(false);
     const pollTimer = useRef<number | null>(null);
+    // 親の知らせ先は親の再描画のたびに作り直される。load の依存に入れると、
+    // load → 知らせ → 親の再描画 → load の作り直し → 再読み込み、が止まらなくなるため、
+    // 最新の知らせ先を ref に置き、load からは ref 経由で呼ぶ。
+    const onModulesChangedRef = useRef(onModulesChanged);
+    onModulesChangedRef.current = onModulesChanged;
 
     const t = useCallback((key: string, fallback: string) => (
         resolveMessage(uiCatalog, key, fallback)
@@ -105,7 +112,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             try {
                 const nextModules = await fetchModulesStatus(backendUrl);
                 setModules(nextModules);
-                onModulesChanged?.(nextModules);
+                onModulesChangedRef.current?.(nextModules);
             } catch {
                 // 取得失敗はモーダル内の表示だけ空にする（親の表示条件は既存値を保持）。
                 setModules([]);
@@ -133,7 +140,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
             setError(t('systemDiagnostics.fetchError', '診断情報の取得に失敗しました。'));
             return null;
         }
-    }, [backendUrl, t, onModulesChanged]);
+    }, [backendUrl, t]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -282,7 +289,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         }
         let message = t(
             'sponsor.module.clean.message',
-            '配布物を削除して最新版を入れ直します。対象: {{targets}}。同名テンプレートを編集していた場合、その内容も削除されます。よろしいですか？'
+            '次の配布物を削除し、最新版を再インストールします。対象：{{targets}}。同名のテンプレートを編集している場合、その変更内容も削除されます。この操作を実行しますか？'
         ).split('{{targets}}').join(targets.join('、'));
         if (!cleanTarget.receiptFound) {
             message += ` ${t('sponsor.module.clean.noReceipt', '配置記録が無いため、テンプレートは削除されません。')}`;
@@ -378,7 +385,7 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         ? t('entitlement.badge.freePlan', 'Free プラン')
         : t(`entitlement.state.${state}`, STATE_FALLBACK_JA[state] ?? state);
     const badgeClass = badgeIsFreePlan
-        ? 'border-sky-800 bg-sky-950/30 text-sky-300'
+        ? 'border-line-strong bg-accent-soft text-accent'
         : STATE_CLASSES[state];
     const tier = status?.entitlement.tier;
     const hasToken = state === 'valid' || state === 'grace' || state === 'expired' || state === 'invalid';
@@ -398,239 +405,257 @@ export const SponsorModal: React.FC<Props> = ({ isOpen, onClose, backendUrl, uiC
         return label ? t(label.key, label.fallback) : id;
     };
 
+    const body = (
+        <div className={embedded ? 'space-y-4' : 'p-5 space-y-4'}>
+            <p className="text-sm text-fg-muted">
+                {t('sponsor.description', 'GitHub Sponsors で支援中のアカウントでログインすると、支援者向け機能が有効になります。')}
+            </p>
+
+            {status?.notice && (
+                <div className="rounded border border-line-strong bg-accent-soft px-3 py-2">
+                    <p className="text-xs text-accent mb-1">
+                        {t('sponsor.notice.title', '開発者からのお知らせ')}
+                    </p>
+                    <p className="text-sm text-fg whitespace-pre-wrap">{status.notice}</p>
+                </div>
+            )}
+
+            <div className="flex items-center gap-3 rounded border border-line-strong bg-surface px-3 py-3">
+                <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${badgeClass}`}>
+                    {stateLabel}
+                </span>
+                {tier && <span className="text-sm text-fg">{tier}</span>}
+                {expiresAt ? (
+                    <span className="ml-auto text-xs text-fg-muted">
+                        〜{new Date(expiresAt * 1000).toLocaleDateString()}
+                    </span>
+                ) : null}
+            </div>
+
+            {canUseModule && modules
+                // TTS は日本語専用のため、日本語以外の表示言語では取得導線を出さない（要件4章）。
+                .filter((entry) => entry.id !== MODULE_TTS || (uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja')
+                .map((entry) => (
+                <div key={entry.id} className="rounded border border-line-strong bg-surface px-3 py-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-fg">{moduleLabel(entry.id)}</span>
+                        <span className="ml-auto text-xs text-fg-muted">{moduleStateLabel(entry)}</span>
+                    </div>
+                    {entry.id === MODULE_TTS && (
+                        <>
+                            <p className="text-xs text-fg-muted">
+                                {t('sponsor.tts.noticeExternal', 'Irodori-TTS-Serverは外部ツールです。ご自身での構築・起動が必要です。')}
+                            </p>
+                            <p className="text-xs text-fg-muted">
+                                {t('sponsor.tts.noticeGpu', 'GPU の使用を推奨します。必要な VRAM 容量をご確認ください。VRAM 容量が少ない環境向けには量子化版が用意されています。')}
+                            </p>
+                            <p className="text-xs text-fg-muted">
+                                {t('sponsor.tts.noticeVramConflict', '画像生成（ComfyUI）と同時に使用すると、両方の処理が VRAM を使用するため、メモリ不足になる場合があります。')}
+                            </p>
+                            <p className="text-xs text-fg-muted">
+                                {t('sponsor.tts.noticeEthics', '音声モデルの倫理的制約として、無断の音声クローン・なりすまし・ディープフェイクへの使用は禁止されています。')}
+                            </p>
+                        </>
+                    )}
+                    {moduleUpdates[entry.id]?.hasUpdate && (
+                        <p className="text-xs text-warn">
+                            {t('update.module.updateAvailable', '更新あり（{{version}}）')
+                                .split('{{version}}').join(moduleUpdates[entry.id].latestVersion)}
+                        </p>
+                    )}
+                    {!moduleUpdates[entry.id]?.hasUpdate && moduleUpdates[entry.id]?.companionPackUpdate && (
+                        <p className="text-xs text-warn">
+                            {t('update.module.companionPackUpdate', 'サンプルワークフローに更新があります')}
+                        </p>
+                    )}
+                    {moduleUpdates[entry.id]?.needsAppUpdate && (
+                        <p className="text-xs text-danger">
+                            {t('update.module.needsAppUpdate', '先に AlSlime 本体の更新が必要です')}
+                        </p>
+                    )}
+                    {moduleUpdates[entry.id]?.incompatible && (
+                        <p className="text-xs text-danger">
+                            {t('update.module.incompatible', 'このモジュールは現在の AlSlime 本体・環境に対応していません')}
+                        </p>
+                    )}
+                    {entry.active && !moduleUpdates[entry.id]?.needsAppUpdate && !moduleUpdates[entry.id]?.incompatible &&
+                        (moduleUpdates[entry.id]?.hasUpdate || moduleUpdates[entry.id]?.companionPackUpdate) && (
+                        <button
+                            onClick={() => handleInstallModule(entry.id)}
+                            disabled={installingId !== null}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-2 border border-warn/40 rounded-lg text-sm text-fg-muted hover:text-warn transition-colors disabled:opacity-50"
+                        >
+                            <Download size={16} />
+                            {installingId === entry.id
+                                ? t('sponsor.module.downloading', 'ダウンロード中...')
+                                : t('update.module.updateButton', '更新')}
+                        </button>
+                    )}
+                    {!entry.active && (
+                        <button
+                            onClick={() => handleInstallModule(entry.id)}
+                            disabled={installingId !== null
+                                || moduleUpdates[entry.id]?.needsAppUpdate
+                                || moduleUpdates[entry.id]?.incompatible}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-surface hover:bg-surface-2 border border-line-strong rounded-lg text-sm text-fg-muted hover:text-ok transition-colors disabled:opacity-50"
+                        >
+                            <Download size={16} />
+                            {installingId === entry.id
+                                ? t('sponsor.module.downloading', 'ダウンロード中...')
+                                : t('sponsor.module.download', 'モジュールをダウンロード')}
+                        </button>
+                    )}
+                    {entry.installed && (
+                        <button
+                            onClick={() => handleRequestClean(entry.id)}
+                            disabled={installingId !== null
+                                || moduleUpdates[entry.id]?.needsAppUpdate
+                                || moduleUpdates[entry.id]?.incompatible}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-surface hover:bg-danger/10 border border-line-strong hover:border-danger/40 rounded-lg text-xs text-fg-muted hover:text-danger transition-colors disabled:opacity-50"
+                        >
+                            <Trash2 size={14} />
+                            {t('sponsor.module.cleanButton', 'クリーン再導入')}
+                        </button>
+                    )}
+                    {entry.id === MODULE_ACTION_CHOICE && entry.installed && (
+                        <label className="flex items-center gap-2 text-sm text-fg-muted cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={actionChoiceEnabled}
+                                onChange={handleToggleActionChoice}
+                                disabled={isTogglingChoice}
+                                className="accent-accent"
+                            />
+                            {t('sponsor.module.actionChoiceToggle', '行動選択肢を有効にする（再起動不要で反映）')}
+                        </label>
+                    )}
+                </div>
+            ))}
+            {canUseModule && installNotice && (
+                <p className="text-sm text-ok bg-ok/10 border border-line-strong rounded px-3 py-2">
+                    {installNotice}
+                </p>
+            )}
+
+            {error && (
+                <p className="text-sm text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2">{error}</p>
+            )}
+            {!error && lastLoginError && (
+                <p className="text-sm text-warn bg-warn/10 border border-warn/40 rounded px-3 py-2">
+                    {t(`sponsor.error.${lastLoginError}`, 'ログインに失敗しました。')}
+                </p>
+            )}
+            {!error && !lastLoginError && loginedAsFree && !loginPending && (
+                <p className="text-sm text-accent bg-accent-soft border border-line-strong rounded px-3 py-2">
+                    {t('sponsor.loginedAsFree', 'GitHub ログインに成功しました。支援すると支援者向け機能が有効になります。')}
+                </p>
+            )}
+
+            {loginPending && (
+                <div className="space-y-2 rounded border border-line-strong bg-accent-soft px-3 py-3 text-sm text-accent">
+                    <p>{t('sponsor.loginPending', 'ブラウザでログインを完了してください...')}</p>
+                    {loginExpiresAt && (
+                        <p className="text-xs text-fg-muted">
+                            {t('sponsor.loginExpires', 'ログイン期限')}: {new Date(loginExpiresAt).toLocaleTimeString()}
+                        </p>
+                    )}
+                    {authUrl && (
+                        <a
+                            href={authUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 inline-flex items-center gap-1 text-accent underline"
+                        >
+                            <ExternalLink size={12} />
+                            {t('sponsor.openManually', '開かない場合はこちら')}
+                        </a>
+                    )}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                    onClick={() => window.open(SPONSOR_URL, '_blank', 'noopener')}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-accent-soft hover:bg-accent-soft border border-accent rounded-lg text-sm text-accent hover:text-fg transition-colors"
+                >
+                    <Heart size={16} />
+                    {t('sponsor.becomeSponsor', '支援者になる')}
+                </button>
+                <button
+                    onClick={handleLogin}
+                    disabled={isBusy && !loginPending}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-surface hover:bg-surface-2 border border-line-strong rounded-lg text-sm text-fg-muted hover:text-accent transition-colors disabled:opacity-50"
+                >
+                    <ExternalLink size={16} />
+                    {t('sponsor.login', 'GitHub でログイン')}
+                </button>
+                {hasToken && (
+                    <button
+                        onClick={handleRefresh}
+                        disabled={isBusy}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-surface hover:bg-surface-2 border border-line-strong rounded-lg text-sm text-fg-muted hover:text-accent transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw size={16} />
+                        {t('sponsor.refresh', '状態を更新')}
+                    </button>
+                )}
+                {hasToken && (
+                    <button
+                        onClick={handleLogout}
+                        disabled={isBusy}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-surface hover:bg-danger/10 border border-line-strong hover:border-danger/40 rounded-lg text-sm text-fg-muted hover:text-danger transition-colors disabled:opacity-50"
+                    >
+                        <LogOut size={16} />
+                        {t('sponsor.logout', 'ログアウト')}
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+
+    // クリーン再導入の確認（削除対象を明示してから実行。01番 7章）
+    const cleanConfirm = (
+        <ConfirmDialog
+            isOpen={cleanTarget !== null}
+            title={t('sponsor.module.clean.title', 'クリーン再導入の確認')}
+            message={cleanConfirmMessage()}
+            onYes={handleCleanConfirm}
+            onNo={() => setCleanTarget(null)}
+            onCancel={() => setCleanTarget(null)}
+            uiCatalog={uiCatalog}
+        />
+    );
+
+    // 設定画面に埋め込むときは、外枠と見出しを付けずに中身だけを出す
+    if (embedded) {
+        return (
+            <>
+                {body}
+                {cleanConfirm}
+            </>
+        );
+    }
+
     return (
         <div
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] border border-gray-700 overflow-y-auto custom-scrollbar">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800">
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] border border-line-strong overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface">
                     <div className="flex items-center gap-2">
-                        <Heart size={18} className="text-pink-400" />
-                        <h3 className="font-semibold text-gray-100 text-base">{t('sponsor.title', '支援者機能')}</h3>
+                        <Heart size={18} className="text-accent" />
+                        <h3 className="font-semibold text-fg text-base">{t('sponsor.title', '支援者機能')}</h3>
                     </div>
-                    <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors">
+                    <button onClick={onClose} className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors">
                         <X size={18} />
                     </button>
                 </div>
 
-                <div className="p-5 space-y-4">
-                    <p className="text-sm text-gray-400">
-                        {t('sponsor.description', 'GitHub Sponsors で支援中のアカウントでログインすると、支援者向け機能が有効になります。')}
-                    </p>
-
-                    {status?.notice && (
-                        <div className="rounded border border-cyan-900/50 bg-cyan-950/30 px-3 py-2">
-                            <p className="text-xs text-cyan-400 mb-1">
-                                {t('sponsor.notice.title', '開発者からのお知らせ')}
-                            </p>
-                            <p className="text-sm text-cyan-100 whitespace-pre-wrap">{status.notice}</p>
-                        </div>
-                    )}
-
-                    <div className="flex items-center gap-3 rounded border border-gray-700 bg-gray-800/60 px-3 py-3">
-                        <span className={`shrink-0 rounded border px-2 py-0.5 text-xs ${badgeClass}`}>
-                            {stateLabel}
-                        </span>
-                        {tier && <span className="text-sm text-gray-200">{tier}</span>}
-                        {expiresAt ? (
-                            <span className="ml-auto text-xs text-gray-500">
-                                〜{new Date(expiresAt * 1000).toLocaleDateString()}
-                            </span>
-                        ) : null}
-                    </div>
-
-                    {canUseModule && modules
-                        // TTS は日本語専用のため、日本語以外の表示言語では取得導線を出さない（要件4章）。
-                        .filter((entry) => entry.id !== MODULE_TTS || (uiLanguage || DEFAULT_UI_LANGUAGE) === 'ja')
-                        .map((entry) => (
-                        <div key={entry.id} className="rounded border border-gray-700 bg-gray-800/60 px-3 py-3 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-200">{moduleLabel(entry.id)}</span>
-                                <span className="ml-auto text-xs text-gray-400">{moduleStateLabel(entry)}</span>
-                            </div>
-                            {entry.id === MODULE_TTS && (
-                                <>
-                                    <p className="text-xs text-gray-400">
-                                        {t('sponsor.tts.noticeExternal', 'Irodori-TTS-Serverは外部ツールです。ご自身での構築・起動が必要です。')}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        {t('sponsor.tts.noticeGpu', 'GPU推奨。VRAM要件にご注意ください（VRAMが少ない環境向けの量子化版もあります）。')}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        {t('sponsor.tts.noticeVramConflict', '画像生成（ComfyUI）と同時に使うとVRAMを取り合います。')}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        {t('sponsor.tts.noticeEthics', '音声モデルの倫理的制約として、無断の音声クローン・なりすまし・ディープフェイクへの使用は禁止されています。')}
-                                    </p>
-                                </>
-                            )}
-                            {moduleUpdates[entry.id]?.hasUpdate && (
-                                <p className="text-xs text-amber-300">
-                                    {t('update.module.updateAvailable', '更新あり（{{version}}）')
-                                        .split('{{version}}').join(moduleUpdates[entry.id].latestVersion)}
-                                </p>
-                            )}
-                            {!moduleUpdates[entry.id]?.hasUpdate && moduleUpdates[entry.id]?.companionPackUpdate && (
-                                <p className="text-xs text-amber-300">
-                                    {t('update.module.companionPackUpdate', 'サンプルワークフローに更新があります')}
-                                </p>
-                            )}
-                            {moduleUpdates[entry.id]?.needsAppUpdate && (
-                                <p className="text-xs text-red-300">
-                                    {t('update.module.needsAppUpdate', '先に AlSlime 本体の更新が必要です')}
-                                </p>
-                            )}
-                            {moduleUpdates[entry.id]?.incompatible && (
-                                <p className="text-xs text-red-300">
-                                    {t('update.module.incompatible', 'このモジュールは現在の AlSlime 本体・環境に対応していません')}
-                                </p>
-                            )}
-                            {entry.active && !moduleUpdates[entry.id]?.needsAppUpdate && !moduleUpdates[entry.id]?.incompatible &&
-                                (moduleUpdates[entry.id]?.hasUpdate || moduleUpdates[entry.id]?.companionPackUpdate) && (
-                                <button
-                                    onClick={() => handleInstallModule(entry.id)}
-                                    disabled={installingId !== null}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-amber-700 rounded-lg text-sm text-gray-300 hover:text-amber-300 transition-colors disabled:opacity-50"
-                                >
-                                    <Download size={16} />
-                                    {installingId === entry.id
-                                        ? t('sponsor.module.downloading', 'ダウンロード中...')
-                                        : t('update.module.updateButton', '更新')}
-                                </button>
-                            )}
-                            {!entry.active && (
-                                <button
-                                    onClick={() => handleInstallModule(entry.id)}
-                                    disabled={installingId !== null
-                                        || moduleUpdates[entry.id]?.needsAppUpdate
-                                        || moduleUpdates[entry.id]?.incompatible}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-emerald-700 rounded-lg text-sm text-gray-300 hover:text-emerald-300 transition-colors disabled:opacity-50"
-                                >
-                                    <Download size={16} />
-                                    {installingId === entry.id
-                                        ? t('sponsor.module.downloading', 'ダウンロード中...')
-                                        : t('sponsor.module.download', 'モジュールをダウンロード')}
-                                </button>
-                            )}
-                            {entry.installed && (
-                                <button
-                                    onClick={() => handleRequestClean(entry.id)}
-                                    disabled={installingId !== null
-                                        || moduleUpdates[entry.id]?.needsAppUpdate
-                                        || moduleUpdates[entry.id]?.incompatible}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-red-900/30 border border-gray-600 hover:border-red-800 rounded-lg text-xs text-gray-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                                >
-                                    <Trash2 size={14} />
-                                    {t('sponsor.module.cleanButton', 'クリーン再導入')}
-                                </button>
-                            )}
-                            {entry.id === MODULE_ACTION_CHOICE && entry.installed && (
-                                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
-                                    <input
-                                        type="checkbox"
-                                        checked={actionChoiceEnabled}
-                                        onChange={handleToggleActionChoice}
-                                        disabled={isTogglingChoice}
-                                        className="accent-emerald-500"
-                                    />
-                                    {t('sponsor.module.actionChoiceToggle', '行動選択肢を有効にする（再起動不要で反映）')}
-                                </label>
-                            )}
-                        </div>
-                    ))}
-                    {canUseModule && installNotice && (
-                        <p className="text-sm text-emerald-300 bg-emerald-950/30 border border-emerald-900/50 rounded px-3 py-2">
-                            {installNotice}
-                        </p>
-                    )}
-
-                    {error && (
-                        <p className="text-sm text-red-300 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">{error}</p>
-                    )}
-                    {!error && lastLoginError && (
-                        <p className="text-sm text-amber-300 bg-amber-950/30 border border-amber-900/50 rounded px-3 py-2">
-                            {t(`sponsor.error.${lastLoginError}`, 'ログインに失敗しました。')}
-                        </p>
-                    )}
-                    {!error && !lastLoginError && loginedAsFree && !loginPending && (
-                        <p className="text-sm text-sky-300 bg-sky-950/30 border border-sky-900/50 rounded px-3 py-2">
-                            {t('sponsor.loginedAsFree', 'GitHub ログインに成功しました。支援すると支援者向け機能が有効になります。')}
-                        </p>
-                    )}
-
-                    {loginPending && (
-                        <div className="space-y-2 rounded border border-cyan-900/50 bg-cyan-950/20 px-3 py-3 text-sm text-cyan-300">
-                            <p>{t('sponsor.loginPending', 'ブラウザでログインを完了してください...')}</p>
-                            {loginExpiresAt && (
-                                <p className="text-xs text-gray-500">
-                                    {t('sponsor.loginExpires', 'ログイン期限')}: {new Date(loginExpiresAt).toLocaleTimeString()}
-                                </p>
-                            )}
-                            {authUrl && (
-                                <a
-                                    href={authUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="ml-2 inline-flex items-center gap-1 text-cyan-400 underline"
-                                >
-                                    <ExternalLink size={12} />
-                                    {t('sponsor.openManually', '開かない場合はこちら')}
-                                </a>
-                            )}
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                            onClick={() => window.open(SPONSOR_URL, '_blank', 'noopener')}
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-pink-900/30 hover:bg-pink-900/50 border border-pink-600 rounded-lg text-sm text-pink-300 hover:text-pink-200 transition-colors"
-                        >
-                            <Heart size={16} />
-                            {t('sponsor.becomeSponsor', '支援者になる')}
-                        </button>
-                        <button
-                            onClick={handleLogin}
-                            disabled={isBusy && !loginPending}
-                            className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-pink-700 rounded-lg text-sm text-gray-300 hover:text-pink-300 transition-colors disabled:opacity-50"
-                        >
-                            <ExternalLink size={16} />
-                            {t('sponsor.login', 'GitHub でログイン')}
-                        </button>
-                        {hasToken && (
-                            <button
-                                onClick={handleRefresh}
-                                disabled={isBusy}
-                                className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-cyan-700 rounded-lg text-sm text-gray-300 hover:text-cyan-300 transition-colors disabled:opacity-50"
-                            >
-                                <RefreshCw size={16} />
-                                {t('sponsor.refresh', '状態を更新')}
-                            </button>
-                        )}
-                        {hasToken && (
-                            <button
-                                onClick={handleLogout}
-                                disabled={isBusy}
-                                className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-red-900/30 border border-gray-600 hover:border-red-800 rounded-lg text-sm text-gray-300 hover:text-red-400 transition-colors disabled:opacity-50"
-                            >
-                                <LogOut size={16} />
-                                {t('sponsor.logout', 'ログアウト')}
-                            </button>
-                        )}
-                    </div>
-                </div>
+                {body}
             </div>
 
-            {/* クリーン再導入の確認（削除対象を明示してから実行。01番 7章） */}
-            <ConfirmDialog
-                isOpen={cleanTarget !== null}
-                title={t('sponsor.module.clean.title', 'クリーン再導入の確認')}
-                message={cleanConfirmMessage()}
-                onYes={handleCleanConfirm}
-                onNo={() => setCleanTarget(null)}
-                onCancel={() => setCleanTarget(null)}
-                uiCatalog={uiCatalog}
-            />
+            {cleanConfirm}
         </div>
     );
 };

@@ -45,7 +45,7 @@ type Deps struct {
 	Gate coreapi.FeatureGate
 	// Queue は generate-from-chat のジョブ投入先。
 	Queue *jobsvc.Queue
-	// TagJudgeKind はタグ判定 provider 種別の解決（core 供給。nil なら Gemini 扱い）。
+	// TagJudgeKind はタグ判定 provider 種別の解決（core 供給。nil なら既定の Antigravity 扱い）。
 	TagJudgeKind func() models.Kind
 	// SplitImageJob は画像生成を分析ジョブと生成ジョブに分ける設定かの解決（nil なら統合）。
 	// サイドカーモードの本体は ComfyUI 実装を持たないため、共通ワークスペースの設定ファイルを
@@ -147,7 +147,7 @@ func handleGenerateFromChat(deps Deps) http.HandlerFunc {
 			apierror.Write(w, apierror.BadRequestKey(i18n.KeyErrorInvalidJSONBody))
 			return
 		}
-		kind := models.KindGemini
+		kind := models.KindAntigravity
 		if deps.TagJudgeKind != nil {
 			kind = deps.TagJudgeKind()
 		}

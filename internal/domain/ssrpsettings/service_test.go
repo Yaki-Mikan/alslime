@@ -1,9 +1,14 @@
 package ssrpsettings
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	"alslime/internal/config"
+	"alslime/internal/i18n"
 	"alslime/internal/storage/paths"
 	storage "alslime/internal/storage/ssrpsettings"
 )
@@ -116,5 +121,69 @@ func TestSaveReplacementConfig_nilは空オブジェクト扱い(t *testing.T) {
 	// nil でも lastModified だけは付与されて保存される。
 	if _, ok := got["lastModified"].(string); !ok {
 		t.Fatalf("nil 保存時も lastModified が付くべき: %#v", got)
+	}
+}
+
+// relationValues は関係性オプションの value を並び順どおりに取り出す。
+func relationValues(t *testing.T, options []any) []string {
+	t.Helper()
+	values := make([]string, 0, len(options))
+	for _, option := range options {
+		m, ok := option.(map[string]any)
+		if !ok {
+			t.Fatalf("関係性オプションの形が不正: %#v", option)
+		}
+		value, _ := m["value"].(string)
+		if label, _ := m["label"].(string); label != value {
+			t.Fatalf("初期の選択肢は表示名と値が同じであるべき: %#v", m)
+		}
+		values = append(values, value)
+	}
+	return values
+}
+
+func TestRelationships_ファイルが無ければ表示言語の名前を表示名と値に使う(t *testing.T) {
+	svc := newService(t).WithMessages(func() map[string]string {
+		return i18n.BuiltinMessages("en")
+	})
+	got, err := svc.Relationships()
+	if err != nil {
+		t.Fatalf("読み込み失敗: %v", err)
+	}
+	want := []string{"Biological mother", "Stepmother", "Friend", "Lover", "Other"}
+	if values := relationValues(t, got); !reflect.DeepEqual(values, want) {
+		t.Fatalf("初期の選択肢 = %v, want %v", values, want)
+	}
+}
+
+func TestRelationships_辞書が無ければ日本語の既定を使う(t *testing.T) {
+	got, err := newService(t).Relationships()
+	if err != nil {
+		t.Fatalf("読み込み失敗: %v", err)
+	}
+	want := []string{"実母", "義母", "友人", "恋人", "その他"}
+	if values := relationValues(t, got); !reflect.DeepEqual(values, want) {
+		t.Fatalf("初期の選択肢 = %v, want %v", values, want)
+	}
+}
+
+func TestRelationships_ファイルがあれば表示言語に関係なくその内容を返す(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, filepath.FromSlash(config.RelationOptionsFile))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`[{"label":"幼馴染","value":"幼馴染"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(storage.New(paths.NewResolver(root))).WithMessages(func() map[string]string {
+		return i18n.BuiltinMessages("en")
+	})
+	got, err := svc.Relationships()
+	if err != nil {
+		t.Fatalf("読み込み失敗: %v", err)
+	}
+	if values := relationValues(t, got); !reflect.DeepEqual(values, []string{"幼馴染"}) {
+		t.Fatalf("ファイルの内容 = %v, want [幼馴染]", values)
 	}
 }

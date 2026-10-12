@@ -59,23 +59,23 @@ export const TempCharacterEditorModal: React.FC<TempCharacterEditorModalProps> =
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-            <div className="bg-gray-900 border border-orange-700/60 rounded-lg shadow-xl w-full max-w-3xl h-[85vh] flex flex-col">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+            <div className="bg-surface border border-line-strong rounded-lg shadow-xl w-full max-w-3xl h-[85vh] flex flex-col">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-line">
                     <div className="min-w-0">
-                        <h2 className="text-sm font-bold text-orange-300 truncate">{t(SSRP_I18N_KEYS.tempCharacterEditorTitle)}</h2>
-                        <p className="text-xs text-gray-400 truncate">{characterName}</p>
+                        <h2 className="text-sm font-bold text-accent truncate">{t(SSRP_I18N_KEYS.tempCharacterEditorTitle)}</h2>
+                        <p className="text-xs text-fg-muted truncate">{characterName}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                        {savedNotice && <span className="text-xs text-green-400">{t(SSRP_I18N_KEYS.tempCharacterEditorSaved)}</span>}
+                        {savedNotice && <span className="text-xs text-ok">{t(SSRP_I18N_KEYS.tempCharacterEditorSaved)}</span>}
                         <button
                             onClick={doSave}
                             disabled={saving || !dirty}
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-orange-700 hover:bg-orange-600 text-white disabled:opacity-40"
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-accent hover:brightness-110 text-on-accent disabled:opacity-40"
                         >
                             <Save size={14} />
                             {t(SSRP_I18N_KEYS.tempCharacterEditorSave)}
                         </button>
-                        <button onClick={requestClose} className="p-1.5 text-gray-400 hover:text-white rounded" title={t(SSRP_I18N_KEYS.tempImportClose)}>
+                        <button onClick={requestClose} className="p-1.5 text-fg-muted hover:text-fg rounded" title={t(SSRP_I18N_KEYS.tempImportClose)}>
                             <X size={16} />
                         </button>
                     </div>

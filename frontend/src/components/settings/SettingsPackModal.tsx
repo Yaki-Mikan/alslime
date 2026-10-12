@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Package, Download, Upload, AlertTriangle, ChevronDown, Sparkles } from 'lucide-react';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { formatWithNote, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import {
     fetchSettingsPackCatalog,
     inspectSettingsPack,
@@ -26,12 +26,14 @@ interface SettingsPackModalProps {
     onClose: () => void;
     backendUrl: string;
     uiCatalog: I18NCatalog | null;
+    /** 窓にせず画面の中へ埋め込む（見出し・閉じるボタンと公式サンプルの区画を出さない） */
+    embedded?: boolean;
 }
 
 // UI 文言のフォールバック（backend i18n カタログ未取得時）。
 const FALLBACK_JA: Record<string, string> = {
     'settingsPack.title': '設定パック',
-    'settingsPack.description': '設定一式を zip パックとして書き出し・取り込みできます。',
+    'settingsPack.description': '設定一式の書き出しと取り込みに対応した、ZIP 形式の設定パックです。',
     'settingsPack.exportTab': 'エクスポート',
     'settingsPack.importTab': 'インポート',
     'settingsPack.export.selectTitle': '書き出す設定の選択',
@@ -64,8 +66,8 @@ const FALLBACK_JA: Record<string, string> = {
     'settingsPack.error.exportFailed': 'エクスポートに失敗しました。',
     'settingsPack.error.noKinds': 'エクスポート対象を選択してください。',
     'settingsPack.close': '閉じる',
-    'settingsPack.inbox.title': '起動時取り込み（import_inbox）',
-    'settingsPack.inbox.hint': 'roleplay/import_inbox にパック zip を置くと、起動時に自動で取り込みます（新規のみ。既存ファイルは変更しません）。',
+    'settingsPack.inbox.title': '起動時の自動取り込み',
+    'settingsPack.inbox.hint': '指定の取り込みフォルダーへ設定パックを配置すると、次回起動時に新規ファイルのみ自動的に取り込みます。既存のファイルは変更されません。',
     'settingsPack.inbox.empty': '今回の起動で取り込んだパックはありません。',
     'settingsPack.inbox.deferred': '上限を超えたため、{{count}} 件を次回起動時に処理します。',
     'settingsPack.inbox.failed': '取り込み処理に失敗しました。',
@@ -90,6 +92,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
     onClose,
     backendUrl,
     uiCatalog,
+    embedded = false,
 }) => {
     const t = (key: string) => resolveMessage(uiCatalog, key, FALLBACK_JA[key] || key);
 
@@ -267,35 +270,33 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
         </span>
     );
 
-    return (
-        <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        >
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-2xl border border-gray-700 overflow-hidden flex flex-col max-h-[85vh]">
+    const panel = (
+        <>
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800">
+                {!embedded && (
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface">
                     <div className="flex items-center gap-2">
-                        <Package size={20} className="text-emerald-400" />
-                        <h3 className="font-semibold text-gray-100 text-lg">{t('settingsPack.title')}</h3>
+                        <Package size={20} className="text-accent" />
+                        <h3 className="font-semibold text-fg text-lg">{t('settingsPack.title')}</h3>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                        className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                     >
                         <X size={20} />
                     </button>
                 </div>
+                )}
 
                 {/* タブ */}
-                <div className="flex border-b border-gray-700 bg-gray-800/60">
+                <div className="flex border-b border-line-strong bg-surface">
                     {([['import', t('settingsPack.importTab'), Upload], ['export', t('settingsPack.exportTab'), Download]] as const).map(([key, label, Icon]) => (
                         <button
                             key={key}
                             onClick={() => { setTab(key); setError(null); }}
                             className={`flex items-center gap-2 px-5 py-2.5 text-sm transition-colors border-b-2 ${tab === key
-                                ? 'border-emerald-500 text-emerald-300'
-                                : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+                                ? 'border-accent text-ok'
+                                : 'border-transparent text-fg-muted hover:text-fg'}`}
                         >
                             <Icon size={15} />
                             {label}
@@ -304,10 +305,10 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                 </div>
 
                 <div className="p-5 overflow-y-auto custom-scrollbar space-y-4">
-                    <p className="text-xs text-gray-500">{t('settingsPack.description')}</p>
+                    <p className="text-xs text-fg-muted">{t('settingsPack.description')}</p>
 
                     {error && (
-                        <p className="text-xs text-red-300 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">
+                        <p className="text-xs text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2">
                             {error}
                         </p>
                     )}
@@ -315,17 +316,17 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                     {tab === 'export' ? (
                         <>
                             <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-medium text-gray-400">{t('settingsPack.export.selectTitle')}</h4>
+                                <h4 className="text-sm font-medium text-fg-muted">{t('settingsPack.export.selectTitle')}</h4>
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => setSelected(new Set(kinds.map(k => k.id)))}
-                                        className="text-xs text-emerald-400 hover:text-emerald-300"
+                                        className="text-xs text-ok hover:text-ok"
                                     >
                                         {t('settingsPack.export.selectAll')}
                                     </button>
                                     <button
                                         onClick={() => setSelected(new Set())}
-                                        className="text-xs text-gray-400 hover:text-gray-300"
+                                        className="text-xs text-fg-muted hover:text-fg-muted"
                                     >
                                         {t('settingsPack.export.clearAll')}
                                     </button>
@@ -333,18 +334,20 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                             </div>
                             <div className="space-y-3">
                                 {Object.entries(grouped).map(([cls, members]) => (
-                                    <div key={cls} className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-                                        <div className="text-xs text-gray-500 mb-2">{resolveMessage(uiCatalog, `settingsPack.classGroup.${cls}`, CLASS_GROUP_LABELS[cls] || cls)}</div>
+                                    <div key={cls} className="bg-surface border border-line-strong rounded-lg p-3">
+                                        <div className="text-xs text-fg-muted mb-2">{resolveMessage(uiCatalog, `settingsPack.classGroup.${cls}`, CLASS_GROUP_LABELS[cls] || cls)}</div>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                                             {members.map(kind => (
-                                                <label key={kind.id} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-gray-100">
+                                                <label key={kind.id} className="flex items-center gap-2 text-sm text-fg-muted cursor-pointer hover:text-fg">
                                                     <input
                                                         type="checkbox"
                                                         checked={selected.has(kind.id)}
                                                         onChange={() => toggleKind(kind.id)}
-                                                        className="accent-emerald-500"
+                                                        className="accent-accent"
                                                     />
-                                                    <span className="truncate">{resolveMessage(uiCatalog, `settingsPack.kind.${kind.id}`, kind.label)}</span>
+                                                    {/* 長い名前も何の項目か分かるよう、切り詰めずに折り返す */}
+                                                    {/* ロールプレイ設定の種類は素材づくりの種別と同じ ID なので、その訳を予備にする */}
+                                                    <span className="min-w-0 break-words">{resolveMessage(uiCatalog, `settingsPack.kind.${kind.id}`, resolveMessage(uiCatalog, `configEditor.category.${kind.id}`, kind.label))}</span>
                                                 </label>
                                             ))}
                                         </div>
@@ -352,29 +355,29 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                 ))}
                             </div>
                             {selected.has('character') && (
-                                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer px-1">
+                                <label className="flex items-center gap-2 text-sm text-fg-muted cursor-pointer px-1">
                                     <input
                                         type="checkbox"
                                         checked={includeImages}
                                         onChange={(e) => setIncludeImages(e.target.checked)}
-                                        className="accent-emerald-500"
+                                        className="accent-accent"
                                     />
                                     {t('settingsPack.export.includeImages')}
                                 </label>
                             )}
                             <label className="block">
-                                <span className="text-xs text-gray-500">{t('settingsPack.export.nameLabel')}</span>
+                                <span className="text-xs text-fg-muted">{t('settingsPack.export.nameLabel')}</span>
                                 <input
                                     type="text"
                                     value={packName}
                                     onChange={(e) => setPackName(e.target.value)}
-                                    className="mt-1 w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-emerald-500"
+                                    className="mt-1 w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                                 />
                             </label>
                             <button
                                 onClick={handleExport}
                                 disabled={isExporting}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg text-sm text-on-accent transition-colors"
                             >
                                 <Download size={16} />
                                 {isExporting ? t('settingsPack.export.running') : t('settingsPack.export.download')}
@@ -396,37 +399,38 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                 onDragLeave={() => setIsDragOver(false)}
                                 onDrop={handleDrop}
                                 className={`w-full flex items-center justify-center gap-2 px-4 py-3 border border-dashed rounded-lg text-sm transition-colors disabled:opacity-50 ${isDragOver
-                                    ? 'border-emerald-400 bg-emerald-900/30 text-emerald-200'
-                                    : 'bg-gray-800 hover:bg-gray-700 border-emerald-700 text-gray-300'}`}
+                                    ? 'border-accent bg-ok/10 text-ok'
+                                    : 'bg-surface hover:bg-surface-2 border-line-strong text-fg-muted'}`}
                             >
-                                <Upload size={16} className="text-emerald-400" />
+                                <Upload size={16} className="text-accent" />
                                 {isInspecting ? t('settingsPack.import.inspecting') : t('settingsPack.import.selectFile')}
                             </button>
 
                             {plan && (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
-                                        <h4 className="text-sm font-medium text-gray-400">
-                                            {t('settingsPack.import.planTitle')}
-                                            {plan.manifest?.name ? `: ${plan.manifest.name}` : ''}
-                                            {file ? `（${file.name}）` : ''}
+                                        <h4 className="text-sm font-medium text-fg-muted">
+                                            {(() => {
+                                                const title = `${t('settingsPack.import.planTitle')}${plan.manifest?.name ? `: ${plan.manifest.name}` : ''}`;
+                                                return file ? formatWithNote(uiCatalog, title, file.name) : title;
+                                            })()}
                                         </h4>
                                         <div className="flex gap-1.5">
-                                            {summaryBadge(t('settingsPack.summary.new'), plan.summary.new, 'bg-emerald-900/60 text-emerald-300')}
-                                            {summaryBadge(t('settingsPack.summary.conflict'), plan.summary.conflict, 'bg-amber-900/60 text-amber-300')}
-                                            {summaryBadge(t('settingsPack.summary.skip'), plan.summary.skip, 'bg-gray-700 text-gray-400')}
+                                            {summaryBadge(t('settingsPack.summary.new'), plan.summary.new, 'bg-ok/10 text-ok')}
+                                            {summaryBadge(t('settingsPack.summary.conflict'), plan.summary.conflict, 'bg-warn/10 text-warn')}
+                                            {summaryBadge(t('settingsPack.summary.skip'), plan.summary.skip, 'bg-surface-2 text-fg-muted')}
                                         </div>
                                     </div>
 
                                     {plan.blocked && (
-                                        <p className="flex items-center gap-2 text-xs text-red-300 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">
+                                        <p className="flex items-center gap-2 text-xs text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2">
                                             <AlertTriangle size={14} />
                                             {t(plan.blockedKey || 'settingsPack.blocked.auth')}
                                         </p>
                                     )}
 
                                     {plan.warnings.length > 0 && (
-                                        <div className="text-xs text-amber-300 bg-amber-950/20 border border-amber-900/40 rounded px-3 py-2 space-y-1">
+                                        <div className="text-xs text-warn bg-warn/10 border border-warn/40 rounded px-3 py-2 space-y-1">
                                             <div className="font-medium">{t('settingsPack.warningsTitle')}</div>
                                             {plan.warnings.map((w, i) => (
                                                 <div key={i}>{t(w.key)}{w.path ? ` (${w.path})` : ''}</div>
@@ -434,13 +438,13 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                         </div>
                                     )}
 
-                                    <div className="max-h-56 overflow-y-auto custom-scrollbar border border-gray-700 rounded-lg divide-y divide-gray-800">
+                                    <div className="max-h-56 overflow-y-auto custom-scrollbar border border-line-strong rounded-lg divide-y divide-line">
                                         {plan.entries.map((entry, i) => (
                                             <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                                                <span className="text-gray-300 truncate" title={entry.path}>{entry.path}</span>
+                                                <span className="text-fg-muted truncate" title={entry.path}>{entry.path}</span>
                                                 {entry.action === 'conflict' && !plan.blocked && entry.forced ? (
                                                 /* 常時上書き種別（AIプロバイダ指示ファイル等）はポリシー選択不可 */
-                                                <span className="shrink-0 text-amber-300">{t('settingsPack.policy.forced')}</span>
+                                                <span className="shrink-0 text-warn">{t('settingsPack.policy.forced')}</span>
                                             ) : entry.action === 'conflict' && !plan.blocked ? (
                                                     /* 衝突エントリはファイル単位でポリシーを上書きできる（未指定は一括に従う） */
                                                     <select
@@ -453,7 +457,7 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                                                 return next;
                                                             });
                                                         }}
-                                                        className="shrink-0 bg-gray-800 border border-amber-700/60 rounded px-1.5 py-0.5 text-xs text-amber-300 outline-none focus:border-amber-500 cursor-pointer"
+                                                        className="shrink-0 bg-surface border border-warn/40 rounded px-1.5 py-0.5 text-xs text-warn outline-none focus:border-accent cursor-pointer"
                                                     >
                                                         <option value="">{t('settingsPack.policy.followGlobal')}</option>
                                                         <option value="skip">{t('settingsPack.policy.skip')}</option>
@@ -462,9 +466,9 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                                     </select>
                                                 ) : (
                                                     <span className={
-                                                        entry.action === 'new' ? 'shrink-0 text-emerald-400'
-                                                            : entry.action === 'conflict' ? 'shrink-0 text-amber-400'
-                                                                : 'shrink-0 text-gray-500'
+                                                        entry.action === 'new' ? 'shrink-0 text-ok'
+                                                            : entry.action === 'conflict' ? 'shrink-0 text-warn'
+                                                                : 'shrink-0 text-fg-muted'
                                                     }>
                                                         {entry.action === 'skip' && entry.reasonKey
                                                             ? t(entry.reasonKey)
@@ -479,25 +483,25 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                         <>
                                             {plan.entries.some(e => e.action === 'conflict' && !e.forced) && (
                                                 <label className="block">
-                                                    <span className="text-xs text-gray-500">{t('settingsPack.import.policyLabel')}</span>
+                                                    <span className="text-xs text-fg-muted">{t('settingsPack.import.policyLabel')}</span>
                                                     <div className="relative mt-1">
                                                         <select
                                                             value={policy}
                                                             onChange={(e) => setPolicy(e.target.value as SettingsPackPolicy)}
-                                                            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-emerald-500 appearance-none cursor-pointer pr-8"
+                                                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent appearance-none cursor-pointer pr-8"
                                                         >
                                                             <option value="skip">{t('settingsPack.policy.skip')}</option>
                                                             <option value="overwrite">{t('settingsPack.policy.overwrite')}</option>
                                                             <option value="rename">{t('settingsPack.policy.rename')}</option>
                                                         </select>
-                                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
                                                     </div>
                                                 </label>
                                             )}
                                             <button
                                                 onClick={handleImport}
                                                 disabled={isImporting}
-                                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+                                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg text-sm text-on-accent transition-colors"
                                             >
                                                 <Upload size={16} />
                                                 {isImporting ? t('settingsPack.import.running') : t('settingsPack.import.apply')}
@@ -507,62 +511,62 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                                 </div>
                             )}
 
-                            {/* 公式サンプルのダウンロード取り込み */}
-                            <div className="space-y-2 pt-2 border-t border-gray-800">
-                                <h4 className="text-sm font-medium text-gray-400">{t('settingsPack.samples.title')}</h4>
-                                <p className="text-xs text-gray-500">{t('settingsPack.samples.hint')}</p>
+                            {/* 公式サンプルのダウンロード取り込み（埋め込み先には専用の欄があるので出さない） */}
+                            {!embedded && (
+                            <div className="space-y-2 pt-2 border-t border-line">
+                                <h4 className="text-sm font-medium text-fg-muted">{t('settingsPack.samples.title')}</h4>
+                                <p className="text-xs text-fg-muted">{t('settingsPack.samples.hint')}</p>
                                 <button
                                     onClick={handleDownloadSamples}
                                     disabled={isDownloadingSamples || isImporting || isInspecting}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-emerald-700 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-50"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-surface hover:bg-surface-2 border border-line-strong rounded-lg text-sm text-fg-muted transition-colors disabled:opacity-50"
                                 >
-                                    <Sparkles size={16} className="text-emerald-400" />
+                                    <Sparkles size={16} className="text-accent" />
                                     {isDownloadingSamples ? t('settingsPack.samples.running') : t('settingsPack.samples.download')}
                                 </button>
                             </div>
+                            )}
 
                             {/* 起動時取り込み（import_inbox）の結果 */}
-                            <div className="space-y-2 pt-2 border-t border-gray-800">
-                                <h4 className="text-sm font-medium text-gray-400">{t('settingsPack.inbox.title')}</h4>
-                                <p className="text-xs text-gray-500">{t('settingsPack.inbox.hint')}</p>
+                            <div className="space-y-2 pt-2 border-t border-line">
+                                <h4 className="text-sm font-medium text-fg-muted">{t('settingsPack.inbox.title')}</h4>
+                                <p className="text-xs text-fg-muted">{t('settingsPack.inbox.hint')}</p>
                                 {inboxReport && inboxReport.items.length > 0 ? (
-                                    <div className="border border-gray-700 rounded-lg divide-y divide-gray-800">
+                                    <div className="border border-line-strong rounded-lg divide-y divide-line">
                                         {inboxReport.items.map((item, i) => (
                                             <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                                                <span className="text-gray-300 truncate" title={item.file}>{item.file}</span>
-                                                <span className="shrink-0 text-gray-400">
-                                                    {t(item.messageKey)}
+                                                <span className="text-fg-muted truncate" title={item.file}>{item.file}</span>
+                                                <span className="shrink-0 text-fg-muted">
                                                     {item.written + item.skipped > 0
-                                                        ? `（${t('settingsPack.result.written')}: ${item.written} / ${t('settingsPack.result.skipped')}: ${item.skipped}）`
-                                                        : ''}
+                                                        ? formatWithNote(uiCatalog, t(item.messageKey), `${t('settingsPack.result.written')}: ${item.written} / ${t('settingsPack.result.skipped')}: ${item.skipped}`)
+                                                        : t(item.messageKey)}
                                                 </span>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <p className="text-xs text-gray-600">{t('settingsPack.inbox.empty')}</p>
+                                    <p className="text-xs text-fg-muted">{t('settingsPack.inbox.empty')}</p>
                                 )}
                                 {inboxReport && inboxReport.deferred > 0 && (
-                                    <p className="text-xs text-amber-300">
+                                    <p className="text-xs text-warn">
                                         {t('settingsPack.inbox.deferred').split('{{count}}').join(String(inboxReport.deferred))}
                                     </p>
                                 )}
                                 {inboxReport?.errorKey && (
-                                    <p className="text-xs text-red-300">{t(inboxReport.errorKey)}</p>
+                                    <p className="text-xs text-danger">{t(inboxReport.errorKey)}</p>
                                 )}
                             </div>
 
                             {result && (
                                 <div className="space-y-2">
-                                    <h4 className="text-sm font-medium text-gray-400">{t('settingsPack.import.doneTitle')}</h4>
-                                    <p className="text-xs text-emerald-300 bg-emerald-950/30 border border-emerald-900/50 rounded px-3 py-2">
-                                        {t(result.messageKey)}
-                                        {`（${t('settingsPack.result.written')}: ${result.written.length} / ${t('settingsPack.result.skipped')}: ${result.skipped.length}）`}
+                                    <h4 className="text-sm font-medium text-fg-muted">{t('settingsPack.import.doneTitle')}</h4>
+                                    <p className="text-xs text-ok bg-ok/10 border border-line-strong rounded px-3 py-2">
+                                        {formatWithNote(uiCatalog, t(result.messageKey), `${t('settingsPack.result.written')}: ${result.written.length} / ${t('settingsPack.result.skipped')}: ${result.skipped.length}`)}
                                     </p>
                                     {result.written.length > 0 && (
-                                        <div className="max-h-40 overflow-y-auto custom-scrollbar border border-gray-700 rounded-lg divide-y divide-gray-800">
+                                        <div className="max-h-40 overflow-y-auto custom-scrollbar border border-line-strong rounded-lg divide-y divide-line">
                                             {result.written.map((entry, i) => (
-                                                <div key={i} className="px-3 py-1.5 text-xs text-gray-300 truncate" title={entry.writtenAs || entry.path}>
+                                                <div key={i} className="px-3 py-1.5 text-xs text-fg-muted truncate" title={entry.writtenAs || entry.path}>
                                                     {entry.writtenAs || entry.path}
                                                 </div>
                                             ))}
@@ -575,14 +579,30 @@ export const SettingsPackModal: React.FC<SettingsPackModalProps> = ({
                 </div>
 
                 {/* フッター */}
-                <div className="flex justify-end px-5 py-3 border-t border-gray-700 bg-gray-800/50">
+                {!embedded && (
+                <div className="flex justify-end px-5 py-3 border-t border-line-strong bg-surface">
                     <button
                         onClick={onClose}
-                        className="px-5 py-2 text-sm text-gray-300 hover:text-gray-100 hover:bg-gray-700 rounded-lg transition-colors"
+                        className="px-5 py-2 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded-lg transition-colors"
                     >
                         {t('settingsPack.close')}
                     </button>
                 </div>
+                )}
+        </>
+    );
+
+    if (embedded) {
+        return <div className="flex flex-col">{panel}</div>;
+    }
+
+    return (
+        <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-2xl border border-line-strong overflow-hidden flex flex-col max-h-[85vh]">
+                {panel}
             </div>
         </div>
     );

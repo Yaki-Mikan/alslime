@@ -1,7 +1,7 @@
 /**
  * AutoSoundEffectsToggle.tsx - 自動効果音描画のトグル
  *
- * 値は全体で 1 つ。画像生成統合設定・スマホ版の画像生成設定・チャットの左メニューの 3 つの画面に
+ * 値は全体で 1 つ。設定画面の画像生成と、準備・調整欄の「この会話の画像生成」の 2 つの画面に
  * 置き、どこで切り替えても同じ値を読み書きする。切り替えたら、この値だけを書く専用の保存の口で
  * 即時保存する（設定全体を読んで書き戻す方式は使わない）。画面を開くたびに保存済みの値を読み直す。
  * 保存に失敗したら、トグルを元の位置へ戻して、その場に失敗を表示する。
@@ -152,12 +152,12 @@ export const AutoSoundEffectsToggle: React.FC<AutoSoundEffectsToggleProps> = ({
             />
             {showHelp && (
                 <>
-                    <p className="text-xs text-gray-500">{API_SERVICE.HELP.AUTO_SOUND_EFFECTS}</p>
-                    <p className="text-xs text-amber-300/80">{API_SERVICE.HELP.AUTO_SOUND_EFFECTS_NOTE}</p>
+                    <p className="text-xs text-fg-muted">{API_SERVICE.HELP.AUTO_SOUND_EFFECTS}</p>
+                    <p className="text-xs text-warn/80">{API_SERVICE.HELP.AUTO_SOUND_EFFECTS_NOTE}</p>
                 </>
             )}
             {failed && (
-                <p className="flex items-center gap-1 text-xs text-red-300">
+                <p className="flex items-center gap-1 text-xs text-danger">
                     <AlertCircle size={12} />
                     {API_SERVICE.MESSAGES.AUTO_SOUND_EFFECTS_SAVE_FAILED}
                 </p>

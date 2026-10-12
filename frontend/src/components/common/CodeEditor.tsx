@@ -95,20 +95,25 @@ const togglePanel = (view: EditorView, mode: PanelMode): boolean => {
     return true;
 };
 
+// 色は画面全体の設計値（CSS 変数）を参照するので、デザイン・明るさの切り替えに自動で追従する。
 const editorTheme = EditorView.theme({
-    '&': { height: '100%', backgroundColor: 'transparent', color: '#e5e7eb', fontSize: '0.875rem' },
-    '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', lineHeight: '1.5', overflow: 'auto' },
-    '.cm-content': { caretColor: '#e5e7eb', padding: '0' },
-    '.cm-gutters': { backgroundColor: 'transparent', color: '#6b7280', border: 'none', paddingRight: '0.75rem' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#d1d5db' },
+    '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--c-fg)', fontSize: '0.875rem' },
+    '.cm-scroller': { fontFamily: 'var(--ff-mono)', lineHeight: '1.5', overflow: 'auto' },
+    '.cm-content': { caretColor: 'var(--c-fg)', padding: '0' },
+    '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--c-fg-muted)', border: 'none', paddingRight: '0.75rem' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--c-fg)' },
     '&.cm-focused': { outline: 'none' },
-    '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#e5e7eb' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: '#374151' },
-    '.cm-placeholder': { color: '#6b7280' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--c-fg)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'var(--c-surface-2)' },
+    '.cm-placeholder': { color: 'var(--c-fg-muted)' },
     '.cm-searchMatch': { backgroundColor: 'rgba(250, 204, 21, 0.35)', outline: '1px solid rgba(250, 204, 21, 0.55)' },
     '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'rgba(249, 115, 22, 0.55)', outline: '1px solid rgba(249, 115, 22, 0.9)' },
-    '.cm-selectionMatch': { backgroundColor: 'rgba(96, 165, 250, 0.25)' },
-}, { dark: true });
+    '.cm-selectionMatch': { backgroundColor: 'var(--c-accent-soft)' },
+});
+
+// CodeMirror の既定の描き方（暗い画面用か明るい画面用か）。画面全体の data-mode に合わせる。
+const modeTheme = (dark: boolean) => EditorView.theme({}, { dark });
+const isDarkMode = () => document.documentElement.dataset.mode !== 'light';
 
 /**
  * 設定ファイル・テンプレート用の本文エディタ。
@@ -122,6 +127,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, placeho
     const uiCatalogRef = useRef(uiCatalog);
     const placeholderCompartment = useRef(new Compartment());
     const phrasesCompartment = useRef(new Compartment());
+    const modeCompartment = useRef(new Compartment());
+    // 外から本文を差し替えている最中（読み込みなど）。書き換えとして知らせない
+    const applyingExternalRef = useRef(false);
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
     uiCatalogRef.current = uiCatalog;
@@ -150,15 +158,22 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, placeho
                     ...defaultKeymap,
                 ]),
                 editorTheme,
+                modeCompartment.current.of(modeTheme(isDarkMode())),
                 EditorView.updateListener.of(update => {
-                    if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+                    if (update.docChanged && !applyingExternalRef.current) onChangeRef.current(update.state.doc.toString());
                     if (searchPanelOpen(update.state)) updateMatchCount(update.view, uiCatalogRef.current);
                 }),
             ],
         });
         const view = new EditorView({ state, parent: host });
         viewRef.current = view;
+        // 明るさの切り替えを見張り、既定の描き方を差し替える
+        const observer = new MutationObserver(() => {
+            view.dispatch({ effects: modeCompartment.current.reconfigure(modeTheme(isDarkMode())) });
+        });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
         return () => {
+            observer.disconnect();
             view.destroy();
             viewRef.current = null;
         };
@@ -172,7 +187,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, placeho
         if (!view) return;
         const current = view.state.doc.toString();
         if (current === value) return;
-        view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
+        applyingExternalRef.current = true;
+        try {
+            view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
+        } finally {
+            applyingExternalRef.current = false;
+        }
     }, [value]);
 
     useEffect(() => {

@@ -134,19 +134,19 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
         : directives;
 
     return (
-        <div className="border border-gray-700 rounded-lg overflow-hidden">
+        <div className="border border-line-strong rounded-lg overflow-hidden">
             {/* ヘッダー */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-800/50 hover:bg-gray-800 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-surface hover:bg-surface transition-colors"
             >
                 <div className="flex items-center gap-2">
                     {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    <Palette size={14} className="text-purple-400" />
-                    <span className="text-sm font-medium text-gray-300">{t(I18N_KEYS.title)}</span>
+                    <Palette size={14} className="text-accent" />
+                    <span className="text-sm font-medium text-fg-muted">{t(I18N_KEYS.title)}</span>
                 </div>
                 {hasCustom && (
-                    <span className="text-xs text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">
+                    <span className="text-xs text-accent bg-accent-soft px-2 py-0.5 rounded">
                         {t(I18N_KEYS.customBadge)}
                     </span>
                 )}
@@ -154,17 +154,17 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
 
             {/* 本体 */}
             {isOpen && (
-                <div className="p-4 space-y-4 bg-gray-900/30 animate-fade-in">
+                <div className="p-4 space-y-4 bg-panel/30 animate-fade-in">
                     {loadError && (
-                        <p className="text-xs text-red-400">{t(I18N_KEYS.loadFailed)}</p>
+                        <p className="text-xs text-danger">{t(I18N_KEYS.loadFailed)}</p>
                     )}
                     {imageBackend === 'api' ? (
                         <label className="space-y-1 block">
-                            <span className="text-xs text-gray-500">{t(I18N_KEYS.preset)}</span>
+                            <span className="text-xs text-fg-muted">{t(I18N_KEYS.preset)}</span>
                             <select
                                 value={settings.apiPresetId}
                                 onChange={(e) => onChange({ ...settings, apiPresetId: e.target.value })}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                             >
                                 <option value="">{t(I18N_KEYS.defaultOption)}</option>
                                 {presetOptions.map(name => (
@@ -174,11 +174,11 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
                         </label>
                     ) : (
                         <label className="space-y-1 block">
-                            <span className="text-xs text-gray-500">{t(I18N_KEYS.workflow)}</span>
+                            <span className="text-xs text-fg-muted">{t(I18N_KEYS.workflow)}</span>
                             <select
                                 value={settings.workflowId}
                                 onChange={(e) => onChange({ ...settings, workflowId: e.target.value })}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                             >
                                 <option value="">{t(I18N_KEYS.defaultOption)}</option>
                                 {workflowOptions.map(name => (
@@ -188,18 +188,18 @@ export const ImageGenerationSettings: React.FC<ImageGenerationSettingsProps> = (
                         </label>
                     )}
                     <label className="space-y-1 block">
-                        <span className="text-xs text-gray-500">{t(I18N_KEYS.directive)}</span>
+                        <span className="text-xs text-fg-muted">{t(I18N_KEYS.directive)}</span>
                         <select
                             value={selectedDirective}
                             onChange={(e) => changeDirective(e.target.value)}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                         >
                             <option value="">{t(I18N_KEYS.defaultOption)}</option>
                             {directiveOptions.map(d => (
                                 d === null ? (
                                     <option key={selectedDirective} value={selectedDirective}>{selectedDirective}</option>
                                 ) : (
-                                    <option key={d.id} value={directiveModeForDirectiveId(d.id)}>{d.label}</option>
+                                    <option key={d.id} value={directiveModeForDirectiveId(d.id)}>{resolveMessage(uiCatalog, `configEditor.comfyDirective.file.${d.id}`, d.label)}</option>
                                 )
                             ))}
                         </select>

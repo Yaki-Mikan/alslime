@@ -1,12 +1,12 @@
 /**
- * TTSDrawerPanel.tsx - 左メニュー用TTS設定パネル（設計04の4章）
+ * TTSDrawerPanel.tsx - クイック設定のTTS設定パネル
  *
- * StatusDrawer 内で開閉するパネル（デフォルト閉。TagJudgeWorkflowDrawerPanel と
+ * クイック設定の欄の中で開閉するパネル（デフォルト閉。TagJudgeWorkflowDrawerPanel と
  * 同じ器の流儀）。開いた時に /api/tts/config と Voice 一覧を読み込むため、
- * 閉→開で他画面での変更を拾う。値の正本は /api/tts/config で、統合設定モーダルと
+ * 閉→開で他画面での変更を拾う。値の正本は /api/tts/config で、設定画面の読み上げと
  * 同じ値を read-modify-merge の即時保存で書き戻し、他項目を消さない。
- * StatusDrawer は閉じても中身を捨てないため、パネルを開いたままドロワーを閉じて
- * 開き直した場合も拾えるよう、ドロワーの開閉状態を active で受け取り、開くたびに読み直す。
+ * クイック設定の欄は閉じても中身を捨てないため、パネルを開いたまま欄を閉じて
+ * 開き直した場合も拾えるよう、欄の開閉状態を active で受け取り、開くたびに読み直す。
  * 表示条件（支援者機能・TTS連携済み・日本語表示）は Chat 側で判定して渡す。
  * 読み上げ範囲・地の文ナレーター読み・文体指示の「小画面でも設定できること」は
  * このパネルが担う。
@@ -22,7 +22,7 @@ import { resolveMessage, type I18NCatalog } from '../../api/i18n';
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
-    // ドロワーが開いているか。true になるたびに設定を読み直す（未指定なら常に有効）。
+    // クイック設定の欄が開いているか。true になるたびに設定を読み直す（未指定なら常に有効）。
     active?: boolean;
 }
 
@@ -33,7 +33,7 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
     const [voices, setVoices] = useState<TTSVoice[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // パネルまたはドロワーが開くたびに設定とVoice一覧を読み直す（閉じている間の他画面での変更を拾う）。
+    // パネルまたは欄が開くたびに設定とVoice一覧を読み直す（閉じている間の他画面での変更を拾う）。
     useEffect(() => {
         if (!isOpen || !active) return;
         let cancelled = false;
@@ -61,7 +61,7 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
         return () => { cancelled = true; };
     }, [isOpen, active, backendUrl]);
 
-    // read-modify-merge の即時保存（統合設定の persistConfigPatch と同じ規約。
+    // read-modify-merge の即時保存（設定画面の読み上げの persistConfigPatch と同じ規約。
     // apiKey は空送信＝既存維持で、他項目も読み込んだ最新値へパッチを当てて送る）。
     const persistPatch = async (patch: Partial<TTSConfig>) => {
         if (!config) return;
@@ -82,61 +82,61 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
     }
 
     return (
-        <div className="border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40">
+        <div className="border border-line-strong rounded-lg overflow-hidden bg-surface">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
             >
                 {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <AudioLines size={14} className="text-orange-400" />
+                <AudioLines size={14} className="text-accent" />
                 <span>{t('tts.drawer.section', '音声読み上げ')}</span>
             </button>
             {isOpen && (
-                <div className="p-3 border-t border-gray-700/60 space-y-3">
+                <div className="p-3 border-t border-line-strong space-y-3">
                     {loading && (
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                        <div className="flex items-center gap-2 text-xs text-fg-muted">
                             <Loader2 size={14} className="animate-spin" />
                             {t('tts.drawer.loading', '設定を読み込み中...')}
                         </div>
                     )}
                     {!loading && config === null && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-fg-muted">
                             {t('tts.drawer.loadFailed', '設定を読み込めませんでした')}
                         </p>
                     )}
                     {!loading && config && (
                         <>
                             <div className="flex items-center gap-2">
-                                <label className="text-xs text-gray-400 shrink-0">
+                                <label className="text-xs text-fg-muted shrink-0">
                                     {t('tts.readTarget.label', '読み上げ範囲')}
                                 </label>
                                 <select
                                     value={config.readTarget}
                                     onChange={e => void persistPatch({ readTarget: e.target.value as TTSReadTarget })}
-                                    className="min-w-0 flex-1 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1.5 outline-none focus:border-orange-500"
+                                    className="min-w-0 flex-1 bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1.5 outline-none focus:border-accent"
                                 >
                                     <option value="dialogue">{t('tts.readTarget.dialogue', 'セリフのみ')}</option>
                                     <option value="dialogueAndNarration">{t('tts.readTarget.dialogueAndNarration', 'セリフ＋地の文')}</option>
                                 </select>
                             </div>
-                            {/* 音声形式（統合設定と同じ項目。mp3 はサーバー側に FFmpeg が必要。以後の生成から適用） */}
+                            {/* 音声形式（設定画面の読み上げと同じ項目。mp3 はサーバー側に FFmpeg が必要。以後の生成から適用） */}
                             <div className="flex items-center gap-2">
-                                <label className="text-xs text-gray-400 shrink-0">
+                                <label className="text-xs text-fg-muted shrink-0">
                                     {t('tts.responseFormat.label', '音声形式')}
                                 </label>
                                 <select
                                     value={config.responseFormat}
                                     onChange={e => void persistPatch({ responseFormat: e.target.value as TTSResponseFormat })}
-                                    className="min-w-0 flex-1 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1.5 outline-none focus:border-orange-500"
+                                    className="min-w-0 flex-1 bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1.5 outline-none focus:border-accent"
                                 >
                                     <option value="wav">wav</option>
                                     <option value="mp3">mp3</option>
                                 </select>
                             </div>
-                            {/* チャンク間の無音（秒）。統合設定と同じ項目。欄を離れる／Enter で保存し、以後の生成から適用 */}
+                            {/* 発言の分け目の無音（秒）。設定画面の読み上げと同じ項目。欄を離れる／Enter で保存し、以後の生成から適用 */}
                             <div className="flex items-center gap-2">
-                                <label className="text-xs text-gray-400 shrink-0">
-                                    {t('tts.gap.chunkSilence', 'チャンク間の無音（秒）')}
+                                <label className="text-xs text-fg-muted shrink-0">
+                                    {t('tts.gap.chunkSilence', '発言の分け目の無音（秒）')}
                                 </label>
                                 <input
                                     type="number"
@@ -150,16 +150,19 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
                                         if (Number.isFinite(v) && v >= 0 && v !== config.chunkSilenceSeconds) void persistPatch({ chunkSilenceSeconds: v });
                                     }}
                                     onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                    className="w-20 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1.5 outline-none focus:border-orange-500"
+                                    className="w-20 bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1.5 outline-none focus:border-accent"
                                 />
                             </div>
-                            <ToggleSwitch
-                                checked={config.autoReadEnabled}
-                                onChange={value => void persistPatch({ autoReadEnabled: value })}
-                                label={t('tts.drawer.autoRead', '自動読み上げ')}
-                                labelPosition="right"
-                                accent="orange"
-                            />
+                            {/* スイッチは行の中に並ぶ作りなので、1行に1つずつになるよう包む */}
+                            <div>
+                                <ToggleSwitch
+                                    checked={config.autoReadEnabled}
+                                    onChange={value => void persistPatch({ autoReadEnabled: value })}
+                                    label={t('tts.drawer.autoRead', '自動読み上げ')}
+                                    labelPosition="right"
+                                    accent="orange"
+                                />
+                            </div>
                             {/* 自動読み上げがONのときだけ表示。ONなら応答完了時に生成しつつ順次再生する。 */}
                             {config.autoReadEnabled && (
                                 <div className="pl-4">
@@ -172,26 +175,30 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
                                     />
                                 </div>
                             )}
-                            <ToggleSwitch
-                                checked={config.stopButtonEnabled}
-                                onChange={value => void persistPatch({ stopButtonEnabled: value })}
-                                label={t('tts.drawer.stopButton', '再生停止ボタンを表示')}
-                                labelPosition="right"
-                                accent="orange"
-                            />
-                            <ToggleSwitch
-                                checked={config.autoAdvanceEnabled}
-                                onChange={value => void persistPatch({ autoAdvanceEnabled: value })}
-                                label={t('tts.autoAdvance.label', '続きを自動再生')}
-                                labelPosition="right"
-                                accent="orange"
-                            />
+                            <div>
+                                <ToggleSwitch
+                                    checked={config.stopButtonEnabled}
+                                    onChange={value => void persistPatch({ stopButtonEnabled: value })}
+                                    label={t('tts.drawer.stopButton', '再生停止ボタンを表示')}
+                                    labelPosition="right"
+                                    accent="orange"
+                                />
+                            </div>
+                            <div>
+                                <ToggleSwitch
+                                    checked={config.autoAdvanceEnabled}
+                                    onChange={value => void persistPatch({ autoAdvanceEnabled: value })}
+                                    label={t('tts.autoAdvance.label', '続きを自動再生')}
+                                    labelPosition="right"
+                                    accent="orange"
+                                />
+                            </div>
                             <div className="space-y-1">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-xs text-gray-400">
+                                    <label className="text-xs text-fg-muted">
                                         {t('tts.volume.label', '再生音量')}
                                     </label>
-                                    <span className="text-xs text-gray-300">{Math.round(config.volume * 100)}%</span>
+                                    <span className="text-xs text-fg-muted">{Math.round(config.volume * 100)}%</span>
                                 </div>
                                 {/* ドラッグ中はローカル反映のみ、離した時（キー操作後含む）に保存する。 */}
                                 <input
@@ -203,7 +210,7 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
                                     onChange={e => setConfig({ ...config, volume: Number(e.target.value) })}
                                     onPointerUp={e => void persistPatch({ volume: Number((e.target as HTMLInputElement).value) })}
                                     onKeyUp={e => void persistPatch({ volume: Number((e.target as HTMLInputElement).value) })}
-                                    className="w-full accent-orange-500"
+                                    className="w-full accent-accent"
                                 />
                             </div>
                             <div className="space-y-2">
@@ -215,17 +222,19 @@ export const TTSDrawerPanel: React.FC<Props> = ({ backendUrl, uiCatalog = null, 
                                     accent="orange"
                                 />
                                 <div className="flex items-center gap-2 pl-1">
-                                    <label className="text-xs text-gray-400 shrink-0">
+                                    <label className="text-xs text-fg-muted shrink-0">
                                         {t('tts.narrator.voice', 'ナレーター用Voice')}
                                     </label>
                                     <select
                                         value={config.narratorVoiceId}
                                         onChange={e => void persistPatch({ narratorVoiceId: e.target.value })}
-                                        className="min-w-0 flex-1 bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1.5 outline-none focus:border-orange-500"
+                                        className="min-w-0 flex-1 bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1.5 outline-none focus:border-accent"
                                     >
                                         <option value="">{t('tts.charAssign.voiceNone', '（未設定）')}</option>
                                         {narratorVoiceIds.map(id => (
-                                            <option key={id} value={id}>{id}</option>
+                                            <option key={id} value={id}>
+                                                {voices.some(v => v.id === id) ? id : t('tts.narrator.voiceNotInList', '{{name}}（Voice一覧に無い）').split('{{name}}').join(id)}
+                                            </option>
                                         ))}
                                     </select>
                                 </div>

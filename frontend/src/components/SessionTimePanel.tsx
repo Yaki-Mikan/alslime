@@ -53,7 +53,8 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
     applyToSessionState = 'idle',
     embedded = false
 }) => {
-    const [isOpen, setIsOpen] = useState(false);
+    // 状態欄に埋め込んだときは、開いた時点で中身を見せる
+    const [isOpen, setIsOpen] = useState(embedded);
     const [isEditing, setIsEditing] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
     const debounceTimerRef = useRef<number | null>(null);
@@ -233,8 +234,8 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                     onClick={onApplyToSession}
                     disabled={applyToSessionState === 'applying'}
                     className={`p-1.5 rounded transition-colors ${applyToSessionState === 'done'
-                        ? 'text-emerald-400'
-                        : 'text-emerald-400 hover:text-emerald-300 hover:bg-gray-700 disabled:opacity-60'}`}
+                        ? 'text-ok'
+                        : 'text-ok hover:text-ok hover:bg-surface-2 disabled:opacity-60'}`}
                     title={t(CHAT_VIEW_I18N_KEYS.applyToSession)}
                 >
                     <Save size={14} className={applyToSessionState === 'applying' ? 'animate-pulse' : ''} />
@@ -242,7 +243,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
             )}
             <button
                 onClick={() => setIsEditing(!isEditing)}
-                className={`p-1.5 hover:bg-gray-700 rounded transition-colors ${isEditing ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                className={`p-1.5 hover:bg-surface-2 rounded transition-colors ${isEditing ? 'text-accent' : 'text-fg-muted hover:text-accent'}`}
                 title={isEditing ? t(COMMON_I18N_KEYS.finishEdit) : t(COMMON_I18N_KEYS.edit)}
             >
                 <Edit2 size={14} />
@@ -256,17 +257,17 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
     };
 
     return (
-        <div ref={panelRef} data-panel="time" className={embedded ? 'w-full border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} ${leftPosition} z-30`}>
+        <div ref={panelRef} data-panel="time" className={embedded ? 'w-full border border-line-strong rounded-lg overflow-hidden bg-surface' : `absolute ${hasTitleBar ? 'top-28' : 'top-16'} ${leftPosition} z-30`}>
             {embedded ? (
                 /* 埋め込み時はドロワー内の他パネルと同じ器。ヘッダ全体が開閉ボタンで、反映・編集ボタンは右端に置く */
                 <div className="flex items-center">
                     <button
                         type="button"
                         onClick={toggleOpen}
-                        className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                        className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
                     >
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        <Clock size={14} className="text-blue-400" />
+                        <Clock size={14} className="text-accent" />
                         <span>{t(SESSION_TIME_I18N_KEYS.title)}</span>
                     </button>
                     {isOpen && (
@@ -276,21 +277,21 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
             ) : !isOpen ? (
                 <button
                     onClick={toggleOpen}
-                    className="flex items-center gap-2 bg-gray-800/80 backdrop-blur border border-gray-700 text-blue-400 px-3 py-2 rounded-full shadow-lg hover:bg-gray-700 transition-all font-medium text-sm group"
+                    className="flex items-center gap-2 bg-surface backdrop-blur border border-line-strong text-accent px-3 py-2 rounded-full shadow-lg hover:bg-surface-2 transition-all font-medium text-sm group"
                 >
                     <Clock size={16} className="group-hover:scale-110 transition-transform" />
                     <span>{t(SESSION_TIME_I18N_KEYS.closedTitle)}</span>
-                    <ChevronRight size={14} className="text-gray-500" />
+                    <ChevronRight size={14} className="text-fg-muted" />
                 </button>
             ) : null}
             {isOpen && (
                 <div className={embedded
-                    ? 'border-t border-gray-700/60 flex flex-col'
-                    : 'bg-gray-900/95 backdrop-blur-md border border-gray-700 rounded-xl shadow-2xl w-72 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200'}>
+                    ? 'border-t border-line-strong flex flex-col'
+                    : 'bg-panel/95 backdrop-blur-md border border-line-strong rounded-xl shadow-2xl w-72 overflow-hidden flex flex-col animate-slide-down'}>
                     {/* Header（浮遊時のみ。埋め込み時は上の開閉ヘッダが兼ねる） */}
                     {!embedded && (
-                        <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-blue-400 font-medium">
+                        <div className="px-4 py-3 bg-surface border-b border-line-strong flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-accent font-medium">
                                 <Clock size={16} />
                                 <span>{t(SESSION_TIME_I18N_KEYS.title)}</span>
                             </div>
@@ -298,7 +299,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                 {actionButtons}
                                 <button
                                     onClick={toggleOpen}
-                                    className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+                                    className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                                 >
                                     <ChevronDown size={16} />
                                 </button>
@@ -310,33 +311,33 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                     <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
                         {/* 現在のセッション時刻 */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-400">{t(SESSION_TIME_I18N_KEYS.currentTime)}</label>
+                            <label className="text-xs font-medium text-fg-muted">{t(SESSION_TIME_I18N_KEYS.currentTime)}</label>
                             {isEditing ? (
                                 <div className="flex flex-wrap items-center gap-1">
                                     <select
                                         value={sessionTime.year}
                                         onChange={(e) => updateSessionTime('year', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent"
                                     >
                                         {yearOptions.map(y => (
                                             <option key={y} value={y}>{y}</option>
                                         ))}
                                     </select>
-                                    <span className="text-gray-500 text-xs">/</span>
+                                    <span className="text-fg-muted text-xs">/</span>
                                     <select
                                         value={sessionTime.month}
                                         onChange={(e) => updateSessionTime('month', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500 w-12"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent w-12"
                                     >
                                         {[...Array(12)].map((_, i) => (
                                             <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>
                                         ))}
                                     </select>
-                                    <span className="text-gray-500 text-xs">/</span>
+                                    <span className="text-fg-muted text-xs">/</span>
                                     <select
                                         value={sessionTime.day}
                                         onChange={(e) => updateSessionTime('day', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500 w-12"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent w-12"
                                     >
                                         {[...Array(31)].map((_, i) => (
                                             <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>
@@ -345,27 +346,27 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     <select
                                         value={sessionTime.hour}
                                         onChange={(e) => updateSessionTime('hour', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500 w-12"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent w-12"
                                     >
                                         {[...Array(24)].map((_, i) => (
                                             <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
                                         ))}
                                     </select>
-                                    <span className="text-gray-500 text-xs">:</span>
+                                    <span className="text-fg-muted text-xs">:</span>
                                     <select
                                         value={sessionTime.minute}
                                         onChange={(e) => updateSessionTime('minute', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500 w-12"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent w-12"
                                     >
                                         {[...Array(60)].map((_, i) => (
                                             <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
                                         ))}
                                     </select>
-                                    <span className="text-gray-500 text-xs">:</span>
+                                    <span className="text-fg-muted text-xs">:</span>
                                     <select
                                         value={sessionTime.second || 0}
                                         onChange={(e) => updateSessionTime('second', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-500 w-12"
+                                        className="bg-surface border border-line-strong rounded px-1.5 py-1 text-xs outline-none focus:border-accent w-12"
                                     >
                                         {[...Array(60)].map((_, i) => (
                                             <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
@@ -373,14 +374,14 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     </select>
                                 </div>
                             ) : (
-                                <div className="text-sm font-medium text-gray-200">
+                                <div className="text-sm font-medium text-fg">
                                     {formatTime(sessionTime)}
                                 </div>
                             )}
                         </div>
                         {/* インクリメント設定時間 */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-400">{t(SESSION_TIME_I18N_KEYS.increment)}</label>
+                            <label className="text-xs font-medium text-fg-muted">{t(SESSION_TIME_I18N_KEYS.increment)}</label>
                             {isEditing ? (
                                 <div className="flex flex-wrap items-center gap-1">
                                     {detailMode && (
@@ -388,7 +389,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                             <select
                                                 value={increment?.values.years ?? 0}
                                                 onChange={(e) => updateIncrementValues('years', parseInt(e.target.value))}
-                                                className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                                className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                             >
                                                 {[...Array(11)].map((_, i) => (
                                                     <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.yearUnit, i)}</option>
@@ -397,7 +398,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                             <select
                                                 value={increment?.values.months ?? 0}
                                                 onChange={(e) => updateIncrementValues('months', parseInt(e.target.value))}
-                                                className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-16"
+                                                className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-16"
                                             >
                                                 {[...Array(12)].map((_, i) => (
                                                     <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.monthUnit, i)}</option>
@@ -406,7 +407,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                             <select
                                                 value={increment?.values.days ?? 0}
                                                 onChange={(e) => updateIncrementValues('days', parseInt(e.target.value))}
-                                                className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                                className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                             >
                                                 {[...Array(31)].map((_, i) => (
                                                     <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.dayUnit, i)}</option>
@@ -417,7 +418,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     <select
                                         value={increment?.values.hours ?? 0}
                                         onChange={(e) => updateIncrementValues('hours', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-16"
+                                        className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-16"
                                     >
                                         {[...Array(24)].map((_, i) => (
                                             <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.hourUnit, i)}</option>
@@ -426,7 +427,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     <select
                                         value={increment?.values.minutes ?? 0}
                                         onChange={(e) => updateIncrementValues('minutes', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                        className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                     >
                                         {[...Array(60)].map((_, i) => (
                                             <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.minuteUnit, i)}</option>
@@ -436,7 +437,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                         <select
                                             value={increment?.values.seconds ?? 0}
                                             onChange={(e) => updateIncrementValues('seconds', parseInt(e.target.value))}
-                                            className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                            className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                         >
                                             {[...Array(60)].map((_, i) => (
                                                 <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.secondUnit, i)}</option>
@@ -445,7 +446,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     )}
                                 </div>
                             ) : (
-                                <div className="text-sm font-medium text-gray-200">
+                                <div className="text-sm font-medium text-fg">
                                     {formatIncrement(increment?.values, detailMode)}
                                 </div>
                             )}
@@ -453,14 +454,14 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
 
                         {/* 次のインクリメント時間（常に編集可能） */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-400">{t(SESSION_TIME_I18N_KEYS.nextIncrement)}</label>
+                            <label className="text-xs font-medium text-fg-muted">{t(SESSION_TIME_I18N_KEYS.nextIncrement)}</label>
                             <div className="flex flex-wrap items-center gap-1">
                                 {detailMode && (
                                     <>
                                         <select
                                             value={nextIncrement?.years ?? 0}
                                             onChange={(e) => updateNextIncrement('years', parseInt(e.target.value))}
-                                            className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                            className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                         >
                                             {[...Array(11)].map((_, i) => (
                                                 <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.yearUnit, i)}</option>
@@ -469,7 +470,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                         <select
                                             value={nextIncrement?.months ?? 0}
                                             onChange={(e) => updateNextIncrement('months', parseInt(e.target.value))}
-                                            className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-16"
+                                            className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-16"
                                         >
                                             {[...Array(12)].map((_, i) => (
                                                 <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.monthUnit, i)}</option>
@@ -478,7 +479,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                         <select
                                             value={nextIncrement?.days ?? 0}
                                             onChange={(e) => updateNextIncrement('days', parseInt(e.target.value))}
-                                            className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                            className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                         >
                                             {[...Array(31)].map((_, i) => (
                                                 <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.dayUnit, i)}</option>
@@ -489,7 +490,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                 <select
                                     value={nextIncrement?.hours ?? 0}
                                     onChange={(e) => updateNextIncrement('hours', parseInt(e.target.value))}
-                                    className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-16"
+                                    className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-16"
                                 >
                                     {[...Array(24)].map((_, i) => (
                                         <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.hourUnit, i)}</option>
@@ -498,7 +499,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                 <select
                                     value={nextIncrement?.minutes ?? 0}
                                     onChange={(e) => updateNextIncrement('minutes', parseInt(e.target.value))}
-                                    className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                    className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                 >
                                     {[...Array(60)].map((_, i) => (
                                         <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.minuteUnit, i)}</option>
@@ -508,7 +509,7 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
                                     <select
                                         value={nextIncrement?.seconds ?? 0}
                                         onChange={(e) => updateNextIncrement('seconds', parseInt(e.target.value))}
-                                        className="bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs outline-none focus:border-blue-500 w-14"
+                                        className="bg-surface border border-line-strong rounded px-1 py-1 text-xs outline-none focus:border-accent w-14"
                                     >
                                         {[...Array(60)].map((_, i) => (
                                             <option key={i} value={i}>{unitText(SESSION_TIME_I18N_KEYS.secondUnit, i)}</option>
@@ -520,9 +521,9 @@ export const SessionTimePanel: React.FC<SessionTimePanelProps> = ({
 
                         {/* 累積経過日数（整数部分のみ） */}
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-400">{t(SESSION_TIME_I18N_KEYS.elapsedDays).split('{{days}}')[0] || t(SESSION_TIME_I18N_KEYS.elapsedDays)}</label>
-                            <div className="text-sm font-medium text-gray-200">
-                                {formatText(t(SESSION_TIME_I18N_KEYS.elapsedDays), { days: Math.floor(totalElapsedDays) })}
+                            <label className="text-xs font-medium text-fg-muted">{t(SESSION_TIME_I18N_KEYS.elapsedDaysLabel)}</label>
+                            <div className="text-sm font-medium text-fg">
+                                {formatText(t(SESSION_TIME_I18N_KEYS.elapsedDaysValue), { days: Math.floor(totalElapsedDays) })}
                             </div>
                         </div>
                     </div>

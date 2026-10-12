@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,7 +139,6 @@ func validSessionMeta(session sessionMeta) bool {
 type ListItem struct {
 	Index      int       `json:"index"`
 	Title      string    `json:"title"`
-	TimeAgo    string    `json:"timeAgo"`
 	ID         string    `json:"id"`
 	Timestamp  int64     `json:"timestamp,omitempty"`
 	IsSSRP     bool      `json:"isSSRP,omitempty"`
@@ -172,7 +170,12 @@ type Service struct {
 	legacyMu      sync.Mutex
 	legacyChecked bool
 	legacyStamp   time.Time
+	// defaultTitle は題が空のときに補う題を返す（表示言語の辞書で引く）。nil なら日本語既定。
+	defaultTitle func() string
 }
+
+// fallbackSessionTitle は題が空のときに補う題の日本語既定。
+const fallbackSessionTitle = "新規セッション"
 
 // New は Service を生成する。
 func New(resolver *paths.Resolver) *Service {
@@ -180,6 +183,22 @@ func New(resolver *paths.Resolver) *Service {
 		resolver: resolver,
 		pending:  make(map[ModelType]NewSessionState),
 	}
+}
+
+// WithDefaultTitle は、題が空のときに補う題を返す関数を設定する。
+// 履歴に出る題なので、表示言語の辞書で引く関数を渡す。
+func (s *Service) WithDefaultTitle(title func() string) *Service {
+	s.defaultTitle = title
+	return s
+}
+
+func (s *Service) emptyTitle() string {
+	if s.defaultTitle != nil {
+		if title := strings.TrimSpace(s.defaultTitle()); title != "" {
+			return title
+		}
+	}
+	return fallbackSessionTitle
 }
 
 // List は統一セッション一覧を lastUpdated 降順で返す。
@@ -219,7 +238,6 @@ func (s *Service) List() ([]ListItem, error) {
 		items = append(items, ListItem{
 			Index:      0,
 			Title:      session.Title,
-			TimeAgo:    timeAgo(ts),
 			ID:         session.SessionID,
 			Timestamp:  ts,
 			IsSSRP:     session.IsSSRP,
@@ -400,10 +418,10 @@ func (s *Service) saveLocked(session UnifiedSession) error {
 		session.Messages = []Message{}
 	}
 	if session.Title == "" {
-		session.Title = "新規セッション"
+		session.Title = s.emptyTitle()
 	}
 	if session.Bindings.ActiveModelType == "" {
-		session.Bindings.ActiveModelType = ModelGemini
+		session.Bindings.ActiveModelType = ModelAntigravity
 	}
 	path, err := s.filePath(session.SessionID, true)
 	if err != nil {
@@ -436,7 +454,7 @@ func (s *Service) Delete(sessionID string) (UnifiedSession, error) {
 // StartNew は次回送信用の新規セッション状態を保持する。
 func (s *Service) StartNew(modelType ModelType, ssrpSettings map[string]any) NewSessionState {
 	if modelType == "" {
-		modelType = ModelGemini
+		modelType = ModelAntigravity
 	}
 	state := NewSessionState{
 		ModelType:    modelType,
@@ -453,7 +471,7 @@ func (s *Service) StartNew(modelType ModelType, ssrpSettings map[string]any) New
 func (s *Service) UpdateTitle(sessionID, title string) (string, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "新規セッション"
+		title = s.emptyTitle()
 	}
 	runes := []rune(title)
 	if len(runes) > 100 {
@@ -623,14 +641,14 @@ func validSession(session UnifiedSession) bool {
 
 func modelTypeFromKind(kind models.Kind) ModelType {
 	switch kind {
+	case models.KindGemini:
+		return ModelGemini
 	case models.KindClaude:
 		return ModelClaude
-	case models.KindAntigravity:
-		return ModelAntigravity
 	case models.KindOpenAICompat:
 		return ModelOpenAICompat
 	default:
-		return ModelGemini
+		return ModelAntigravity
 	}
 }
 
@@ -649,30 +667,6 @@ func parseTimeMs(value string) int64 {
 		return 0
 	}
 	return t.UnixMilli()
-}
-
-func timeAgo(ms int64) string {
-	if ms <= 0 {
-		return ""
-	}
-	d := time.Since(time.UnixMilli(ms))
-	switch {
-	case d < time.Minute:
-		return "たった今"
-	case d < time.Hour:
-		return pluralJP(int(d.Minutes()), "分前")
-	case d < 24*time.Hour:
-		return pluralJP(int(d.Hours()), "時間前")
-	default:
-		return pluralJP(int(d.Hours()/24), "日前")
-	}
-}
-
-func pluralJP(n int, suffix string) string {
-	if n < 1 {
-		n = 1
-	}
-	return strconv.Itoa(n) + suffix
 }
 
 // characterDisplayNames はキャラクター設定ファイルのパス群から表示名を取り出す。

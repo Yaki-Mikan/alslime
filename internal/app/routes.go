@@ -164,9 +164,22 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		SSRPSettings:   ssrpSvc,
 		PWASettings:    pwaSvc,
 		ServerSettings: serverSettingsSvc,
+		CheckCLI:       cliexecutable.Check,
 	})
 	i18nService := i18nsvc.New(resolver, locs.MustPath(locations.I18NDir))
 	i18napi.Register(mux, i18nService)
+	// 関係性ファイルが無いときの初期の選択肢は、現在の表示言語の UI 辞書で名前を引く。
+	ssrpSvc.WithMessages(func() map[string]string {
+		lang := ""
+		if settings, err := pwaSvc.Get(); err == nil {
+			lang, _ = settings["uiLanguage"].(string)
+		}
+		catalog, err := i18nService.Load(lang)
+		if err != nil {
+			return nil
+		}
+		return catalog.Messages
+	})
 
 	// ディレクトリ列挙型プリセット（統一契約）。
 	// 系統ごとに「保存先ロケーション」と「メタ付与方針」だけが異なる。
@@ -232,9 +245,13 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Port:                  cfg.Port,
 		ChatCLITimeoutSeconds: cfg.ChatCLITimeoutSeconds,
 		ConfigCheck:           configcheck.New(resolver),
-		CLIStatus:             clistatus.New(workspaceAuthPaths(resolver), apiProvidersSvc.HasEnabledConnection),
-		Cache:                 cache.New(resolver),
-		Backup:                backup.New(resolver),
+		CLIStatus: clistatus.New(workspaceAuthPaths(resolver), clistatus.Resolvers{
+			Gemini:      cliexecutable.Gemini(serverSettingsSvc),
+			Claude:      cliexecutable.Claude(serverSettingsSvc),
+			Antigravity: cliexecutable.Antigravity(serverSettingsSvc),
+		}, apiProvidersSvc.HasEnabledConnection),
+		Cache:  cache.New(resolver),
+		Backup: backup.New(resolver),
 	}
 
 	// ジョブキュー / AIプロセス同時実行制御（交換日記 42）。
@@ -246,6 +263,7 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 	sessionSvc := sessionssvc.New(resolver)
 	// プロンプト層の言語解決（uiLanguage 連動）。送信のたびに現在の設定で解決される。
 	promptLocale := promptlocale.Resolver(i18nService, pwaSvc)
+	sessionSvc.WithDefaultTitle(promptlocale.DefaultSessionTitle(promptLocale))
 	// 支援者 entitlement トークンの保存（14番 7章の TokenStore）と
 	// 時刻巻き戻し検出の記録（17番の緩和策）。署名検証・tier 判定・巻き戻り判定は
 	// core 側 gate（featuresimpl）が担う。
@@ -510,7 +528,8 @@ func registerAPIRoutes(mux *http.ServeMux, cfg *config.Config, resolver *paths.R
 		Limits:  globalSvc,
 	})
 	chatapi.Register(mux, chatapi.Deps{
-		Queue: jobQueue,
+		Queue:              jobQueue,
+		ReplaceUserMessage: core.ReplaceUserMessage,
 	})
 	configGenDialogStore := configgendialog.NewStore(resolver)
 	configgenapi.Register(mux, configgenapi.Deps{

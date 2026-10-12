@@ -168,6 +168,10 @@ const (
 	// AntigravityContextTempDir は Antigravity 連携が CLI に読ませる一時コンテキスト
 	// ファイルの出力先。
 	AntigravityContextTempDir = RuntimeTempDir + "/antigravity_method_c"
+	// AntigravityUserInputFileName は Antigravity へ読み込んだ体で渡すユーザー入力
+	// ファイルの固定名（AntigravityContextTempDir/<会話ID>/ に置く）。
+	// -p の指示文がこの名前で参照するため、焼き込み側と同じ値を使う。
+	AntigravityUserInputFileName = "user_input.md"
 	// AntigravityLogDir は Antigravity CLI 実行ログの保存先。
 	AntigravityLogDir = RuntimeTempDir + "/antigravity_logs"
 	// ClaudeSystemPromptTempDir は Claude へ引数長回避でシステムプロンプトを

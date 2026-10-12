@@ -144,6 +144,10 @@ type ConfigGenProgressSink = func(jobID string, entry jobs.ProgressEntry)
 type Core interface {
 	// ChatRunner は chat / regenerate ジョブの実行本体。
 	ChatRunner() jobs.Runner
+	// ReplaceUserMessage は chat ジョブで送信・保存される本文（置換設定を当てた後）を、
+	// 送信を受け付けた時点で返す。画面が送信直後の吹き出しを差し替えるために使う。
+	// 置き換えられないときは message をそのまま返す。
+	ReplaceUserMessage(sessionID, message string, ssrpSettings any) string
 	// ConfigGenRunner は設定ファイル自動作成（config-generate）ジョブの実行本体。
 	ConfigGenRunner(progress ConfigGenProgressSink) jobs.Runner
 	// EngineRouter は modelType で provider を振り分ける Engine（疎通確認にも使う）。

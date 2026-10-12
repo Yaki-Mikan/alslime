@@ -36,8 +36,8 @@ interface CharacterApiServiceFieldsProps {
     description?: string;
 }
 
-const inputClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors';
-const smallInputClass = 'w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500';
+const inputClass = 'w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors';
+const smallInputClass = 'w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent';
 
 export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps> = ({
     uiCatalog = null,
@@ -67,12 +67,12 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
 
     return (
         <div className="space-y-4">
-            {description && <p className="text-xs text-gray-500">{description}</p>}
+            {description && <p className="text-xs text-fg-muted">{description}</p>}
 
             {/* キャラクタープロンプト */}
             <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                    <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.CHARACTER_PROMPT}</label>
+                    <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.CHARACTER_PROMPT}</label>
                     {promptAction}
                 </div>
                 <textarea
@@ -83,12 +83,12 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                     className={`${inputClass} resize-y`}
                     rows={2}
                 />
-                <p className="text-xs text-gray-600">{CHARACTER.HELP.API_PROMPT_DESC}</p>
+                <p className="text-xs text-fg-muted">{CHARACTER.HELP.API_PROMPT_DESC}</p>
             </div>
 
             {/* 身体的特徴 */}
             <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.PHYSICAL_FEATURES}</label>
+                <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.PHYSICAL_FEATURES}</label>
                 <textarea
                     value={value.physicalFeatures}
                     onChange={(e) => update({ physicalFeatures: e.target.value })}
@@ -97,20 +97,20 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                     className={`${inputClass} resize-y`}
                     rows={2}
                 />
-                <p className="text-xs text-gray-600">{CHARACTER.HELP.PHYSICAL_FEATURES_DESC}</p>
+                <p className="text-xs text-fg-muted">{CHARACTER.HELP.PHYSICAL_FEATURES_DESC}</p>
             </div>
 
             {/* 服装設定（名前とプロンプトのみ） */}
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                        <Shirt size={16} className="text-pink-400" />
+                    <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                        <Shirt size={16} className="text-accent" />
                         {CHARACTER.LABELS.OUTFIT_SETTINGS}
                     </label>
                     <button
                         type="button"
                         onClick={addOutfit}
-                        className="px-2 py-1 bg-gray-800 border border-green-700 rounded text-xs text-green-400 hover:bg-green-900/30 transition-colors"
+                        className="px-2 py-1 bg-surface border border-line-strong rounded text-xs text-ok hover:bg-ok/10 transition-colors"
                     >
                         {COMMON.BUTTONS.ADD}
                     </button>
@@ -119,14 +119,14 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                     <button
                         type="button"
                         onClick={addOutfit}
-                        className="w-full border border-dashed border-gray-700 rounded-lg px-3 py-3 text-sm text-gray-500 hover:border-green-700 hover:text-green-400 transition-colors"
+                        className="w-full border border-dashed border-line-strong rounded-lg px-3 py-3 text-sm text-fg-muted hover:border-line-strong hover:text-ok transition-colors"
                     >
                         {COMMON.BUTTONS.ADD_OUTFIT}
                     </button>
                 ) : (
                     <div className="space-y-2">
                         {outfits.map((outfit, idx) => (
-                            <div key={idx} className="bg-gray-800/60 border border-gray-700 rounded-lg p-3 space-y-2">
+                            <div key={idx} className="bg-surface border border-line-strong rounded-lg p-3 space-y-2">
                                 <div className="flex items-center gap-2">
                                     <input
                                         type="text"
@@ -139,7 +139,7 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                                     <button
                                         type="button"
                                         onClick={() => removeOutfit(idx)}
-                                        className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                                        className="p-1 text-fg-muted hover:text-danger transition-colors"
                                         title={COMMON.MESSAGES.DELETE_OUTFIT_TOOLTIP}
                                     >
                                         <Trash2 size={15} />
@@ -157,12 +157,12 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                         ))}
                     </div>
                 )}
-                <p className="text-xs text-gray-600">{CHARACTER.HELP.API_OUTFIT_DESC}</p>
+                <p className="text-xs text-fg-muted">{CHARACTER.HELP.API_OUTFIT_DESC}</p>
             </div>
 
             {/* 追加ポジティブ / ネガティブ */}
             <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.EXTRA_POSITIVE}</label>
+                <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.EXTRA_POSITIVE}</label>
                 <input
                     type="text"
                     value={value.extraPositive}
@@ -173,7 +173,7 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
                 />
             </div>
             <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.EXTRA_NEGATIVE}</label>
+                <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.EXTRA_NEGATIVE}</label>
                 <input
                     type="text"
                     value={value.extraNegative}
@@ -187,8 +187,8 @@ export const CharacterApiServiceFields: React.FC<CharacterApiServiceFieldsProps>
             {/* 参照画像 */}
             {referenceImages && (
                 <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                        <ImageIcon size={16} className="text-pink-400" />
+                    <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                        <ImageIcon size={16} className="text-accent" />
                         {CHARACTER.LABELS.REFERENCE_IMAGES}
                     </label>
                     <ReferenceImageField

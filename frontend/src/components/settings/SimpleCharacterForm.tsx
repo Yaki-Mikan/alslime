@@ -116,11 +116,11 @@ interface SectionProps {
 }
 
 const Section: React.FC<SectionProps> = ({ label, isOpen, onToggle, children }) => (
-    <div className="border border-gray-700 rounded">
+    <div className="border border-line-strong rounded">
         <button
             type="button"
             onClick={onToggle}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:bg-surface transition-colors"
         >
             {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <span className="font-medium">{label}</span>
@@ -138,13 +138,13 @@ interface FieldProps {
 
 const Field: React.FC<FieldProps> = ({ label, value, onChange, placeholder }) => (
     <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-gray-400 w-28 shrink-0">{label}</span>
+        <span className="text-xs text-fg-muted w-28 shrink-0">{label}</span>
         <input
             type="text"
             value={value}
             onChange={e => onChange(e.target.value)}
             placeholder={placeholder}
-            className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+            className="flex-1 bg-surface border border-line-strong rounded px-2 py-1 text-sm text-fg focus:outline-none focus:border-accent"
         />
     </div>
 );
@@ -176,7 +176,7 @@ export const SimpleCharacterForm: React.FC<Props> = ({ value, onChange, uiCatalo
     const setField = (key: keyof Omit<SimpleCharacterConfig, 'base'>) =>
         (v: string) => onChange({ ...value, [key]: v });
 
-    const textareaClass = "w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-gray-500 resize-y";
+    const textareaClass = "w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg focus:outline-none focus:border-accent resize-y";
 
     const SECTION_DEFS: { key: keyof Omit<SimpleCharacterConfig, 'base'>; label: string }[] = [
         { key: 'personality',  label: t(SIMPLE_CHARACTER_I18N_KEYS.personality) },
@@ -203,16 +203,16 @@ export const SimpleCharacterForm: React.FC<Props> = ({ value, onChange, uiCatalo
                 <Field label={t(SIMPLE_CHARACTER_I18N_KEYS.weight)}        value={value.base.weight}    onChange={v => setBase({ weight: v })} />
                 {/* スリーサイズ */}
                 <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs text-gray-400 w-28 shrink-0">{t(SIMPLE_CHARACTER_I18N_KEYS.threeSizes)}</span>
-                    <span className="text-xs text-gray-500">B</span>
+                    <span className="text-xs text-fg-muted w-28 shrink-0">{t(SIMPLE_CHARACTER_I18N_KEYS.threeSizes)}</span>
+                    <span className="text-xs text-fg-muted">B</span>
                     <input type="text" value={value.base.threeSizes.bust}  onChange={e => setSizes({ bust: e.target.value })}
-                        className="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-gray-500" />
-                    <span className="text-xs text-gray-500">W</span>
+                        className="w-16 bg-surface border border-line-strong rounded px-2 py-1 text-sm text-fg focus:outline-none focus:border-accent" />
+                    <span className="text-xs text-fg-muted">W</span>
                     <input type="text" value={value.base.threeSizes.waist} onChange={e => setSizes({ waist: e.target.value })}
-                        className="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-gray-500" />
-                    <span className="text-xs text-gray-500">H</span>
+                        className="w-16 bg-surface border border-line-strong rounded px-2 py-1 text-sm text-fg focus:outline-none focus:border-accent" />
+                    <span className="text-xs text-fg-muted">H</span>
                     <input type="text" value={value.base.threeSizes.hip}   onChange={e => setSizes({ hip: e.target.value })}
-                        className="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-gray-500" />
+                        className="w-16 bg-surface border border-line-strong rounded px-2 py-1 text-sm text-fg focus:outline-none focus:border-accent" />
                 </div>
                 <Field label={t(SIMPLE_CHARACTER_I18N_KEYS.hairStyle)}   value={value.base.hairStyle}  onChange={v => setBase({ hairStyle: v })} />
                 <Field label={t(SIMPLE_CHARACTER_I18N_KEYS.eyeColor)}       value={value.base.eyeColor}   onChange={v => setBase({ eyeColor: v })} />

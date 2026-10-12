@@ -15,10 +15,12 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"runtime"
+	"strings"
 
 	"alslime/internal/api/apierror"
 	"alslime/internal/api/apiresponse"
@@ -27,6 +29,7 @@ import (
 	pwasettingssvc "alslime/internal/domain/pwasettings"
 	serversettingssvc "alslime/internal/domain/serversettings"
 	ssrpsettingssvc "alslime/internal/domain/ssrpsettings"
+	"alslime/internal/system/cliexecutable"
 )
 
 // Deps はハンドラが必要とする依存。
@@ -41,6 +44,9 @@ type Deps struct {
 	PWASettings *pwasettingssvc.Service
 	// ServerSettings は /api/settings/server（次回起動用サーバー設定）を担う service。
 	ServerSettings *serversettingssvc.Service
+	// CheckCLI は CLI 実行ファイルパスの疎通確認（入力値で解決し --version を実行する）。
+	// 未知の CLI は cliexecutable.ErrUnknownCLI を返す。
+	CheckCLI func(ctx context.Context, cli, configuredPath string) (cliexecutable.CheckResult, error)
 }
 
 // Register は settings 系ルートを mux へ登録する。
@@ -54,6 +60,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeSettings, handlePostPWA(deps))
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeSettingsServer, handleGetServer(deps))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeSettingsServer, handlePostServer(deps))
+	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeServerCLICheck, handleServerCLICheck(deps))
 	registerSSRPSettings(mux, deps)
 }
 
@@ -201,6 +208,42 @@ func handlePostServer(deps Deps) http.HandlerFunc {
 			Settings:        updated,
 			RestartRequired: true,
 		})
+	}
+}
+
+// cliCheckRequest は POST /api/settings/server/cli-check のボディ。
+// path は保存前の入力値でよく、空なら既定の探索候補を探す。
+type cliCheckRequest struct {
+	CLI  string `json:"cli"`
+	Path string `json:"path"`
+}
+
+// handleServerCLICheck は CLI 実行ファイルパスの疎通確認を行う。
+//
+// 入力されたパスのファイルを実行するため、cliPaths を保存できるのと同じ窓口
+// （/api/settings/server の並び）に置き、同じ認証の範囲だけで使えるようにする。
+// 確認の成否は 200 の結果の status で返し、未知の CLI だけを 400 にする。
+func handleServerCLICheck(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req cliCheckRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apierror.Write(w, apierror.BadRequestKey(errKeyInvalidJSONBody))
+			return
+		}
+		if deps.CheckCLI == nil {
+			apierror.Write(w, apierror.Internal(errors.New("cli check is not configured")))
+			return
+		}
+		result, err := deps.CheckCLI(r.Context(), req.CLI, strings.TrimSpace(req.Path))
+		if errors.Is(err, cliexecutable.ErrUnknownCLI) {
+			apierror.Write(w, apierror.BadRequestKey(errKeyUnknownCLI))
+			return
+		}
+		if err != nil {
+			apierror.Write(w, apierror.Internal(err))
+			return
+		}
+		writeJSON(w, result)
 	}
 }
 

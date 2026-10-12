@@ -22,19 +22,19 @@ export const SoundEffectsSummary: React.FC<Props> = ({ soundEffects, status, uiC
     const { GENERATE_TEST } = createComfyUIText(uiCatalog);
     const effects = soundEffects ?? [];
     if (status === 'notNeeded') {
-        return <p className={`text-xs text-gray-400 ${className}`} data-testid="sound-effects-summary">{GENERATE_TEST.MESSAGES.SOUND_EFFECTS_NOT_NEEDED}</p>;
+        return <p className={`text-xs text-fg-muted ${className}`} data-testid="sound-effects-summary">{GENERATE_TEST.MESSAGES.SOUND_EFFECTS_NOT_NEEDED}</p>;
     }
     if (status === 'rejected') {
-        return <p className={`text-xs text-amber-200 ${className}`} data-testid="sound-effects-summary">{GENERATE_TEST.MESSAGES.SOUND_EFFECTS_REJECTED}</p>;
+        return <p className={`text-xs text-warn ${className}`} data-testid="sound-effects-summary">{GENERATE_TEST.MESSAGES.SOUND_EFFECTS_REJECTED}</p>;
     }
     if (status !== 'specified' || effects.length === 0) return null;
     return (
-        <div className={`text-xs text-gray-400 space-y-0.5 ${className}`} data-testid="sound-effects-summary">
-            <p className="font-medium text-gray-300">{GENERATE_TEST.LABELS.SOUND_EFFECTS}</p>
+        <div className={`text-xs text-fg-muted space-y-0.5 ${className}`} data-testid="sound-effects-summary">
+            <p className="font-medium text-fg-muted">{GENERATE_TEST.LABELS.SOUND_EFFECTS}</p>
             {effects.map((effect, idx) => (
                 <p key={idx} className="break-all">
-                    <span className="text-gray-200">{effect.text}</span>
-                    {effect.style && <span className="text-gray-500"> — {effect.style}</span>}
+                    <span className="text-fg">{effect.text}</span>
+                    {effect.style && <span className="text-fg-muted"> — {effect.style}</span>}
                 </p>
             ))}
         </div>

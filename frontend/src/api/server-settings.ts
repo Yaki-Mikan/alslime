@@ -1,7 +1,7 @@
 import axios from '../lib/axios';
 
 // CLIPaths は各 AI CLI 実行ファイルの明示指定パス。
-// 空文字は「未設定＝PATH 探索」を意味する。
+// 空文字は「未設定＝既定のインストール先と PATH の探索」を意味する。
 export interface CLIPaths {
     gemini: string;
     claude: string;
@@ -24,6 +24,28 @@ export interface ServerSettingsResponse {
 // fetchServerSettings は次回起動用のサーバー設定を取得する。
 export const fetchServerSettings = async (backendUrl: string): Promise<ServerSettingsResponse> => {
     const response = await axios.get(`${backendUrl}/api/settings/server`);
+    return response.data;
+};
+
+export type CLIKey = keyof CLIPaths;
+
+// CLICheckStatus は疎通確認の結果種別。
+export type CLICheckStatus = 'ok' | 'notFound' | 'configuredPathInvalid' | 'failed' | 'timeout';
+
+// CLICheckResult は疎通確認の結果。command は解決した実行ファイルの名前だけを持つ。
+export interface CLICheckResult {
+    status: CLICheckStatus;
+    command?: string;
+    version?: string;
+}
+
+// checkCLIPath は入力中のパス（空なら既定の探索）で CLI を解決し、--version で起動を試す。
+export const checkCLIPath = async (
+    backendUrl: string,
+    cli: CLIKey,
+    path: string
+): Promise<CLICheckResult> => {
+    const response = await axios.post(`${backendUrl}/api/settings/server/cli-check`, { cli, path });
     return response.data;
 };
 

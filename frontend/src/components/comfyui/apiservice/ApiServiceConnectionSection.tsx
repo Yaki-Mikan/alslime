@@ -56,13 +56,13 @@ export const SubscriptionSummary: React.FC<{
     return (
         <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
             {rows.map((row) => (
-                <div key={row.label} className={`flex items-baseline gap-2 ${compact ? 'text-[11px]' : 'text-xs'}`}>
-                    <span className="text-gray-500 shrink-0">{row.label}</span>
-                    <span className={row.warn ? 'text-amber-300' : 'text-gray-200'}>{row.value}</span>
+                <div key={row.label} className={`flex items-baseline gap-2 ${compact ? 'text-xs' : 'text-xs'}`}>
+                    <span className="text-fg-muted shrink-0">{row.label}</span>
+                    <span className={row.warn ? 'text-warn' : 'text-fg'}>{row.value}</span>
                 </div>
             ))}
             {!compact && subscription.expiresAt > 0 && (
-                <p className="text-[11px] text-gray-500">
+                <p className="text-xs text-fg-muted">
                     {formatComfyText(API_SERVICE.MESSAGES.EXPIRES_AT, { date: new Date(subscription.expiresAt * 1000).toLocaleDateString() })}
                 </p>
             )}
@@ -164,13 +164,13 @@ export const ApiServiceConnectionSection: React.FC<ApiServiceConnectionSectionPr
 
     return (
         <div className="space-y-3">
-            <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                <KeyRound size={16} className="text-green-400" />
+            <h4 className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                <KeyRound size={16} className="text-accent" />
                 {SECTION_NAMES.CONNECTION_SETTINGS}
             </h4>
             <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-500">{API_SERVICE.LABELS.TOKEN}</span>
-                <span className={hasToken ? 'text-green-300' : 'text-gray-400'}>
+                <span className="text-fg-muted">{API_SERVICE.LABELS.TOKEN}</span>
+                <span className={hasToken ? 'text-ok' : 'text-fg-muted'}>
                     {hasToken === null ? '-' : hasToken ? API_SERVICE.LABELS.TOKEN_SET : API_SERVICE.LABELS.TOKEN_UNSET}
                 </span>
                 {hasToken && (
@@ -178,7 +178,7 @@ export const ApiServiceConnectionSection: React.FC<ApiServiceConnectionSectionPr
                         type="button"
                         onClick={handleDeleteToken}
                         disabled={isSavingToken}
-                        className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                        className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-fg-muted hover:text-danger transition-colors disabled:opacity-50"
                     >
                         <Trash2 size={12} />
                         {API_SERVICE.BUTTONS.DELETE_TOKEN}
@@ -192,13 +192,13 @@ export const ApiServiceConnectionSection: React.FC<ApiServiceConnectionSectionPr
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
                     placeholder={API_SERVICE.PLACEHOLDERS.TOKEN}
-                    className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                    className="flex-1 min-w-0 bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                 />
                 <button
                     type="button"
                     onClick={handleSaveToken}
                     disabled={isSavingToken || !tokenInput.trim()}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-green-600 rounded-lg text-sm text-green-400 hover:text-green-300 transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+                    className="px-4 py-2 bg-surface hover:bg-surface-2 border border-accent rounded-lg text-sm text-ok hover:text-ok transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
                 >
                     {isSavingToken ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
                     {API_SERVICE.BUTTONS.SAVE_TOKEN}
@@ -207,7 +207,7 @@ export const ApiServiceConnectionSection: React.FC<ApiServiceConnectionSectionPr
                     type="button"
                     onClick={handleTest}
                     disabled={isTesting || !hasToken}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-green-600 rounded-lg text-sm text-green-400 hover:text-green-300 transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+                    className="px-4 py-2 bg-surface hover:bg-surface-2 border border-accent rounded-lg text-sm text-ok hover:text-ok transition-colors disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
                 >
                     {isTesting ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
                     {API_SERVICE.BUTTONS.TEST}
@@ -215,20 +215,20 @@ export const ApiServiceConnectionSection: React.FC<ApiServiceConnectionSectionPr
             </div>
             {notice && (
                 <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${notice.ok
-                    ? 'bg-green-900/30 border border-green-700/50 text-green-300'
-                    : 'bg-red-900/30 border border-red-700/50 text-red-300'
+                    ? 'bg-ok/10 border border-line-strong text-ok'
+                    : 'bg-danger/10 border border-danger/40 text-danger'
                 }`}>
                     {notice.ok ? <CheckCircle size={14} /> : <WifiOff size={14} />}
                     {notice.text}
                 </div>
             )}
             {subscription && (
-                <div className="px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700">
+                <div className="px-3 py-2 rounded-lg bg-surface border border-line-strong">
                     <SubscriptionSummary subscription={subscription} uiCatalog={uiCatalog} />
                 </div>
             )}
-            <p className="text-xs text-gray-500">{API_SERVICE.HELP.TOKEN_HOWTO}</p>
-            <p className="text-xs text-gray-500">{API_SERVICE.HELP.TOKEN_STORED}</p>
+            <p className="text-xs text-fg-muted">{API_SERVICE.HELP.TOKEN_HOWTO}</p>
+            <p className="text-xs text-fg-muted">{API_SERVICE.HELP.TOKEN_STORED}</p>
         </div>
     );
 };
@@ -239,7 +239,7 @@ export const BalanceRefreshButton: React.FC<{ onClick: () => void; loading: bool
         type="button"
         onClick={onClick}
         disabled={loading}
-        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-green-300 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1 px-2 py-1 text-xs text-fg-muted hover:text-ok transition-colors disabled:opacity-50"
     >
         {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
         {label}

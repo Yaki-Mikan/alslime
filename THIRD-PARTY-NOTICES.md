@@ -14,6 +14,7 @@ Generated: 2026-07-19 (npm production dependencies).
 | BSD-3-Clause | 12 |
 | ISC | 7 |
 | 0BSD | 1 |
+| OFL-1.1 | 1 |
 
 ## Packages
 
@@ -61,6 +62,7 @@ Generated: 2026-07-19 (npm production dependencies).
 - **@firebase/storage-types@0.8.3** — Apache-2.0 — https://github.com/firebase/firebase-js-sdk
 - **@firebase/util@1.13.0** — Apache-2.0 — https://github.com/firebase/firebase-js-sdk
 - **@firebase/webchannel-wrapper@1.0.5** — Apache-2.0 — https://github.com/firebase/firebase-js-sdk
+- **@fontsource/shippori-mincho@5.3.0** — OFL-1.1 (Shippori Mincho font, SIL Open Font License 1.1) — https://fontsource.org/fonts/shippori-mincho
 - **@grpc/grpc-js@1.9.15** — Apache-2.0 — https://github.com/grpc/grpc-node/tree/master/packages/grpc-js
 - **@grpc/proto-loader@0.7.15** — Apache-2.0 — https://github.com/grpc/grpc-node
 - **@protobufjs/aspromise@1.1.2** — BSD-3-Clause — https://github.com/dcodeIO/protobuf.js

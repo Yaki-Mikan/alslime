@@ -27,9 +27,14 @@ import {
     normalizeAntigravityThinking,
     type AntigravityThinking,
 } from '../constants/antigravity';
+import {
+    CHAT_RESPONSE_TIMEOUT_GRACE_SECONDS,
+    DEFAULT_CHAT_RESPONSE_TIMEOUT_MINUTES,
+    normalizeChatResponseTimeoutMinutes,
+} from '../constants/chatTimeout';
 import type { Settings as SettingsType } from '../types/Settings';
 import { CHAT_VIEW_I18N_KEYS, CHAT_VIEW_LOCALIZED_TEXT, CHAT_VIEW_TEXT_FALLBACK_JA } from '../constants/i18n';
-import { resolveMessage, type I18NCatalog } from '../api/i18n';
+import { formatNested, resolveMessage, type I18NCatalog } from '../api/i18n';
 
 // 型定義
 export interface Message {
@@ -82,12 +87,12 @@ export const modelProviderOf = (model: { id: string; provider?: ModelProvider })
     return model.provider || getModelProvider(model.id);
 };
 
-/** 内部IDを露出せず、API接続は「接続表示名 ＞ Remote Model ID」で表示する。 */
-export const modelDisplayLabel = (model: Model): string => {
+/** 内部IDを露出せず、API接続は「接続表示名 ＞ Remote Model ID」で表示する（区切りは表示言語の辞書から引く）。 */
+export const modelDisplayLabel = (model: Model, catalog: I18NCatalog | null = null): string => {
     if (modelProviderOf(model) === 'openai_compat') {
         const connection = model.connectionLabel || model.connectionId;
         const remoteModel = model.remoteModelId || model.description || model.name;
-        if (connection && remoteModel) return `${connection} ＞ ${remoteModel}`;
+        if (connection && remoteModel) return formatNested(catalog, connection, remoteModel);
     }
     return model.description || model.name || model.id;
 };
@@ -143,6 +148,8 @@ interface UseChatProps {
     settings: SettingsType;
     currentSessionId: string | null;
     onSessionCreated?: (sessionId: string) => void;
+    // 表示中の会話に応答が届いたとき（本体が応答の確定で進めた会話の設定を読み直すのに使う）
+    onResponseCompleted?: (sessionId: string) => void;
     // 履歴の自動ロードを無効化するフラグ（useSession側で管理する場合など）
     disableAutoLoadHistory?: boolean;
     // SSRP設定 (初回メッセージ注入用)
@@ -163,6 +170,7 @@ interface ChatSubmitPayload {
     claudeEffort: ClaudeEffort;
     antigravityThinking: AntigravityThinking;
     antigravityMaxStreamCalls: number;
+    responseTimeoutMinutes: number;
     enableResponseBackup: boolean;
 }
 
@@ -171,7 +179,7 @@ interface LastSubmitAttempt {
     displayMessage: string;
 }
 
-export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreated, disableAutoLoadHistory = false, ssrpSettings, catalog }: UseChatProps) => {
+export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreated, onResponseCompleted, disableAutoLoadHistory = false, ssrpSettings, catalog }: UseChatProps) => {
     // ローカル文言は uiLanguage の辞書で解決する（従来はJA固定だった。04調査 低#6）。
     const uiText = (key: string) => resolveMessage(catalog ?? null, key, CHAT_VIEW_TEXT_FALLBACK_JA[key] || key);
     // ローカルエラー判定は現在言語のプレフィックスとJAフォールバックの両方を見る
@@ -211,6 +219,11 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
     const [antigravityStreamGuardLimit, setAntigravityStreamGuardLimit] = useState(
         DEFAULT_ANTIGRAVITY_STREAM_GUARD_LIMIT
     );
+    const [responseTimeoutMinutes, setResponseTimeoutMinutes] = useState(
+        DEFAULT_CHAT_RESPONSE_TIMEOUT_MINUTES
+    );
+    // ポーリングは送信時点の関数が走り続けるため、待つ上限は最新値を参照で読む。
+    const responseTimeoutMinutesRef = useRef(DEFAULT_CHAT_RESPONSE_TIMEOUT_MINUTES);
 
     // ファイル添付
     const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
@@ -267,7 +280,10 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             setAntigravityStreamGuardLimit(
                 normalizeAntigravityStreamGuardLimit(settings.antigravityStreamGuardLimit)
             );
-            const dp = settings.defaultProvider as ModelProvider | undefined;
+            const timeoutMinutes = normalizeChatResponseTimeoutMinutes(settings.chatResponseTimeoutMinutes);
+            setResponseTimeoutMinutes(timeoutMinutes);
+            responseTimeoutMinutesRef.current = timeoutMinutes;
+            const dp =settings.defaultProvider as ModelProvider | undefined;
             if (dp === 'gemini' || dp === 'claude' || dp === 'antigravity' || dp === 'openai_compat') {
                 setSelectedModelProvider(dp);
                 if (dm[dp]) {
@@ -307,6 +323,13 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         const normalized = normalizeAntigravityStreamGuardLimit(limit);
         setAntigravityStreamGuardLimit(normalized);
         void updateGlobalSettings(backendUrl, { antigravityStreamGuardLimit: normalized });
+    }, [backendUrl]);
+
+    const selectResponseTimeoutMinutes = useCallback((minutes: number) => {
+        const normalized = normalizeChatResponseTimeoutMinutes(minutes);
+        setResponseTimeoutMinutes(normalized);
+        responseTimeoutMinutesRef.current = normalized;
+        void updateGlobalSettings(backendUrl, { chatResponseTimeoutMinutes: normalized });
     }, [backendUrl]);
 
     useEffect(() => {
@@ -392,7 +415,9 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         targetSessionId: string | null = currentSessionId
     ) => {
         setIsLoading(true); // ポーリング中はローディング状態にする
-        const maxAttempts = 300; // 10分間（2秒 × 300回）
+        // 応答の待ち時間（2秒間隔）。サーバー側の打ち切りを受け取れるよう少し長く待つ。
+        const timeoutMinutes = responseTimeoutMinutesRef.current;
+        const maxAttempts = Math.ceil((timeoutMinutes * 60 + CHAT_RESPONSE_TIMEOUT_GRACE_SECONDS) / 2);
         let attempts = 0;
 
         const isTargetVisible = (finalSessionId?: string | null) => {
@@ -409,7 +434,10 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             if (attempts >= maxAttempts) {
                 console.error('[Frontend] Job polling timeout');
                 if (isTargetVisible()) {
-                    setMessages(prev => [...prev, { role: 'agent', content: uiText(CHAT_VIEW_I18N_KEYS.errorTimeout) }]);
+                    setMessages(prev => [...prev, {
+                        role: 'agent',
+                        content: uiText(CHAT_VIEW_I18N_KEYS.errorTimeout).split('{{minutes}}').join(String(timeoutMinutes)),
+                    }]);
                 }
                 setIsLoading(false);
                 return;
@@ -455,6 +483,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                     // 履歴を再読み込み
                     if (shouldUpdateVisibleHistory && finalSessionId) {
                         setTimeout(() => loadHistory(finalSessionId), 1500);
+                        onResponseCompleted?.(finalSessionId);
                     }
 
                     // 行動選択肢（支援者向け）。付いていれば最新応答の選択肢として差し替える。
@@ -551,7 +580,9 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
             ? `${rawUserMsg}\n\n📎 ${attachmentLabel}: ${attachedFiles.map(f => f.split('/').pop()).join(', ')}`
             : rawUserMsg;
 
-        setMessages(prev => [...prev, { role: 'user', content: displayMsg }]);
+        // 送信直後の吹き出し。受け付けの応答で、送信・保存される本文（置換設定を当てた後）へ差し替える
+        const pendingUserMessage: Message = { role: 'user', content: displayMsg };
+        setMessages(prev => [...prev, pendingUserMessage]);
         setIsLoading(true);
 
         try {
@@ -588,14 +619,23 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 claudeEffort,
                 antigravityThinking,
                 antigravityMaxStreamCalls: antigravityStreamGuardLimit,
+                responseTimeoutMinutes,
                 enableResponseBackup: settings.enableResponseBackup,
             };
             lastSubmitAttemptRef.current = { payload: submitPayload, displayMessage: displayMsg };
 
             const res = await axios.post(`${backendUrl}/api/chat/submit`, submitPayload);
 
-            const { jobId } = res.data;
+            const { jobId, userMessage } = res.data;
             console.log('[Frontend] Job submitted:', jobId);
+
+            // {{char}} などを置き換えた本文が返ったら、送信直後の吹き出しをすぐ差し替える
+            //（添付ファイル付きは本文に FILE_CONTEXT を含み、履歴を読み直したときと同じ見え方になる）
+            if (typeof userMessage === 'string' && userMessage !== '' && userMessage !== finalMessage) {
+                setMessages(prev => prev.map(m => (m === pendingUserMessage ? { ...m, content: userMessage } : m)));
+                // 送信失敗時のやり直しは吹き出しの本文で送った文を見分けるため、覚えている本文も合わせる
+                lastSubmitAttemptRef.current = { payload: submitPayload, displayMessage: userMessage };
+            }
 
             // ポーリング開始
             pollJobStatus(jobId, 'append', currentSessionId);
@@ -716,6 +756,7 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
                 claudeEffort: overrides?.claudeEffort ?? claudeEffort,
                 antigravityThinking: overrides?.antigravityThinking ?? antigravityThinking,
                 antigravityMaxStreamCalls: antigravityStreamGuardLimit,
+                responseTimeoutMinutes,
                 enableResponseBackup: settings.enableResponseBackup,
             });
 
@@ -791,6 +832,8 @@ export const useChat = ({ backendUrl, settings, currentSessionId, onSessionCreat
         selectAntigravityThinking,
         antigravityStreamGuardLimit,
         selectAntigravityStreamGuardLimit,
+        responseTimeoutMinutes,
+        selectResponseTimeoutMinutes,
         attachedFiles,
         setAttachedFiles,
         actionChoices,

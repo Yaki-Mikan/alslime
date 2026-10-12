@@ -30,6 +30,7 @@ import {
     ANTIGRAVITY_THINKING_I18N_KEY_BY_VALUE,
 } from '../../constants/i18n';
 import { CLAUDE_EFFORT_VALUES } from '../../constants/claude';
+import { cliProviderLabel } from '../../constants/providers';
 import {
     DEFAULT_ANTIGRAVITY_THINKING,
     antigravityThinkingLevelsOf,
@@ -81,8 +82,8 @@ interface SavedGenDefaults {
     timeoutMinutes?: number;
 }
 
-const inputCls = 'w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 disabled:opacity-50';
-const labelCls = 'block text-xs text-gray-400 mb-1';
+const inputCls = 'w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg disabled:opacity-50';
+const labelCls = 'block text-xs text-fg-muted mb-1';
 
 export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> = ({
     isOpen, onClose, backendUrl, sessionId, messages, tempCharacters, userName, tempImport, uiCatalog,
@@ -232,23 +233,23 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                 failed: SSRP_I18N_KEYS.tempImportStatusFailed,
                 canceled: SSRP_I18N_KEYS.tempImportStatusCanceled,
             };
-            const color = item.status === 'failed' ? 'text-red-400' : item.status === 'registered' ? 'text-green-400' : item.status === 'analyzing' ? 'text-orange-300' : 'text-gray-400';
+            const color = item.status === 'failed' ? 'text-danger' : item.status === 'registered' ? 'text-ok' : item.status === 'analyzing' ? 'text-accent' : 'text-fg-muted';
             return (
                 <span className={`text-xs ${color}`}>
                     {t(map[item.status])}
                     {item.status === 'failed' && item.errorKey && (
-                        <span className="ml-1 text-gray-500">{resolveMessage(uiCatalog, item.errorKey, item.errorKey)}</span>
+                        <span className="ml-1 text-fg-muted">{resolveMessage(uiCatalog, item.errorKey, item.errorKey)}</span>
                     )}
                 </span>
             );
         }
         switch (s.status) {
             case 'registered':
-                return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">{t(SSRP_I18N_KEYS.tempImportBadgeRegistered)}</span>;
+                return <span className="text-xs px-1.5 py-0.5 rounded bg-surface-2 text-fg-muted">{t(SSRP_I18N_KEYS.tempImportBadgeRegistered)}</span>;
             case 'temp':
-                return <span className="text-xs px-1.5 py-0.5 rounded bg-orange-900/60 text-orange-300 border border-orange-700/60">{t(SSRP_I18N_KEYS.tempImportBadgeTemp)}</span>;
+                return <span className="text-xs px-1.5 py-0.5 rounded bg-accent-soft text-accent border border-line-strong">{t(SSRP_I18N_KEYS.tempImportBadgeTemp)}</span>;
             case 'tempRegistered':
-                return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">{t(SSRP_I18N_KEYS.tempImportBadgeTempRegistered)}</span>;
+                return <span className="text-xs px-1.5 py-0.5 rounded bg-surface-2 text-fg-muted">{t(SSRP_I18N_KEYS.tempImportBadgeTempRegistered)}</span>;
             default:
                 return null;
         }
@@ -260,7 +261,7 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                 <div>
                     <label className={labelCls}>{t(SSRP_I18N_KEYS.tempImportSpeakers)}</label>
                     {speakers.length === 0 ? (
-                        <p className="text-xs text-gray-500">{t(SSRP_I18N_KEYS.tempImportNoSpeakers)}</p>
+                        <p className="text-xs text-fg-muted">{t(SSRP_I18N_KEYS.tempImportNoSpeakers)}</p>
                     ) : (
                         <ul className="space-y-1">
                             {speakers.map(s => {
@@ -269,10 +270,10 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                                 // 分析が動いていなければ、失敗・中止・止まって残った待機の話者も選び直せる
                                 const selectable = s.status === 'unregistered' && !running;
                                 return (
-                                    <li key={s.normalized} className="flex items-center gap-2 bg-gray-800/70 border border-gray-700 rounded px-2 py-1.5">
+                                    <li key={s.normalized} className="flex items-center gap-2 bg-surface border border-line-strong rounded px-2 py-1.5">
                                         <input
                                             type="checkbox"
-                                            className="accent-orange-500"
+                                            className="accent-accent"
                                             disabled={!selectable}
                                             checked={selectable && checked.has(s.normalized)}
                                             onChange={e => {
@@ -283,16 +284,16 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                                                 });
                                             }}
                                         />
-                                        <span className={`flex-1 min-w-0 truncate text-sm ${s.status === 'unregistered' ? 'text-gray-100' : 'text-gray-400'}`}>{s.displayName}</span>
-                                        <span className="text-xs text-gray-500 shrink-0">{formatText(t(SSRP_I18N_KEYS.tempImportCount), { count: s.count })}</span>
+                                        <span className={`flex-1 min-w-0 truncate text-sm ${s.status === 'unregistered' ? 'text-fg' : 'text-fg-muted'}`}>{s.displayName}</span>
+                                        <span className="text-xs text-fg-muted shrink-0">{formatText(t(SSRP_I18N_KEYS.tempImportCount), { count: s.count })}</span>
                                         <span className="shrink-0">{statusLabel(item, s)}</span>
                                         {item && (item.status === 'failed' || item.status === 'canceled') && !running && (
-                                            <button onClick={() => tempImport.retry(idx)} className="p-1 text-gray-400 hover:text-orange-300 rounded" title={t(SSRP_I18N_KEYS.tempImportRetry)}>
+                                            <button onClick={() => tempImport.retry(idx)} className="p-1 text-fg-muted hover:text-accent rounded" title={t(SSRP_I18N_KEYS.tempImportRetry)}>
                                                 <RotateCcw size={14} />
                                             </button>
                                         )}
                                         {!item && s.status === 'temp' && !running && (
-                                            <button onClick={() => handleReanalyze(s)} disabled={!effectiveModel} className="p-1 text-gray-400 hover:text-orange-300 rounded disabled:opacity-40" title={t(SSRP_I18N_KEYS.tempImportReanalyze)}>
+                                            <button onClick={() => handleReanalyze(s)} disabled={!effectiveModel} className="p-1 text-fg-muted hover:text-accent rounded disabled:opacity-40" title={t(SSRP_I18N_KEYS.tempImportReanalyze)}>
                                                 <RefreshCw size={14} />
                                             </button>
                                         )}
@@ -309,7 +310,7 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                         <label className={labelCls}>{t(SSRP_I18N_KEYS.tempImportProvider)}</label>
                         <select value={provider} disabled={running} onChange={e => setProvider(e.target.value as ModelProvider)} className={inputCls}>
                             {PROVIDERS.map(p => (
-                                <option key={p} value={p} disabled={!cliFound(p)}>{p}</option>
+                                <option key={p} value={p} disabled={!cliFound(p)}>{cliProviderLabel(p)}</option>
                             ))}
                         </select>
                     </div>
@@ -353,7 +354,7 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                 <button
                     onClick={handleSetDefault}
                     disabled={!effectiveModel}
-                    className="flex items-center gap-1 text-xs text-orange-300 hover:text-orange-200 underline decoration-dotted disabled:opacity-40"
+                    className="flex items-center gap-1 text-xs text-accent hover:text-fg underline decoration-dotted disabled:opacity-40"
                 >
                     <Save size={12} />
                     {t(SSRP_I18N_KEYS.tempImportSetDefault)}
@@ -363,7 +364,7 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                 <div>
                     <label className={labelCls}>{t(SSRP_I18N_KEYS.tempImportTemplate)}</label>
                     {settingTemplates.length === 0 && manualTemplates.length === 0 ? (
-                        <p className="text-xs text-yellow-500/90">{t(SSRP_I18N_KEYS.tempImportNoTemplate)}</p>
+                        <p className="text-xs text-warn/90">{t(SSRP_I18N_KEYS.tempImportNoTemplate)}</p>
                     ) : (
                         <select value={selectedTemplate} disabled={running} onChange={e => setSelectedTemplate(e.target.value)} className={inputCls}>
                             {settingTemplates.length > 0 && (
@@ -389,9 +390,9 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
     // 実行・中止（小窓の下部バー）
     const footer = (
         <>
-                {toast && <span className="text-xs text-green-400 mr-auto">{toast}</span>}
+                {toast && <span className="text-xs text-ok mr-auto">{toast}</span>}
                 {running ? (
-                    <button onClick={tempImport.cancel} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-red-800 hover:bg-red-700 text-white">
+                    <button onClick={tempImport.cancel} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-danger hover:brightness-110 text-on-accent">
                         <Square size={14} />
                         {t(SSRP_I18N_KEYS.tempImportCancel)}
                     </button>
@@ -399,7 +400,7 @@ export const TempCharacterImportModal: React.FC<TempCharacterImportModalProps> =
                     <button
                         onClick={() => setConfirmOpen(true)}
                         disabled={!canRun}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-orange-700 hover:bg-orange-600 text-white disabled:opacity-40"
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-accent hover:brightness-110 text-on-accent disabled:opacity-40"
                     >
                         <Play size={14} />
                         {t(SSRP_I18N_KEYS.tempImportRun)}

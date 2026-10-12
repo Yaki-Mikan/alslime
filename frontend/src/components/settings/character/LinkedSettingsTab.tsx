@@ -7,9 +7,10 @@
  * プリセット側と合成される。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { Save, Trash2 } from 'lucide-react';
 import { resolveMessage, type I18NCatalog } from '../../../api/i18n';
+import type { SaveHandle } from './CharacterTagsEditor';
 import {
     getLinkedSettings,
     saveLinkedSettings,
@@ -37,6 +38,8 @@ interface Props {
     dirName: string;
     uiCatalog?: I18NCatalog | null;
     onDirtyChange?: (dirty: boolean) => void;
+    /** 保存ボタンを出さない（上の帯の「保存」でまとめて保存するとき） */
+    hideSaveButton?: boolean;
 }
 
 const KIND_LABEL_KEYS: Record<IndividualKind, string> = {
@@ -51,7 +54,7 @@ function withTrailingEmpty(files: string[]): string[] {
     return [...filled, ''];
 }
 
-export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCatalog = null, onDirtyChange }) => {
+export const LinkedSettingsTab = React.forwardRef<SaveHandle, Props>(({ backendUrl, dirName, uiCatalog = null, onDirtyChange, hideSaveButton = false }, ref) => {
     const t = (key: string) => resolveMessage(
         uiCatalog,
         key,
@@ -120,7 +123,7 @@ export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCata
         setIsDirty(true);
     };
 
-    const handleSave = useCallback(async () => {
+    const handleSave = useCallback(async (): Promise<boolean> => {
         setIsSaving(true);
         setNotice(null);
         try {
@@ -138,37 +141,41 @@ export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCata
                 backgrounds: withTrailingEmpty(saved.backgrounds.files),
             });
             setIsDirty(false);
-            setNotice({ ok: true, text: t(CONFIG_EDITOR_I18N_KEYS.characterSaved) });
+            if (!hideSaveButton) setNotice({ ok: true, text: t(CONFIG_EDITOR_I18N_KEYS.characterSaved) });
+            return true;
         } catch {
             setNotice({ ok: false, text: t(CONFIG_EDITOR_I18N_KEYS.characterSaveFailed) });
+            return false;
         } finally {
             setIsSaving(false);
             setTimeout(() => setNotice(null), 3000);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [backendUrl, dirName, settings, slots]);
+    }, [backendUrl, dirName, settings, slots, hideSaveButton]);
+
+    useImperativeHandle(ref, () => ({ save: async () => (isDirty ? handleSave() : true) }));
 
     return (
         <div className="space-y-5">
-            <p className="text-xs text-gray-500">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedDescription)}</p>
+            <p className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedDescription)}</p>
             {INDIVIDUAL_KINDS.map(kind => {
                 const group = settings[kind];
                 const kindOptions = options[kind];
                 const selected = slots[kind];
                 return (
-                    <div key={kind} className="border border-gray-700 rounded-lg p-3 space-y-3">
-                        <div className="text-sm font-medium text-gray-300">{t(KIND_LABEL_KEYS[kind])}</div>
+                    <div key={kind} className="border border-line-strong rounded-lg p-3 space-y-3">
+                        <div className="text-sm font-medium text-fg-muted">{t(KIND_LABEL_KEYS[kind])}</div>
 
                         {/* 紐づけるファイル */}
                         <div className="space-y-1.5">
-                            <div className="text-[11px] text-gray-500">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedFiles)}</div>
+                            <div className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedFiles)}</div>
                             {selected.map((value, idx) => (
                                 <div key={idx} className="flex gap-2 items-center">
                                     <select
                                         value={value}
                                         disabled={isLoading}
                                         onChange={e => updateSlot(kind, idx, e.target.value)}
-                                        className="flex-1 bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors"
+                                        className="flex-1 bg-surface border border-line-strong text-fg rounded text-xs p-2 outline-none focus:border-accent transition-colors"
                                     >
                                         <option value="">{t(SSRP_I18N_KEYS.none)}</option>
                                         {kindOptions.map(opt => (
@@ -182,7 +189,7 @@ export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCata
                                     {(value || (idx !== selected.length - 1)) && (
                                         <button
                                             onClick={() => removeSlot(kind, idx)}
-                                            className="text-gray-500 hover:text-red-400 p-1.5 rounded hover:bg-gray-800 transition-colors"
+                                            className="text-fg-muted hover:text-danger p-1.5 rounded hover:bg-surface transition-colors"
                                         >
                                             <Trash2 size={14} />
                                         </button>
@@ -194,12 +201,12 @@ export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCata
                         {/* キャラクター側の追加設定 */}
                         <div className="space-y-1.5">
                             <div className="flex items-center gap-2">
-                                <span className="text-[11px] text-gray-500">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedAdditional)}</span>
+                                <span className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedAdditional)}</span>
                                 <select
                                     value={group.additional.mode}
                                     onChange={e => updateAdditional(kind, { mode: e.target.value as LinkedMode })}
                                     title={t(CONFIG_EDITOR_I18N_KEYS.characterLinkedModeHint)}
-                                    className="ml-auto bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1 outline-none focus:border-blue-500"
+                                    className="ml-auto bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1 outline-none focus:border-accent"
                                 >
                                     <option value="append">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedModeAppend)}</option>
                                     <option value="replace">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedModeReplace)}</option>
@@ -209,27 +216,28 @@ export const LinkedSettingsTab: React.FC<Props> = ({ backendUrl, dirName, uiCata
                                 value={group.additional.text}
                                 onChange={e => updateAdditional(kind, { text: e.target.value })}
                                 rows={3}
-                                className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y"
+                                className="w-full bg-surface border border-line-strong text-fg rounded text-xs p-2 outline-none focus:border-accent transition-colors resize-y"
                             />
-                            <p className="text-[10px] text-gray-600">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedModeHint)}</p>
+                            <p className="text-xs text-fg-muted">{t(CONFIG_EDITOR_I18N_KEYS.characterLinkedModeHint)}</p>
                         </div>
                     </div>
                 );
             })}
 
-            <div className="flex items-center justify-between pt-2 border-t border-gray-700/50">
+            <div className="flex items-center justify-between pt-2 border-t border-line-strong">
                 <div className="text-sm">
-                    {notice && <span className={notice.ok ? 'text-green-400' : 'text-red-400'}>{notice.text}</span>}
+                    {notice && <span className={notice.ok ? 'text-ok' : 'text-danger'}>{notice.text}</span>}
                 </div>
-                <button
-                    onClick={handleSave}
+                {!hideSaveButton && <button
+                    onClick={() => void handleSave()}
                     disabled={isSaving || isLoading || !isDirty}
-                    className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
+                    className="px-4 py-2 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                     <Save size={14} />
                     {t(CONFIG_EDITOR_I18N_KEYS.characterSaveTab)}
-                </button>
+                </button>}
             </div>
         </div>
     );
-};
+});
+LinkedSettingsTab.displayName = 'LinkedSettingsTab';

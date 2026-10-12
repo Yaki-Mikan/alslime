@@ -198,6 +198,19 @@ func (r *Resolver) mkdirAllSafe(target string, dirPerm os.FileMode) error {
 		cur = filepath.Join(cur, part)
 
 		info, statErr := os.Lstat(cur)
+		if errors.Is(statErr, fs.ErrNotExist) {
+			// 未存在。この 1 段だけを作る（リンクは辿らない）。
+			mkErr := os.Mkdir(cur, dirPerm)
+			if mkErr == nil {
+				continue
+			}
+			if !errors.Is(mkErr, fs.ErrExist) {
+				return mkErr
+			}
+			// 確かめてから作るまでの間に、別の処理（同時に保存した別のストアや別プロセス）が
+			// 同じ段を作った。失敗にせず、既存の要素と同じ確認を通してから先へ進む。
+			info, statErr = os.Lstat(cur)
+		}
 		switch {
 		case statErr == nil:
 			// 既存要素。symlink なら実体を境界確認したうえで通過する。
@@ -214,11 +227,6 @@ func (r *Resolver) mkdirAllSafe(target string, dirPerm os.FileMode) error {
 				return ErrOutsideWorkspace
 			}
 			// 既存が通常ディレクトリの場合は、root 配下であることは字句的に保証済み。
-		case errors.Is(statErr, fs.ErrNotExist):
-			// 未存在。この 1 段だけを作る（リンクは辿らない）。
-			if err := os.Mkdir(cur, dirPerm); err != nil {
-				return err
-			}
 		default:
 			return statErr
 		}

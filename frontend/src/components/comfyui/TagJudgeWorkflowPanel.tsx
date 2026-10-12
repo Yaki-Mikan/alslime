@@ -4,11 +4,10 @@
  * 分析AI とモデル（TagJudgeProviderFields）、形式×ワークフロー対応表（ラジオが
  * 使用形式 directiveMode、各行のセレクトがその形式に紐づくワークフロー
  * workflowByDirectiveMode）、共通ワークフロー（defaultTemplateId）の選択を提供する。
- * 変更は即時保存（config 全体を読み直して該当キーだけ差し替えて PUT。統合設定の
+ * 変更は即時保存（config 全体を読み直して該当キーだけ差し替えて PUT。設定画面の画像生成の
  * フォーマット設定と同方式・後勝ち）。連続した変更で古い読み直しが新しい保存を
  * 上書きしないよう、保存は直列化する。
- * 画像生成統合設定のワークフローセクションと、左メニューの
- * タグ判定・ワークフロー設定パネルの両方で使う。
+ * 準備・調整欄の「この会話の画像生成」の、タグ判定・ワークフロー設定パネルで使う。
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,7 +29,7 @@ import type { I18NCatalog } from '../../api/i18n';
 
 /** config の tagJudge* 欄と部品の値の相互変換。 */
 const tagJudgeValuesFromConfig = (config: ComfyUIConfig): TagJudgeProviderValues => ({
-    provider: config.tagJudgeProvider || 'gemini',
+    provider: config.tagJudgeProvider || 'antigravity',
     geminiModel: config.tagJudgeGeminiModel || 'gemini-3-flash-preview',
     claudeModel: config.tagJudgeClaudeModel || 'claude-sonnet-4-6',
     claudeEffort: normalizeClaudeEffort(config.tagJudgeClaudeEffort),
@@ -50,7 +49,7 @@ const tagJudgeConfigPatch = (values: TagJudgeProviderValues): Partial<ComfyUICon
 });
 
 const defaultTagJudgeValues: TagJudgeProviderValues = {
-    provider: 'gemini',
+    provider: 'antigravity',
     geminiModel: 'gemini-3-flash-preview',
     claudeModel: 'claude-sonnet-4-6',
     claudeEffort: '',
@@ -267,8 +266,8 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 />
             )}
             {showHeading && (
-                <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                    <Workflow size={16} className="text-green-400" />
+                <h4 className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                    <Workflow size={16} className="text-accent" />
                     {COMMON.MESSAGES.FORMAT_WORKFLOW_HEADING}
                 </h4>
             )}
@@ -282,8 +281,8 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 stacked={stacked}
             />
 
-            <p className="text-xs text-gray-500 pt-1">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
-            <p className="text-xs text-gray-500">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
+            <p className="text-xs text-fg-muted pt-1">{COMMON.MESSAGES.FORMAT_WORKFLOW_DESC}</p>
+            <p className="text-xs text-fg-muted">{COMMON.MESSAGES.DIRECTIVE_MODE_DESC}</p>
 
             {rows.map((row) => {
                 const mappedName = isApi
@@ -303,14 +302,14 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                                 name="tagJudgeWorkflowDirectiveMode"
                                 checked={selectedDirectiveMode === row.value}
                                 onChange={() => handleChangeDirectiveMode(row.value)}
-                                className="accent-green-500 shrink-0"
+                                className="accent-accent shrink-0"
                             />
-                            <span className="text-sm text-gray-300">{row.label}</span>
+                            <span className="text-sm text-fg-muted">{row.label}</span>
                         </label>
                         <select
                             value={mappedName}
                             onChange={(e) => (isApi ? handleChangeRowPreset : handleChangeRowWorkflow)(row.value, e.target.value)}
-                            className={`${stacked ? 'w-full min-w-0' : 'w-40 shrink-0'} bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors`}
+                            className={`${stacked ? 'w-full min-w-0' : 'w-40 shrink-0'} bg-surface border border-line-strong rounded-lg px-2 py-1.5 text-xs text-fg outline-none focus:border-accent transition-colors`}
                         >
                             <option value="">{COMMON.MESSAGES.COMMON_WORKFLOW_OPTION}</option>
                             {rowOptions.map(name => (
@@ -324,12 +323,12 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
             {/* 共通ワークフロー（「共通」を選んだ形式が使う既定）。API サービスでは共通プリセット */}
             {isApi ? (
                 <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
-                    <span className="text-xs text-gray-400 shrink-0">{API_SERVICE.LABELS.COMMON_PRESET}</span>
+                    <span className="text-xs text-fg-muted shrink-0">{API_SERVICE.LABELS.COMMON_PRESET}</span>
                     <select
                         value={apiPresetDefault}
                         onChange={(e) => handleChangeDefaultPreset(e.target.value)}
                         disabled={apiPresets.length === 0}
-                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none disabled:opacity-50`}
+                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-surface border border-accent rounded-lg px-3 py-2 text-sm text-fg focus:border-accent outline-none disabled:opacity-50`}
                     >
                         {apiPresets.length === 0 && <option value="">{API_SERVICE.MESSAGES.NO_PRESET}</option>}
                         {apiPresetDefault && !presetNames.includes(apiPresetDefault) && (
@@ -342,11 +341,11 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
                 </div>
             ) : (
                 <div className={stacked ? 'flex flex-col gap-1 pt-1' : 'flex items-center gap-2 pt-1'}>
-                    <span className="text-xs text-gray-400 shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
+                    <span className="text-xs text-fg-muted shrink-0">{COMMON.MESSAGES.COMMON_WORKFLOW_LABEL}</span>
                     <select
                         value={defaultTemplateId}
                         onChange={(e) => handleChangeDefaultTemplate(e.target.value)}
-                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none`}
+                        className={`${stacked ? 'w-full min-w-0' : 'flex-1'} bg-surface border border-accent rounded-lg px-3 py-2 text-sm text-fg focus:border-accent outline-none`}
                     >
                         {effectiveTemplates.map((t) => (
                             <option key={t.name} value={t.name}>{t.name}</option>
@@ -356,9 +355,9 @@ export const TagJudgeWorkflowPanel: React.FC<Props> = ({
             )}
 
             <div className="flex items-center gap-2">
-                <p className="text-xs text-gray-500">{COMMON.MESSAGES.TAG_JUDGE_WORKFLOW_AUTO_SAVE}</p>
+                <p className="text-xs text-fg-muted">{COMMON.MESSAGES.TAG_JUDGE_WORKFLOW_AUTO_SAVE}</p>
                 {notice && (
-                    <span className={`flex items-center gap-1 text-xs ${notice.kind === 'saved' ? 'text-green-400' : 'text-red-300'}`}>
+                    <span className={`flex items-center gap-1 text-xs ${notice.kind === 'saved' ? 'text-ok' : 'text-danger'}`}>
                         {notice.kind === 'saved' ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
                         {notice.text}
                     </span>

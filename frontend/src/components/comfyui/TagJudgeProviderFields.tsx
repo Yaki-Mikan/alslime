@@ -53,7 +53,7 @@ interface Props {
 
 type ModelOption = { value: string; label: string; thinkingLevels?: string[] };
 
-const selectClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors disabled:opacity-50';
+const selectClass = 'w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors disabled:opacity-50';
 
 export const TagJudgeProviderFields: React.FC<Props> = ({
     backendUrl,
@@ -192,7 +192,7 @@ export const TagJudgeProviderFields: React.FC<Props> = ({
     return (
         <>
             <label className="space-y-1 block">
-                <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_AI}</span>
+                <span className="text-xs text-fg-muted">{COMMON.BUTTONS.ANALYSIS_AI}</span>
                 <select
                     value={values.provider}
                     onChange={(e) => onChange({ provider: e.target.value as TagJudgeProvider })}
@@ -206,7 +206,7 @@ export const TagJudgeProviderFields: React.FC<Props> = ({
             </label>
             <div className={`grid grid-cols-1 gap-3 ${twoColumns ? 'sm:grid-cols-2' : ''}`}>
                 <label className="space-y-1 block">
-                    <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
+                    <span className="text-xs text-fg-muted">{COMMON.BUTTONS.ANALYSIS_MODEL}</span>
                     <select
                         value={currentModelValue}
                         onChange={(e) => handleChangeModel(e.target.value)}
@@ -220,7 +220,7 @@ export const TagJudgeProviderFields: React.FC<Props> = ({
                 </label>
                 {values.provider === 'claude' && (
                     <label className="space-y-1 block">
-                        <span className="text-xs text-gray-500">{COMMON.BUTTONS.CLAUDE_EFFORT}</span>
+                        <span className="text-xs text-fg-muted">{COMMON.BUTTONS.CLAUDE_EFFORT}</span>
                         <select
                             value={values.claudeEffort}
                             onChange={(e) => onChange({ claudeEffort: e.target.value as ClaudeEffort })}
@@ -234,7 +234,7 @@ export const TagJudgeProviderFields: React.FC<Props> = ({
                 )}
                 {values.provider === 'antigravity' && antigravityThinkingLevels.length > 0 && (
                     <label className="space-y-1 block">
-                        <span className="text-xs text-gray-500">{COMMON.BUTTONS.ANTIGRAVITY_THINKING}</span>
+                        <span className="text-xs text-fg-muted">{COMMON.BUTTONS.ANTIGRAVITY_THINKING}</span>
                         <select
                             value={values.antigravityThinking}
                             onChange={(e) => onChange({ antigravityThinking: e.target.value as AntigravityThinking })}
@@ -248,12 +248,12 @@ export const TagJudgeProviderFields: React.FC<Props> = ({
                 )}
             </div>
             {showDescription && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-fg-muted">
                     {COMMON.MESSAGES.TAG_JUDGE_DESC}
                 </p>
             )}
             {values.provider === 'openai_compat' && (
-                <p className={`text-xs ${openAICompatEmpty ? 'text-amber-400' : 'text-gray-500'}`}>
+                <p className={`text-xs ${openAICompatEmpty ? 'text-warn' : 'text-fg-muted'}`}>
                     {openAICompatEmpty
                         ? COMMON.MESSAGES.TAG_JUDGE_OPENAI_COMPAT_EMPTY
                         : COMMON.MESSAGES.TAG_JUDGE_OPENAI_COMPAT_HINT}

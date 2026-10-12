@@ -24,6 +24,9 @@ type stub struct{}
 func New() coreapi.Core { return stub{} }
 
 func (stub) ChatRunner() jobs.Runner { return jobs.NotImplementedRunner{} }
+
+// ReplaceUserMessage は置換を持たないため、受け取った本文をそのまま返す。
+func (stub) ReplaceUserMessage(_, message string, _ any) string { return message }
 func (stub) ConfigGenRunner(coreapi.ConfigGenProgressSink) jobs.Runner {
 	return jobs.NotImplementedRunner{}
 }

@@ -76,6 +76,20 @@ describe('openai_compatチャット操作', () => {
         ])));
     });
 
+    it('受け付けの応答に置換後の本文があれば、送信直後の吹き出しを差し替える', async () => {
+        vi.mocked(axios.post).mockImplementation(async (url: string) => {
+            if (url === '/api/chat/submit') return { data: { jobId: 'chat-job', userMessage: '雪と話す' } };
+            return { data: {} };
+        });
+        const { result } = renderApiChat();
+        await waitFor(() => expect(result.current.selectedModel).toBe(apiModel.id));
+
+        act(() => result.current.setInput('{{char}}と話す'));
+        await act(async () => result.current.handleSend());
+
+        expect(result.current.messages[0]).toEqual({ role: 'user', content: '雪と話す' });
+    });
+
     it('生成中断操作をabort APIへ送る', async () => {
         const { result } = renderApiChat();
         await act(async () => result.current.handleStop());

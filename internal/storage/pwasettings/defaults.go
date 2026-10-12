@@ -11,11 +11,13 @@ const defaultChatSendKey = "shiftEnter"
 // ここに正本を持つ。値・型は現行と揃える（JSON 数値は float64 で保持）。
 func defaultSettings() map[string]any {
 	return map[string]any{
-		"fontFamily":                               "system-ui, -apple-system, sans-serif",
+		"fontFamily":                               "design",
 		"fontSize":                                 14.0,
 		"emptyLineHeight":                          1.0,
 		"collapseEmptyLines":                       false,
 		"theme":                                    "dark",
+		"uiDesign":                                 "minimal",
+		"backgroundPanelOpacity":                   0.35,
 		"temperature":                              1.0,
 		"enableFirstResponseBackup":                false,
 		"enableResponseBackup":                     false,

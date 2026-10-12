@@ -81,7 +81,7 @@ export interface EmotionPromptEntry {
 
 export interface EmotionPrompts {
     version: number;
-    /** 表情画像生成で選択中のワークフロー（テンプレート名）。統合設定の既定とは別に保持 */
+    /** 表情画像生成で選択中のワークフロー（テンプレート名）。会話の画像の既定のワークフローとは別に保持 */
     workflow?: string;
     /** 画像生成 API サービスのときに使う生成プリセット名（workflow の API 側対応） */
     apiPreset?: string;

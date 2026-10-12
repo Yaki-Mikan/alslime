@@ -79,8 +79,14 @@ func TestCLIStatusRoute(t *testing.T) {
 		Backup:        backup.New(paths.NewResolver(root)),
 		CLIStatus: clistatus.Checker{
 			GOOS: "windows",
-			LookPath: func(command string) (string, error) {
-				return filepath.Join("bin", command), nil
+			ResolveGemini: func() (string, error) {
+				return filepath.Join("bin", "gemini.cmd"), nil
+			},
+			ResolveClaude: func() (string, error) {
+				return filepath.Join("bin", "claude.cmd"), nil
+			},
+			ResolveAntigravity: func() (string, error) {
+				return filepath.Join("bin", "agy.exe"), nil
 			},
 			Stat: func(string) (os.FileInfo, error) {
 				return nil, nil

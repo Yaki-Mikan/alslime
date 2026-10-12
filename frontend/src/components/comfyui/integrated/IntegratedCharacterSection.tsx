@@ -1,12 +1,12 @@
 /**
- * IntegratedCharacterSection.tsx - 統合設定画面用キャラクター画像生成設定セクション
+ * IntegratedCharacterSection.tsx - キャラの画像設定のフォーム（素材づくりのキャラ画像・設定ファイルの右の欄で使う）
  *
  * キャラクター選択、プロンプト、LoRA、服装設定、追加prompt等を管理する。
  * state は親（IntegratedSettingsModal）でリフトアップされ、props で受け取る。
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Trash2, Save, Loader2, Users, Sparkles, Shirt, RefreshCw } from 'lucide-react';
+import { Search, Trash2, Loader2, Users, Sparkles, Shirt, RefreshCw } from 'lucide-react';
 import type { ApiServiceId, CharacterImageGenConfig, DanbooruTagFormat, ImageBackend, ReferenceImage, TriggerWordFormat } from '../../../api/comfyui';
 import { IdentityOutputPreview } from '../IdentityOutputPreview';
 import {
@@ -28,6 +28,8 @@ import { LoraUnreachableNotice } from '../LoraUnreachableNotice';
 import { LoraStrengthInput } from '../LoraStrengthInput';
 import { withTrailingEmptyLora } from '../loraEntries';
 import { AppearancePromptPanel } from '../AppearancePromptPanel';
+import { CharacterSaveBar } from './CharacterSaveBar';
+import { scrollListToSelected } from '../../../lib/listScroll';
 import type { AppearancePromptHandle, AppearanceTarget } from '../../../hooks/useAppearancePromptGen';
 
 interface Props {
@@ -38,6 +40,9 @@ interface Props {
     onCharacterChange?: (name: string) => void;
     // true ならキャラクター選択ドロップダウンを出さない（フォーム部分だけを使う）。
     hideCharacterSelector?: boolean;
+    // true なら保存ボタンを出さない（設定ファイルの画面で、上の帯の「保存」からまとめて保存するときと、
+    // 素材づくりのキャラのタブで、保存の帯をスクロールする欄の外に置くとき）。
+    hideSaveButton?: boolean;
     // 作品名ラベルへの補足（フィルタ用の「作品」との区別を示す文言）。
     workNameHint?: string;
     config: CharacterImageGenConfig;
@@ -82,6 +87,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     selectedCharacter,
     onCharacterChange,
     hideCharacterSelector = false,
+    hideSaveButton = false,
     workNameHint,
     config,
     onUpdateConfig,
@@ -164,10 +170,6 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
     // エイリアス
     const [aliasesText, setAliasesText] = useState('');
 
-    // 保存メッセージ
-    const [isSaving, setIsSaving] = useState(false);
-    const [saveMessage, setSaveMessage] = useState<string | null>(null);
-
     // エイリアステキストをconfigと同期
     useEffect(() => {
         setAliasesText((config.aliases || []).join(', '));
@@ -196,6 +198,17 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
         }
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [loraDropdownIdx, outfitLoraDropdown]);
+
+    // LoRA の一覧を開いたときは、今選んでいる LoRA の位置まで一覧を送る（番号違いの LoRA へ選び直しやすくするため）。
+    // 画面全体は動かさず、一覧の中だけを送る
+    const loraListRef = useRef<HTMLDivElement>(null);
+    const outfitLoraListRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (loraDropdownIdx !== null) scrollListToSelected(loraListRef.current);
+    }, [loraDropdownIdx]);
+    useEffect(() => {
+        if (outfitLoraDropdown !== null) scrollListToSelected(outfitLoraListRef.current);
+    }, [outfitLoraDropdown]);
 
     // フィルタ済みキャラ一覧
     const filteredCharacters = searchQuery.trim()
@@ -307,45 +320,36 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
         onUpdateConfig('outfits', newOutfits);
     };
 
-    // 保存
-    const handleSave = async () => {
-        setIsSaving(true);
-        const success = await onSave();
-        setIsSaving(false);
-        setSaveMessage(success ? COMMON.MESSAGES.SAVED : COMMON.MESSAGES.SAVE_FAILED);
-        setTimeout(() => setSaveMessage(null), 3000);
-    };
-
     return (
         <div className="space-y-4">
             {/* キャラクター選択（エディタ埋め込みでは開いているキャラクターに固定するため出さない） */}
             {!hideCharacterSelector && (
             <div className="space-y-2" ref={dropdownRef}>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                    <Users size={16} className="text-pink-400" />
+                <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                    <Users size={16} className="text-accent" />
                     {CHARACTER.LABELS.CHARACTER}
                 </label>
                 <div
                     onClick={() => { setIsDropdownOpen(!isDropdownOpen); setSearchQuery(''); }}
-                    className="w-full bg-gray-800 border border-pink-600 rounded-lg px-3 py-2 text-sm text-gray-200 cursor-pointer hover:border-pink-400 transition-colors flex items-center justify-between"
+                    className="w-full bg-surface border border-accent rounded-lg px-3 py-2 text-sm text-fg cursor-pointer hover:border-accent transition-colors flex items-center justify-between"
                 >
-                    <span className={selectedCharacter ? 'text-gray-200' : 'text-gray-500'}>
+                    <span className={selectedCharacter ? 'text-fg' : 'text-fg-muted'}>
                         {selectedCharacter || CHARACTER.PLACEHOLDERS.SELECT_CHARACTER}
                     </span>
-                    <Search size={14} className="text-gray-500" />
+                    <Search size={14} className="text-fg-muted" />
                 </div>
                 {isDropdownOpen && (
-                    <div className="bg-gray-800 border border-gray-600 rounded-lg overflow-hidden">
-                        <div className="p-2 border-b border-gray-700">
+                    <div className="bg-surface border border-line-strong rounded-lg overflow-hidden">
+                        <div className="p-2 border-b border-line-strong">
                             <div className="relative">
-                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
                                 <input
                                     type="text"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder={CHARACTER.PLACEHOLDERS.SEARCH_CHARACTER}
                                     autoFocus
-                                    className="w-full bg-gray-900 border border-gray-700 rounded pl-8 pr-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 outline-none focus:border-pink-500"
+                                    className="w-full bg-surface border border-line-strong rounded pl-8 pr-3 py-1.5 text-sm text-fg placeholder-fg-muted outline-none focus:border-accent"
                                 />
                             </div>
                         </div>
@@ -362,15 +366,15 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                         }}
                                         className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                                             selectedCharacter === c.name
-                                                ? 'bg-pink-600/30 text-pink-200'
-                                                : 'text-gray-300 hover:bg-gray-700'
+                                                ? 'bg-accent-soft text-fg'
+                                                : 'text-fg-muted hover:bg-surface-2'
                                         }`}
                                     >
                                         {c.name}
                                     </button>
                                 ))
                             ) : (
-                                <p className="px-3 py-2 text-sm text-gray-500">{CHARACTER.MESSAGES.NO_RESULTS}</p>
+                                <p className="px-3 py-2 text-sm text-fg-muted">{CHARACTER.MESSAGES.NO_RESULTS}</p>
                             )}
                         </div>
                     </div>
@@ -380,36 +384,36 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
 
             {isLoading ? (
                 <div className="flex justify-center py-8">
-                    <Loader2 size={24} className="animate-spin text-gray-500" />
+                    <Loader2 size={24} className="animate-spin text-fg-muted" />
                 </div>
             ) : selectedCharacter ? (
                 <>
                     {/* キャラクター名 / 作品名 */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">
+                        <label className="text-sm font-medium text-fg-muted">
                             {CHARACTER.LABELS.CHARACTER_AND_WORK}
-                            <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
-                            {workNameHint && <span className="block text-xs text-gray-500 mt-0.5">{workNameHint}</span>}
+                            <span className="text-xs text-fg-muted ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
+                            {workNameHint && <span className="block text-xs text-fg-muted mt-0.5">{workNameHint}</span>}
                         </label>
                         <div className="flex flex-col gap-2 lg:flex-row">
                             <div className="flex-1 min-w-0 space-y-0.5">
-                                <span className="text-xs text-gray-500">{CHARACTER.LABELS.CHARACTER_NAME}</span>
+                                <span className="text-xs text-fg-muted">{CHARACTER.LABELS.CHARACTER_NAME}</span>
                                 <input
                                     type="text"
                                     value={config.characterName}
                                     onChange={(e) => onUpdateConfig('characterName', e.target.value)}
                                     placeholder={CHARACTER.PLACEHOLDERS.CHARACTER_NAME}
-                                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                    className="w-full bg-surface border border-line-strong rounded px-3 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors"
                                 />
                             </div>
                             <div className="flex-1 min-w-0 space-y-0.5">
-                                <span className="text-xs text-gray-500">{CHARACTER.LABELS.WORK_NAME}</span>
+                                <span className="text-xs text-fg-muted">{CHARACTER.LABELS.WORK_NAME}</span>
                                 <input
                                     type="text"
                                     value={config.workName}
                                     onChange={(e) => onUpdateConfig('workName', e.target.value)}
                                     placeholder={CHARACTER.PLACEHOLDERS.WORK_NAME}
-                                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                    className="w-full bg-surface border border-line-strong rounded px-3 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors"
                                 />
                             </div>
                         </div>
@@ -425,7 +429,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
 
                     {/* エイリアス */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">{CHARACTER.LABELS.ALIASES}</label>
+                        <label className="text-sm font-medium text-fg-muted">{CHARACTER.LABELS.ALIASES}</label>
                         <input
                             type="text"
                             value={aliasesText}
@@ -436,13 +440,13 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 setAliasesText(parsed.join(', '));
                             }}
                             placeholder={CHARACTER.PLACEHOLDERS.ALIASES}
-                            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded px-3 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors"
                         />
-                        <p className="text-xs text-gray-600">{CHARACTER.HELP.ALIASES_DESC}</p>
+                        <p className="text-xs text-fg-muted">{CHARACTER.HELP.ALIASES_DESC}</p>
                     </div>
 
                     {/* 内部タブ: プロンプト系は ComfyUI 用 / API サービス用で別の値を持つ */}
-                    <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-1" role="tablist">
+                    <div className="flex rounded-lg border border-line-strong bg-surface p-1" role="tablist">
                         {([
                             { value: 'comfyui', label: CHARACTER.LABELS.BACKEND_TAB_COMFYUI },
                             { value: 'api', label: CHARACTER.LABELS.BACKEND_TAB_API },
@@ -454,7 +458,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 aria-selected={tab === t.value}
                                 onClick={() => setTab(t.value)}
                                 className={`flex-1 px-3 py-1.5 text-sm rounded transition-colors ${
-                                    tab === t.value ? 'bg-pink-700 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                    tab === t.value ? 'bg-accent text-on-accent' : 'text-fg-muted hover:bg-surface-2'
                                 }`}
                             >
                                 {t.label}
@@ -473,7 +477,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                     type="button"
                                     onClick={openAppearancePrompt}
                                     disabled={!canOpenAppearancePrompt}
-                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-pink-900/60 hover:bg-pink-800/70 text-pink-200 border border-pink-700/60 disabled:opacity-40 transition-colors"
+                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-accent-soft hover:brightness-110 text-fg border border-line-strong disabled:opacity-40 transition-colors"
                                 >
                                     <Sparkles size={12} />
                                     {CHARACTER.BUTTONS.APPEARANCE_PROMPT}
@@ -500,16 +504,16 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                     {/* キャラクタープロンプト */}
                     <div className="space-y-1">
                         <div className="flex items-center justify-between gap-2">
-                            <label className="text-sm font-medium text-gray-400">
+                            <label className="text-sm font-medium text-fg-muted">
                                 {CHARACTER.LABELS.CHARACTER_PROMPT}
-                                <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
+                                <span className="text-xs text-fg-muted ml-2">{CHARACTER.HELP.CHARACTER_JOINED}</span>
                             </label>
                             {appearancePrompt && (
                                 <button
                                     type="button"
                                     onClick={openAppearancePrompt}
                                     disabled={!canOpenAppearancePrompt}
-                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-pink-900/60 hover:bg-pink-800/70 text-pink-200 border border-pink-700/60 disabled:opacity-40 transition-colors"
+                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-accent-soft hover:brightness-110 text-fg border border-line-strong disabled:opacity-40 transition-colors"
                                 >
                                     <Sparkles size={12} />
                                     {CHARACTER.BUTTONS.APPEARANCE_PROMPT}
@@ -520,38 +524,38 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                             value={config.characterPrompt}
                             onChange={(e) => onUpdateConfig('characterPrompt', e.target.value)}
                             placeholder={CHARACTER.PLACEHOLDERS.CHARACTER_PROMPT}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 resize-y transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent resize-y transition-colors"
                             rows={2}
                         />
-                        <p className="text-xs text-gray-600">{CHARACTER.HELP.CHARACTER_PROMPT_DESC}</p>
+                        <p className="text-xs text-fg-muted">{CHARACTER.HELP.CHARACTER_PROMPT_DESC}</p>
                     </div>
 
                     {/* 身体的特徴 */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">
+                        <label className="text-sm font-medium text-fg-muted">
                             {CHARACTER.LABELS.PHYSICAL_FEATURES}
-                            <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.FEATURES_PLACEHOLDER}</span>
+                            <span className="text-xs text-fg-muted ml-2">{CHARACTER.HELP.FEATURES_PLACEHOLDER}</span>
                         </label>
                         <textarea
                             value={config.physicalFeatures}
                             onChange={(e) => onUpdateConfig('physicalFeatures', e.target.value)}
                             placeholder={CHARACTER.PLACEHOLDERS.PHYSICAL_FEATURES}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 resize-y transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent resize-y transition-colors"
                             rows={2}
                         />
-                        <p className="text-xs text-gray-600">{CHARACTER.HELP.PHYSICAL_FEATURES_DESC}</p>
+                        <p className="text-xs text-fg-muted">{CHARACTER.HELP.PHYSICAL_FEATURES_DESC}</p>
                     </div>
 
                     {/* LoRA */}
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                                <Sparkles size={16} className="text-pink-400" />
+                            <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                                <Sparkles size={16} className="text-accent" />
                                 {CHARACTER.LABELS.LORA}
                             </label>
                             <button
                                 onClick={onRefreshLoras}
-                                className="flex items-center gap-1 text-xs text-gray-500 hover:text-green-400 transition-colors"
+                                className="flex items-center gap-1 text-xs text-fg-muted hover:text-ok transition-colors"
                                 title={COMMON.MESSAGES.REFRESH_TOOLTIP}
                             >
                                 <RefreshCw size={12} />
@@ -570,55 +574,55 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                     setLoraDropdownIdx(loraDropdownIdx === idx ? null : idx);
                                                     setLoraSearchQuery('');
                                                 }}
-                                                className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm cursor-pointer hover:border-green-500 transition-colors flex items-center justify-between"
+                                                className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm cursor-pointer hover:border-accent transition-colors flex items-center justify-between"
                                             >
-                                                <span className={`truncate ${lora.name ? 'text-gray-200' : 'text-gray-500'}`}>
+                                                <span className={`truncate ${lora.name ? 'text-fg' : 'text-fg-muted'}`}>
                                                     {lora.name || LORA.PLACEHOLDERS.SELECT_LORA}
                                                 </span>
-                                                <Search size={12} className="text-gray-500 shrink-0 ml-1" />
+                                                <Search size={12} className="text-fg-muted shrink-0 ml-1" />
                                             </div>
                                             {lora.name && (
                                                 <>
                                                     {isDetail ? (
                                                         <>
                                                             <div className="flex items-center gap-0.5">
-                                                                <span className="text-xs text-gray-500">{LORA.LABELS.MODEL_STRENGTH}</span>
+                                                                <span className="text-xs text-fg-muted">{LORA.LABELS.MODEL_STRENGTH}</span>
                                                                 <LoraStrengthInput value={lora.strengthModel}
                                                                     onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                                     step={0.05} min={-2} max={2}
-                                                                    className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
+                                                                    className="w-14 bg-surface border border-line-strong rounded px-1 py-1 text-xs text-fg outline-none focus:border-accent" />
                                                             </div>
                                                             <div className="flex items-center gap-0.5">
-                                                                <span className="text-xs text-gray-500">{LORA.LABELS.CLIP_STRENGTH}</span>
+                                                                <span className="text-xs text-fg-muted">{LORA.LABELS.CLIP_STRENGTH}</span>
                                                                 <LoraStrengthInput value={lora.strengthClip}
                                                                     onCommit={v => updateLora(idx, 'strengthClip', v)}
                                                                     step={0.05} min={-2} max={2}
-                                                                    className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500" />
+                                                                    className="w-14 bg-surface border border-line-strong rounded px-1 py-1 text-xs text-fg outline-none focus:border-accent" />
                                                             </div>
                                                         </>
                                                     ) : (
                                                         <LoraStrengthInput value={lora.strengthModel}
                                                             onCommit={v => updateLora(idx, 'strengthModel', v)}
                                                             step={0.05} min={-2} max={2}
-                                                            className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500"
+                                                            className="w-14 bg-surface border border-line-strong rounded px-1 py-1 text-xs text-fg outline-none focus:border-accent"
                                                             title={LORA.LABELS.STRENGTH} />
                                                     )}
                                                     <button
                                                         onClick={() => setLoraDetailMode(prev => ({ ...prev, [idx]: !isDetail }))}
-                                                        className={`px-1 py-0.5 rounded text-xs transition-colors shrink-0 ${isDetail ? 'bg-blue-600/30 text-blue-300' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
+                                                        className={`px-1 py-0.5 rounded text-xs transition-colors shrink-0 ${isDetail ? 'bg-accent-soft text-accent' : 'bg-surface text-fg-muted hover:text-fg-muted'}`}
                                                         title={isDetail ? LORA.HELP.SIMPLE_MODE_TOOLTIP : LORA.HELP.DETAIL_MODE_TOOLTIP}
                                                     >
                                                         {isDetail ? LORA.LABELS.SIMPLE_MODE : LORA.LABELS.DETAIL_MODE}
                                                     </button>
                                                     <button onClick={() => removeLora(idx)}
-                                                        className="p-0.5 text-gray-500 hover:text-red-400 transition-colors shrink-0" title={COMMON.BUTTONS.DELETE}>
+                                                        className="p-0.5 text-fg-muted hover:text-danger transition-colors shrink-0" title={COMMON.BUTTONS.DELETE}>
                                                         <Trash2 size={14} />
                                                     </button>
                                                 </>
                                             )}
                                             {!lora.name && !isEmptyLast && (
                                                 <button onClick={() => removeLora(idx)}
-                                                    className="p-0.5 text-gray-500 hover:text-red-400 transition-colors shrink-0">
+                                                    className="p-0.5 text-fg-muted hover:text-danger transition-colors shrink-0">
                                                     <Trash2 size={14} />
                                                 </button>
                                             )}
@@ -626,25 +630,26 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
 
                                         {/* LoRAドロップダウン */}
                                         {loraDropdownIdx === idx && (
-                                            <div className="bg-gray-800 border border-gray-600 rounded-lg overflow-hidden">
-                                                <div className="p-2 border-b border-gray-700">
+                                            <div className="bg-surface border border-line-strong rounded-lg overflow-hidden">
+                                                <div className="p-2 border-b border-line-strong">
                                                     <div className="relative">
-                                                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
                                                         <input type="text" value={loraSearchQuery}
                                                             onChange={(e) => setLoraSearchQuery(e.target.value)}
                                                             placeholder={LORA.PLACEHOLDERS.SEARCH_LORA} autoFocus
-                                                            className="w-full bg-gray-900 border border-gray-700 rounded pl-7 pr-3 py-1 text-xs text-gray-200 placeholder-gray-500 outline-none focus:border-green-500" />
+                                                            className="w-full bg-surface border border-line-strong rounded pl-7 pr-3 py-1 text-xs text-fg placeholder-fg-muted outline-none focus:border-accent" />
                                                     </div>
                                                 </div>
-                                                <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                                                <div ref={loraListRef} className="relative max-h-40 overflow-y-auto custom-scrollbar">
                                                     {(() => {
                                                         const q = loraSearchQuery.trim().toLowerCase();
                                                         const filtered = q ? availableLoras.filter(l => l.toLowerCase().includes(q)) : availableLoras;
                                                         return filtered.length > 0 ? (
                                                             filtered.map(loraName => (
                                                                 <button key={loraName} onClick={() => selectLora(idx, loraName)}
+                                                                    data-selected={lora.name === loraName}
                                                                     className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                                                                        lora.name === loraName ? 'bg-green-600/30 text-green-200' : 'text-gray-300 hover:bg-gray-700'
+                                                                        lora.name === loraName ? 'bg-ok/10 text-ok' : 'text-fg-muted hover:bg-surface-2'
                                                                     }`}>
                                                                     {loraName}
                                                                 </button>
@@ -652,7 +657,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                         ) : comfyUnreachable ? (
                                                             <LoraUnreachableNotice visible compact onRetry={onRefreshLoras} uiCatalog={uiCatalog} />
                                                         ) : (
-                                                            <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
+                                                            <p className="px-3 py-2 text-xs text-fg-muted">{LORA.MESSAGES.NO_RESULTS}</p>
                                                         );
                                                     })()}
                                                 </div>
@@ -667,11 +672,11 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                     value={lora.triggerWords || ''}
                                                     onChange={(e) => updateLora(idx, 'triggerWords', e.target.value)}
                                                     placeholder={TRIGGER_WORDS.PLACEHOLDERS.INPUT}
-                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 outline-none focus:border-green-500 transition-colors"
+                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-xs text-fg outline-none focus:border-accent transition-colors"
                                                 />
                                                 <button
                                                     onClick={() => handleFetchTriggerWords(idx, lora.name)}
-                                                    className="px-2 py-1 bg-gray-800 border border-green-700 rounded text-xs text-green-400 hover:bg-green-900/30 hover:text-green-300 transition-colors"
+                                                    className="px-2 py-1 bg-surface border border-line-strong rounded text-xs text-ok hover:bg-ok/10 hover:text-ok transition-colors"
                                                 >
                                                     {triggerWordsLoading[idx] ? TRIGGER_WORDS.LABELS.FETCHING : triggerWords[lora.name] ? TRIGGER_WORDS.LABELS.FETCHED : TRIGGER_WORDS.LABELS.FETCH}
                                                 </button>
@@ -683,14 +688,14 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                 <div key={li} className="flex items-center gap-1">
                                                                     <span
                                                                         onClick={() => navigator.clipboard.writeText(formattedLine)}
-                                                                        className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-green-300 cursor-pointer hover:bg-gray-700 transition-colors break-words"
+                                                                        className="flex-1 bg-surface border border-line-strong rounded px-2 py-1 text-xs text-ok cursor-pointer hover:bg-surface-2 transition-colors break-words"
                                                                         title={COMMON.MESSAGES.COPY_ROW_TOOLTIP}
                                                                     >
                                                                         {formattedLine}
                                                                     </span>
                                                                     <button
                                                                         onClick={() => addTriggerLineToLora(idx, line)}
-                                                                        className="px-1.5 py-0.5 bg-green-800/40 border border-green-700 rounded text-xs text-green-300 hover:bg-green-700/50 transition-colors shrink-0"
+                                                                        className="px-1.5 py-0.5 bg-ok/10 border border-line-strong rounded text-xs text-ok hover:bg-ok/10 transition-colors shrink-0"
                                                                         title={TRIGGER_WORDS.MESSAGES.ADD_TOOLTIP}
                                                                     >
                                                                         {TRIGGER_WORDS.LABELS.ADD}
@@ -698,7 +703,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                 </div>
                                                             );
                                                         }) : (
-                                                            <span className="text-xs text-gray-600">{TRIGGER_WORDS.MESSAGES.NONE}</span>
+                                                            <span className="text-xs text-fg-muted">{TRIGGER_WORDS.MESSAGES.NONE}</span>
                                                         )}
                                                     </div>
                                                 )}
@@ -708,20 +713,20 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 );
                             })}
                         </div>
-                        <p className="text-xs text-gray-600">{LORA.HELP.SELECT_AUTO_ADD} / {LORA.HELP.DETAIL_DESC}</p>
+                        <p className="text-xs text-fg-muted">{LORA.HELP.SELECT_AUTO_ADD} / {LORA.HELP.DETAIL_DESC}</p>
                     </div>
 
                     {/* 服装設定 */}
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                                <Shirt size={16} className="text-pink-400" />
+                            <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                                <Shirt size={16} className="text-accent" />
                                 {CHARACTER.LABELS.OUTFIT_SETTINGS}
                             </label>
                             <div className="flex items-center gap-3">
                                 <button
                                     onClick={onRefreshLoras}
-                                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-green-400 transition-colors"
+                                    className="flex items-center gap-1 text-xs text-fg-muted hover:text-ok transition-colors"
                                     title={COMMON.MESSAGES.REFRESH_OUTFIT_TOOLTIP}
                                 >
                                     <RefreshCw size={12} />
@@ -729,7 +734,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 </button>
                                 <button
                                     onClick={addOutfit}
-                                    className="px-2 py-1 bg-gray-800 border border-green-700 rounded text-xs text-green-400 hover:bg-green-900/30 transition-colors"
+                                    className="px-2 py-1 bg-surface border border-line-strong rounded text-xs text-ok hover:bg-ok/10 transition-colors"
                                 >
                                     {COMMON.BUTTONS.ADD}
                                 </button>
@@ -739,24 +744,24 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                             {config.outfits.length === 0 ? (
                                 <button
                                     onClick={addOutfit}
-                                    className="w-full border border-dashed border-gray-700 rounded-lg px-3 py-3 text-sm text-gray-500 hover:border-green-700 hover:text-green-400 transition-colors"
+                                    className="w-full border border-dashed border-line-strong rounded-lg px-3 py-3 text-sm text-fg-muted hover:border-line-strong hover:text-ok transition-colors"
                                 >
                                     {COMMON.BUTTONS.ADD_OUTFIT}
                                 </button>
                             ) : (
                                 config.outfits.map((outfit, outfitIdx) => (
-                                    <div key={outfitIdx} className="bg-gray-800/60 border border-gray-700 rounded-lg p-3 space-y-2">
+                                    <div key={outfitIdx} className="bg-surface border border-line-strong rounded-lg p-3 space-y-2">
                                         <div className="flex items-center gap-2">
                                             <input
                                                 type="text"
                                                 value={outfit.name}
                                                 onChange={(e) => updateOutfit(outfitIdx, 'name', e.target.value)}
                                                 placeholder={CHARACTER.PLACEHOLDERS.OUTFIT_NAME}
-                                                className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500"
+                                                className="flex-1 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
                                             />
                                             <button
                                                 onClick={() => removeOutfit(outfitIdx)}
-                                                className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                                                className="p-1 text-fg-muted hover:text-danger transition-colors"
                                                 title={COMMON.MESSAGES.DELETE_OUTFIT_TOOLTIP}
                                             >
                                                 <Trash2 size={15} />
@@ -766,12 +771,12 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                             value={outfit.prompt}
                                             onChange={(e) => updateOutfit(outfitIdx, 'prompt', e.target.value)}
                                             placeholder={CHARACTER.PLACEHOLDERS.OUTFIT_PROMPT}
-                                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 resize-y"
+                                            className="w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent resize-y"
                                             rows={2}
                                         />
                                         {/* 服装LoRA */}
                                         <div className="space-y-1">
-                                            <span className="text-xs text-gray-500">{CHARACTER.LABELS.OUTFIT_LORA}</span>
+                                            <span className="text-xs text-fg-muted">{CHARACTER.LABELS.OUTFIT_LORA}</span>
                                             {outfit.lora.map((lora, loraIdx) => {
                                                 const dropdownOpen = outfitLoraDropdown?.outfitIndex === outfitIdx && outfitLoraDropdown?.loraIndex === loraIdx;
                                                 const q = outfitLoraSearchQuery.trim().toLowerCase();
@@ -786,51 +791,52 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                     setLoraDropdownIdx(null);
                                                                     setOutfitLoraSearchQuery('');
                                                                 }}
-                                                                className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs cursor-pointer hover:border-green-500 transition-colors flex items-center justify-between"
+                                                                className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1.5 text-xs cursor-pointer hover:border-accent transition-colors flex items-center justify-between"
                                                             >
-                                                                <span className={`truncate ${lora.name ? 'text-gray-200' : 'text-gray-500'}`}>
+                                                                <span className={`truncate ${lora.name ? 'text-fg' : 'text-fg-muted'}`}>
                                                                     {lora.name || LORA.PLACEHOLDERS.SELECT_LORA}
                                                                 </span>
-                                                                <Search size={12} className="text-gray-500 shrink-0 ml-1" />
+                                                                <Search size={12} className="text-fg-muted shrink-0 ml-1" />
                                                             </div>
                                                             {lora.name && (
                                                                 <>
                                                                     <LoraStrengthInput value={lora.strengthModel}
                                                                         onCommit={v => updateOutfitLora(outfitIdx, loraIdx, 'strengthModel', v)}
                                                                         step={0.05} min={-2} max={2}
-                                                                        className="w-14 bg-gray-900 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 outline-none focus:border-green-500"
+                                                                        className="w-14 bg-surface border border-line-strong rounded px-1 py-1 text-xs text-fg outline-none focus:border-accent"
                                                                         title={LORA.LABELS.STRENGTH} />
                                                                     <button onClick={() => removeOutfitLora(outfitIdx, loraIdx)}
-                                                                        className="p-0.5 text-gray-500 hover:text-red-400 transition-colors" title={COMMON.BUTTONS.DELETE}>
+                                                                        className="p-0.5 text-fg-muted hover:text-danger transition-colors" title={COMMON.BUTTONS.DELETE}>
                                                                         <Trash2 size={14} />
                                                                     </button>
                                                                 </>
                                                             )}
                                                             {!lora.name && !isEmptyLast && (
                                                                 <button onClick={() => removeOutfitLora(outfitIdx, loraIdx)}
-                                                                    className="p-0.5 text-gray-500 hover:text-red-400 transition-colors">
+                                                                    className="p-0.5 text-fg-muted hover:text-danger transition-colors">
                                                                     <Trash2 size={14} />
                                                                 </button>
                                                             )}
                                                         </div>
                                                         {dropdownOpen && (
-                                                            <div className="bg-gray-900 border border-gray-600 rounded-lg overflow-hidden">
-                                                                <div className="p-2 border-b border-gray-700">
+                                                            <div className="bg-surface border border-line-strong rounded-lg overflow-hidden">
+                                                                <div className="p-2 border-b border-line-strong">
                                                                     <div className="relative">
-                                                                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                                                        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
                                                                         <input type="text" value={outfitLoraSearchQuery}
                                                                             onChange={(e) => setOutfitLoraSearchQuery(e.target.value)}
                                                                             placeholder={LORA.PLACEHOLDERS.SEARCH_LORA} autoFocus
-                                                                            className="w-full bg-gray-950 border border-gray-700 rounded pl-7 pr-3 py-1 text-xs text-gray-200 placeholder-gray-500 outline-none focus:border-green-500" />
+                                                                            className="w-full bg-bg border border-line-strong rounded pl-7 pr-3 py-1 text-xs text-fg placeholder-fg-muted outline-none focus:border-accent" />
                                                                     </div>
                                                                 </div>
-                                                                <div className="max-h-36 overflow-y-auto custom-scrollbar">
+                                                                <div ref={outfitLoraListRef} className="relative max-h-36 overflow-y-auto custom-scrollbar">
                                                                     {filtered.length > 0 ? (
                                                                         filtered.map(loraName => (
                                                                             <button key={loraName}
                                                                                 onClick={() => selectOutfitLora(outfitIdx, loraIdx, loraName)}
+                                                                                data-selected={lora.name === loraName}
                                                                                 className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                                                                                    lora.name === loraName ? 'bg-green-600/30 text-green-200' : 'text-gray-300 hover:bg-gray-700'
+                                                                                    lora.name === loraName ? 'bg-ok/10 text-ok' : 'text-fg-muted hover:bg-surface-2'
                                                                                 }`}>
                                                                                 {loraName}
                                                                             </button>
@@ -838,7 +844,7 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                                                     ) : comfyUnreachable ? (
                                                                         <LoraUnreachableNotice visible compact onRetry={onRefreshLoras} uiCatalog={uiCatalog} />
                                                                     ) : (
-                                                                        <p className="px-3 py-2 text-xs text-gray-500">{LORA.MESSAGES.NO_RESULTS}</p>
+                                                                        <p className="px-3 py-2 text-xs text-fg-muted">{LORA.MESSAGES.NO_RESULTS}</p>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -851,61 +857,47 @@ export const IntegratedCharacterSection: React.FC<Props> = ({
                                 ))
                             )}
                         </div>
-                        <p className="text-xs text-gray-600">{CHARACTER.HELP.OUTFIT_DESC}</p>
+                        <p className="text-xs text-fg-muted">{CHARACTER.HELP.OUTFIT_DESC}</p>
                     </div>
 
                     {/* 追加ポジティブ */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">
+                        <label className="text-sm font-medium text-fg-muted">
                             {CHARACTER.LABELS.EXTRA_POSITIVE}
-                            <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.EXTRA_POSITIVE_PLACEHOLDER}</span>
+                            <span className="text-xs text-fg-muted ml-2">{CHARACTER.HELP.EXTRA_POSITIVE_PLACEHOLDER}</span>
                         </label>
                         <input
                             type="text"
                             value={config.extraPositive}
                             onChange={(e) => onUpdateConfig('extraPositive', e.target.value)}
                             placeholder={CHARACTER.PLACEHOLDERS.EXTRA_POSITIVE}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                         />
                     </div>
 
                     {/* 追加ネガティブ */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-400">
+                        <label className="text-sm font-medium text-fg-muted">
                             {CHARACTER.LABELS.EXTRA_NEGATIVE}
-                            <span className="text-xs text-gray-600 ml-2">{CHARACTER.HELP.EXTRA_NEGATIVE_PLACEHOLDER}</span>
+                            <span className="text-xs text-fg-muted ml-2">{CHARACTER.HELP.EXTRA_NEGATIVE_PLACEHOLDER}</span>
                         </label>
                         <input
                             type="text"
                             value={config.extraNegative}
                             onChange={(e) => onUpdateConfig('extraNegative', e.target.value)}
                             placeholder={CHARACTER.PLACEHOLDERS.EXTRA_NEGATIVE}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors"
                         />
                     </div>
                     </>)}
 
                     {/* 保存ボタン */}
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-700/50">
-                        <div className="text-sm">
-                            {saveMessage && (
-                                <span className={saveMessage === COMMON.MESSAGES.SAVE_FAILED ? 'text-red-400' : 'text-green-400'}>
-                                    {saveMessage}
-                                </span>
-                            )}
-                        </div>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving || !isDirty}
-                            className="px-4 py-2 text-sm text-white bg-pink-600 hover:bg-pink-500 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
-                        >
-                            <Save size={14} />
-                            {isSaving ? COMMON.BUTTONS.SAVING : COMMON.BUTTONS.SAVE}
-                        </button>
-                    </div>
+                    {!hideSaveButton && (
+                        <CharacterSaveBar onSave={onSave} uiCatalog={uiCatalog} className="pt-2 border-t border-line-strong" />
+                    )}
                 </>
             ) : (
-                <p className="text-sm text-gray-600 text-center py-4">{CHARACTER.MESSAGES.SELECT_CHARACTER}</p>
+                <p className="text-sm text-fg-muted text-center py-4">{CHARACTER.MESSAGES.SELECT_CHARACTER}</p>
             )}
             {appearancePrompt && (
                 <AppearancePromptPanel

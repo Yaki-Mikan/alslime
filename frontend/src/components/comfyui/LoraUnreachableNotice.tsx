@@ -38,7 +38,7 @@ export const LoraUnreachableNotice: React.FC<Props> = ({ visible, onRetry, uiCat
         <button
             onClick={handleRetry}
             disabled={isRetrying}
-            className="flex items-center gap-1 px-2 py-1 border border-amber-700 rounded hover:bg-amber-900/40 transition-colors disabled:opacity-50 shrink-0"
+            className="flex items-center gap-1 px-2 py-1 border border-warn/40 rounded hover:bg-warn/10 transition-colors disabled:opacity-50 shrink-0"
         >
             <RefreshCw size={12} className={isRetrying ? 'animate-spin' : ''} />
             {COMMON.MESSAGES.LORA_RETRY}
@@ -47,7 +47,7 @@ export const LoraUnreachableNotice: React.FC<Props> = ({ visible, onRetry, uiCat
 
     if (compact) {
         return (
-            <div className="px-3 py-2 space-y-1.5 text-xs text-amber-300">
+            <div className="px-3 py-2 space-y-1.5 text-xs text-warn">
                 <p className="flex items-start gap-1.5">
                     <AlertCircle size={12} className="mt-0.5 shrink-0" />
                     <span>{COMMON.MESSAGES.LORA_UNREACHABLE_SHORT}</span>
@@ -58,7 +58,7 @@ export const LoraUnreachableNotice: React.FC<Props> = ({ visible, onRetry, uiCat
     }
 
     return (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-amber-950/30 border border-amber-800/50 text-amber-300">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-warn/10 border border-warn/40 text-warn">
             <AlertCircle size={14} className="shrink-0" />
             <span className="flex-1">{COMMON.MESSAGES.LORA_UNREACHABLE}</span>
             {retryButton}

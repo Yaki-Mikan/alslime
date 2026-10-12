@@ -3,7 +3,7 @@
  *
  * モデル一覧の正本は「内蔵デフォルト＋ユーザー設定（user-models.json）のマージ」。
  * 本モジュールは編集モーダル用の取得・保存と、疎通確認（ping）を提供する。
- * 一覧本体は従来どおり GET /api/models（useChat / SettingsModal が取得）。
+ * 一覧本体は従来どおり GET /api/models（useChat / 設定画面の AI と接続が取得）。
  */
 
 import axios from '../lib/axios';

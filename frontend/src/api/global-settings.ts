@@ -26,10 +26,11 @@ export interface GlobalSettings {
     regenerateClaudeEffort?: RegenerateClaudeEffort; // 別モデル再生成でClaudeへ渡すeffort（未保持 = Low）
     regenerateAntigravityThinking?: AntigravityThinking; // 別モデル再生成でAntigravityへ渡すThinkingレベル（未保持 = Low）
     antigravityStreamGuardLimit?: number; // Antigravity streamGenerateContent 呼び出し上限
+    chatResponseTimeoutMinutes?: number;  // 会話の応答を待つ時間（分）
     [key: string]: any;                // その他の設定
 }
 
-// 起動時に Chat / useChat / RolePlaySettings / AIModelSettingsModal がそれぞれ独立に
+// 起動時に Chat / useChat / RolePlaySettings / 設定画面の AI と接続がそれぞれ独立に
 // 取得して重複リクエストになるため、TTL 付きでキャッシュする。同時要求は in-flight の
 // Promise を共有して 1 リクエストにまとめ、updateGlobalSettings 成功時は無効化して
 // 次回取得で最新を読み直す。

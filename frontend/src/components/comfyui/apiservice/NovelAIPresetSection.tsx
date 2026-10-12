@@ -45,7 +45,7 @@ interface NovelAIPresetSectionProps {
     onPresetsChanged: () => Promise<void> | void;
     /** 接続テストで取れた無料枠。無ければ Opus の既定条件で警告する */
     freeTier?: NovelAIFreeTier | null;
-    /** 見出しを出さない（統合設定の右ペインなど、外側に見出しがある場合） */
+    /** 見出しを出さない（素材づくりの画像生成のタブなど、外側に見出しがある場合） */
     hideHeading?: boolean;
     /** 選択中のプリセット名が変わるたびに親へ通知する（テスト生成で使うプリセットの連動用） */
     onSelectedChange?: (name: string) => void;
@@ -117,8 +117,8 @@ const clonePreset = (preset: NovelAIPreset): NovelAIPreset => ({
     ),
 });
 
-const inputClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors disabled:opacity-50';
-const labelClass = 'text-xs text-gray-500';
+const inputClass = 'w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors disabled:opacity-50';
+const labelClass = 'text-xs text-fg-muted';
 
 export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
     backendUrl,
@@ -354,8 +354,8 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
     return (
         <div className="space-y-3">
             {!hideHeading && (
-                <h4 className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                    <Sparkles size={16} className="text-green-400" />
+                <h4 className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                    <Sparkles size={16} className="text-accent" />
                     {NOVELAI.SECTIONS.PRESET}
                 </h4>
             )}
@@ -376,14 +376,14 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                         }}
                         onBlur={() => void handleRename()}
                         autoFocus
-                        className="flex-1 bg-gray-900 border border-green-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 outline-none"
+                        className="flex-1 bg-surface border border-accent rounded-lg px-3 py-1.5 text-sm text-fg outline-none"
                     />
                 ) : (
                     <select
                         value={selectedName}
                         onChange={(e) => selectPreset(e.target.value)}
                         disabled={presets.length === 0}
-                        className="flex-1 bg-gray-800 border border-green-600 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:border-green-400 outline-none disabled:opacity-50"
+                        className="flex-1 bg-surface border border-accent rounded-lg px-3 py-1.5 text-sm text-fg focus:border-accent outline-none disabled:opacity-50"
                     >
                         {presets.length === 0 && <option value="">{API_SERVICE.MESSAGES.NO_PRESET}</option>}
                         {presets.map(p => (
@@ -391,16 +391,16 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                         ))}
                     </select>
                 )}
-                <button type="button" onClick={handleNew} disabled={isSaving} title={NOVELAI.BUTTONS.NEW} className="p-2 text-gray-500 hover:text-green-400 transition-colors disabled:opacity-30">
+                <button type="button" onClick={handleNew} disabled={isSaving} title={NOVELAI.BUTTONS.NEW} className="p-2 text-fg-muted hover:text-ok transition-colors disabled:opacity-30">
                     <Plus size={16} />
                 </button>
-                <button type="button" onClick={handleCopy} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.COPY} className="p-2 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-30">
+                <button type="button" onClick={handleCopy} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.COPY} className="p-2 text-fg-muted hover:text-accent transition-colors disabled:opacity-30">
                     <Copy size={16} />
                 </button>
-                <button type="button" onClick={() => setRenaming(selectedName)} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.RENAME} className="p-2 text-gray-500 hover:text-amber-400 transition-colors disabled:opacity-30">
+                <button type="button" onClick={() => setRenaming(selectedName)} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.RENAME} className="p-2 text-fg-muted hover:text-warn transition-colors disabled:opacity-30">
                     <Pencil size={16} />
                 </button>
-                <button type="button" onClick={handleDelete} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.DELETE} className="p-2 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-30">
+                <button type="button" onClick={handleDelete} disabled={isSaving || !selectedName} title={NOVELAI.BUTTONS.DELETE} className="p-2 text-fg-muted hover:text-danger transition-colors disabled:opacity-30">
                     <Trash2 size={16} />
                 </button>
             </div>
@@ -408,7 +408,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
             {draft && catalog && values && (
                 <div className="space-y-3">
                     {showFreeTierWarning && (
-                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs bg-amber-900/30 border border-amber-700/50 text-amber-200">
+                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs bg-warn/10 border border-warn/40 text-warn">
                             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                             <span>{formatComfyText(NOVELAI.HELP.FREE_TIER_WARNING, { anlas: estimateAnlasPerImage(draft.width, draft.height, draft.steps) })}</span>
                         </div>
@@ -420,7 +420,9 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                             <span className={labelClass}>{NOVELAI.LABELS.SIZE_PRESET}</span>
                             <select value={draft.sizePreset} onChange={(e) => changeSizePreset(e.target.value)} className={inputClass}>
                                 {catalog.sizePresets.map(p => (
-                                    <option key={p.id} value={p.id}>{p.label}</option>
+                                    <option key={p.id} value={p.id}>
+                                        {NOVELAI.SIZE_PRESETS[p.id] ? formatComfyText(NOVELAI.SIZE_PRESETS[p.id], { width: p.width, height: p.height }) : p.label}
+                                    </option>
                                 ))}
                                 <option value="custom">{NOVELAI.MESSAGES.CUSTOM_SIZE}</option>
                             </select>
@@ -435,14 +437,14 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                 <input type="number" min={64} max={1920} step={64} value={draft.height} disabled={draft.sizePreset !== 'custom'} onChange={(e) => update({ height: Number(e.target.value) })} className={inputClass} />
                             </label>
                         </div>
-                        {draft.sizePreset === 'custom' && <p className="text-xs text-gray-500">{NOVELAI.HELP.CUSTOM_SIZE}</p>}
+                        {draft.sizePreset === 'custom' && <p className="text-xs text-fg-muted">{NOVELAI.HELP.CUSTOM_SIZE}</p>}
                     </CollapsibleSection>
 
                     {/* プロンプト */}
                     <CollapsibleSection title={NOVELAI.SECTIONS.PROMPT}>
                         <div className="space-y-1">
                             <span className={labelClass}>{NOVELAI.LABELS.MODE}</span>
-                            <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-1" role="tablist" aria-label={NOVELAI.LABELS.MODE}>
+                            <div className="flex rounded-lg border border-line-strong bg-surface p-1" role="tablist" aria-label={NOVELAI.LABELS.MODE}>
                                 {([
                                     { furry: false, label: NOVELAI.LABELS.MODE_ANIME },
                                     { furry: true, label: NOVELAI.LABELS.MODE_FURRY },
@@ -456,7 +458,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                             aria-selected={selected}
                                             onClick={() => update({ furryMode: option.furry })}
                                             className={`flex-1 px-3 py-1.5 text-sm rounded transition-colors ${
-                                                selected ? 'bg-green-700 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                                selected ? 'bg-accent text-on-accent' : 'text-fg-muted hover:bg-surface-2'
                                             }`}
                                         >
                                             {option.label}
@@ -465,14 +467,14 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                 })}
                             </div>
                         </div>
-                        <p className="text-xs text-gray-500">{NOVELAI.HELP.FURRY_MODE}</p>
+                        <p className="text-xs text-fg-muted">{NOVELAI.HELP.FURRY_MODE}</p>
 
                         {/* ベースプロンプトと、その下の Quality Tags・透過背景 */}
                         <label className="space-y-1 block">
                             <span className={labelClass}>{NOVELAI.LABELS.FIXED_POSITIVE}</span>
                             <textarea rows={4} value={draft.fixedPositive} onChange={(e) => update({ fixedPositive: e.target.value })} className={`${inputClass} resize-y`} />
                         </label>
-                        <div className="pl-3 border-l border-gray-700 space-y-2">
+                        <div className="pl-3 border-l border-line-strong space-y-2">
                             <label className="space-y-1 block">
                                 <span className={labelClass}>{NOVELAI.LABELS.QUALITY_TAGS}</span>
                                 <select
@@ -488,7 +490,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                     ))}
                                 </select>
                             </label>
-                            {hasUnavailableQuality && <p className="text-xs text-gray-500">{NOVELAI.HELP.NOT_IN_MODEL}</p>}
+                            {hasUnavailableQuality && <p className="text-xs text-fg-muted">{NOVELAI.HELP.NOT_IN_MODEL}</p>}
                             {qualityKind !== 'none' && (
                                 <div className="space-y-1">
                                     <div className="flex items-center justify-between gap-2">
@@ -497,7 +499,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                             type="button"
                                             onClick={resetQualityText}
                                             disabled={!qualityTextEdited}
-                                            className="flex items-center gap-1 text-xs text-gray-400 hover:text-green-300 disabled:opacity-30 transition-colors"
+                                            className="flex items-center gap-1 text-xs text-fg-muted hover:text-ok disabled:opacity-30 transition-colors"
                                         >
                                             <RotateCcw size={12} />
                                             {NOVELAI.BUTTONS.RESET_QUALITY_TAGS_TEXT}
@@ -510,14 +512,14 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                         className={`${inputClass} resize-y`}
                                         aria-label={NOVELAI.LABELS.QUALITY_TAGS_TEXT}
                                     />
-                                    <p className="text-xs text-amber-300/80">{NOVELAI.HELP.MODEL_VALUES_NOTE}</p>
+                                    <p className="text-xs text-warn/80">{NOVELAI.HELP.MODEL_VALUES_NOTE}</p>
                                 </div>
                             )}
                             {/* 透過背景は V5 のときだけ表示する（V5 用に保存してある値は消えない） */}
                             {model?.supportsTransparent && (
                                 <>
                                     <ToggleSwitch checked={values.transparentBackground} onChange={(v) => updateValues({ transparentBackground: v })} label={NOVELAI.LABELS.TRANSPARENT} labelPosition="right" accent="green" size="sm" />
-                                    <p className="text-xs text-gray-500">{NOVELAI.HELP.TRANSPARENT}</p>
+                                    <p className="text-xs text-fg-muted">{NOVELAI.HELP.TRANSPARENT}</p>
                                 </>
                             )}
                         </div>
@@ -527,7 +529,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                             <span className={labelClass}>{NOVELAI.LABELS.FIXED_NEGATIVE}</span>
                             <textarea rows={4} value={draft.fixedNegative} onChange={(e) => update({ fixedNegative: e.target.value })} className={`${inputClass} resize-y`} />
                         </label>
-                        <div className="pl-3 border-l border-gray-700 space-y-2">
+                        <div className="pl-3 border-l border-line-strong space-y-2">
                             <label className="space-y-1 block">
                                 <span className={labelClass}>{NOVELAI.LABELS.UC_PRESET}</span>
                                 <select
@@ -543,9 +545,9 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                                     ))}
                                 </select>
                             </label>
-                            {hasUnavailableUC && <p className="text-xs text-gray-500">{NOVELAI.HELP.NOT_IN_MODEL}</p>}
+                            {hasUnavailableUC && <p className="text-xs text-fg-muted">{NOVELAI.HELP.NOT_IN_MODEL}</p>}
                         </div>
-                        <p className="text-xs text-gray-500">{NOVELAI.HELP.FIXED_PROMPT}</p>
+                        <p className="text-xs text-fg-muted">{NOVELAI.HELP.FIXED_PROMPT}</p>
 
                         <label className="space-y-1 block">
                             <span className={labelClass}>{NOVELAI.LABELS.TEMPLATE_BASE}</span>
@@ -559,7 +561,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                             <span className={labelClass}>{NOVELAI.LABELS.TEMPLATE_NEGATIVE}</span>
                             <textarea rows={2} value={draft.promptTemplate.negative} onChange={(e) => update({ promptTemplate: { ...draft.promptTemplate, negative: e.target.value } })} className={inputClass} />
                         </label>
-                        <p className="text-xs text-gray-500">{NOVELAI.HELP.TEMPLATE}</p>
+                        <p className="text-xs text-fg-muted">{NOVELAI.HELP.TEMPLATE}</p>
                     </CollapsibleSection>
 
                     {/* 高度な設定 */}
@@ -611,7 +613,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                             )}
                         </div>
                         <ToggleSwitch checked={values.varietyBoost} onChange={(v) => updateValues({ varietyBoost: v })} label={NOVELAI.LABELS.VARIETY_BOOST} labelPosition="right" accent="green" size="sm" disabled={!model || model.varietyBoostSigma <= 0} />
-                        {model && model.varietyBoostSigma <= 0 && <p className="text-xs text-gray-500">{NOVELAI.HELP.VARIETY_UNAVAILABLE}</p>}
+                        {model && model.varietyBoostSigma <= 0 && <p className="text-xs text-fg-muted">{NOVELAI.HELP.VARIETY_UNAVAILABLE}</p>}
                     </CollapsibleSection>
 
                     {/* 画像出力形式（透過背景が ON のときは PNG のみ） */}
@@ -633,7 +635,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
 
                     <div className="flex items-center justify-end gap-3">
                         {notice && (
-                            <span className={`flex items-center gap-1 text-xs ${notice.ok ? 'text-green-300' : 'text-red-300'}`}>
+                            <span className={`flex items-center gap-1 text-xs ${notice.ok ? 'text-ok' : 'text-danger'}`}>
                                 {notice.ok ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
                                 {notice.text}
                             </span>
@@ -642,7 +644,7 @@ export const NovelAIPresetSection: React.FC<NovelAIPresetSectionProps> = ({
                             type="button"
                             onClick={handleSave}
                             disabled={isSaving || !draft.name.trim()}
-                            className="px-4 py-2 text-sm text-white bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5"
+                            className="px-4 py-2 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5"
                         >
                             {isSaving && <Loader2 size={14} className="animate-spin" />}
                             {isSaving ? COMMON.BUTTONS.SAVING : COMMON.BUTTONS.SAVE}

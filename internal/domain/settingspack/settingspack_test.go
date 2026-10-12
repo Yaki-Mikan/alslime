@@ -25,7 +25,7 @@ func TestClassify_分類テーブル(t *testing.T) {
 		{"デフォルト項目設定", config.ParameterSchemaDefaultFile, ClassSchema, "parameterSchemas"},
 		{"カスタム項目設定", config.ParameterSchemaCustomDir + "/parameter-schema-abc.json", ClassSchema, "parameterSchemas"},
 		{"パラメータプリセット", config.ParameterNormalModePresetDir + "/parameter-presets-abc.json", ClassSchema, "parameterPresets"},
-		{"SSRPプリセット", config.PresetSSRPAllDir + "/デート.json", ClassSchema, "ssrpPresets"},
+		{"準備・調整のプリセット", config.PresetSSRPAllDir + "/デート.json", ClassSchema, "ssrpPresets"},
 		{"日付時刻プリセット", config.DateTimePresetsFile, ClassSchema, "datetimePresets"},
 		{"キャラフィルタ", config.CharacterFiltersFile, ClassConfig, "characterFilters"},
 		{"生成プロファイル", config.ComfyUIProfileDir + "/nsfw.json", ClassImageGen, "comfyProfiles"},

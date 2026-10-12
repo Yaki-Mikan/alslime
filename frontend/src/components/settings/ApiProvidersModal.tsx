@@ -10,7 +10,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Plug, Plus, Loader2, Trash2, Pencil, Radio, Power } from 'lucide-react';
 import { BACKEND_URL } from '../../api/base-url';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { formatSlashPair, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import {
     API_PROVIDERS_I18N_KEYS as K,
     API_PROVIDERS_TEXT_FALLBACK_JA,
@@ -417,10 +417,10 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
     const noticeKeys = currentPreset?.noticeKeys ?? [];
 
     const renderModelPicker = () => (
-        <div className="border border-gray-700 rounded-lg p-3 space-y-2">
-            <h4 className="text-sm text-gray-200">{t(K.pickerTitle)}</h4>
+        <div className="border border-line-strong rounded-lg p-3 space-y-2">
+            <h4 className="text-sm text-fg">{t(K.pickerTitle)}</h4>
             {pickerError && (
-                <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2" role="alert">
+                <p className="text-sm text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2" role="alert">
                     {pickerError}
                 </p>
             )}
@@ -430,14 +430,14 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                     value={pickerSearch}
                     onChange={e => setPickerSearch(e.target.value)}
                     placeholder={t(K.pickerSearch)}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500"
+                    className="w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
                 />
             )}
             <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-0.5">
                 {pickerModels
                     .filter(m => pickerSearch === '' || m.id.toLowerCase().includes(pickerSearch.toLowerCase()))
                     .map(m => (
-                        <label key={m.id} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:bg-gray-800 rounded px-1 py-0.5">
+                        <label key={m.id} className="flex items-center gap-2 text-xs text-fg-muted cursor-pointer hover:bg-surface rounded px-1 py-0.5">
                             <input
                                 type="checkbox"
                                 checked={pickerChecked.has(m.id)}
@@ -450,9 +450,9 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                 })}
                             />
                             <span className="font-mono break-all">{m.id}</span>
-                            {m.name && <span className="text-gray-500">{m.name}</span>}
+                            {m.name && <span className="text-fg-muted">{m.name}</span>}
                             {userModels.some(um => um.connectionId === editingId && um.remoteModelId === m.id) && (
-                                <span className="text-[10px] text-emerald-500">{t(K.pickerRegistered)}</span>
+                                <span className="text-xs text-ok">{t(K.pickerRegistered)}</span>
                             )}
                         </label>
                     ))}
@@ -463,7 +463,7 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                     value={pickerManualId}
                     onChange={e => setPickerManualId(e.target.value)}
                     placeholder={t(K.pickerManual)}
-                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 font-mono"
+                    className="flex-1 bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-fg outline-none focus:border-accent font-mono"
                 />
                 <button
                     onClick={() => {
@@ -477,12 +477,12 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                         setPickerDirty(true);
                         setPickerManualId('');
                     }}
-                    className="px-2 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200 shrink-0"
+                    className="px-2 py-1.5 text-xs bg-surface-2 hover:bg-surface-2 rounded text-fg shrink-0"
                 >
                     {t(K.pickerManualAdd)}
                 </button>
             </div>
-            <p className="text-xs text-gray-500">{t('apiProviders.saveHint')}</p>
+            <p className="text-xs text-fg-muted">{t('apiProviders.saveHint')}</p>
         </div>
     );
 
@@ -491,17 +491,17 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-2xl border border-gray-700 overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-2xl border border-line-strong overflow-hidden flex flex-col max-h-[85vh]">
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface shrink-0">
                     <div className="flex items-center gap-2">
-                        <Plug size={18} className="text-emerald-400" />
-                        <h3 className="font-semibold text-gray-100 text-base">{t(K.title)}</h3>
+                        <Plug size={18} className="text-accent" />
+                        <h3 className="font-semibold text-fg text-base">{t(K.title)}</h3>
                     </div>
                     <button
                         onClick={onClose}
                         aria-label={t(K.closeAria)}
-                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                        className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                     >
                         <X size={18} />
                     </button>
@@ -509,54 +509,52 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
 
                 <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar">
                     {error && (
-                        <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">{error}</p>
+                        <p className="text-sm text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2">{error}</p>
                     )}
 
                     {view === 'list' && (
                         <>
                             <button
                                 onClick={openCreate}
-                                className="flex items-center gap-2 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-sm text-white transition-colors"
+                                className="flex items-center gap-2 px-3 py-2 bg-accent hover:brightness-110 rounded-lg text-sm text-on-accent transition-colors"
                             >
                                 <Plus size={16} />
                                 {t(K.add)}
                             </button>
 
                             {loading && (
-                                <p className="text-sm text-gray-400 flex items-center gap-2">
+                                <p className="text-sm text-fg-muted flex items-center gap-2">
                                     <Loader2 size={14} className="animate-spin" />{t(K.loading)}
                                 </p>
                             )}
                             {!loading && connections.length === 0 && (
-                                <p className="text-sm text-gray-500">{t(K.emptyState)}</p>
+                                <p className="text-sm text-fg-muted">{t(K.emptyState)}</p>
                             )}
 
                             {connections.map(conn => (
                                 <div
                                     key={conn.id}
-                                    className={`border rounded-lg p-3 space-y-1 ${conn.enabled ? 'border-gray-700 bg-gray-800/60' : 'border-gray-800 bg-gray-900 opacity-60'}`}
+                                    className={`border rounded-lg p-3 space-y-1 ${conn.enabled ? 'border-line-strong bg-surface' : 'border-line bg-surface opacity-60'}`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <span className="text-sm font-medium text-gray-100">{conn.label}</span>
-                                        <span className="text-xs text-gray-500">{conn.preset}</span>
+                                        <span className="text-sm font-medium text-fg">{conn.label}</span>
+                                        <span className="text-xs text-fg-muted">{conn.preset}</span>
                                         {!conn.enabled && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">{t(K.disabledBadge)}</span>
+                                            <span className="text-xs px-1.5 py-0.5 rounded bg-surface-2 text-fg-muted">{t(K.disabledBadge)}</span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-gray-500 break-all">{conn.baseUrl}</p>
-                                    <p className="text-xs text-gray-400">
-                                        {conn.hasApiKey ? t(K.keyStatusSet) : t(K.keyStatusUnset)}
-                                        {' ／ '}
-                                        {formatText(t(K.modelCount), { n: modelCountOf(conn.id) })}
+                                    <p className="text-xs text-fg-muted break-all">{conn.baseUrl}</p>
+                                    <p className="text-xs text-fg-muted">
+                                        {formatSlashPair(uiCatalog, conn.hasApiKey ? t(K.keyStatusSet) : t(K.keyStatusUnset), formatText(t(K.modelCount), { n: modelCountOf(conn.id) }))}
                                     </p>
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                        <button onClick={() => openEdit(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200">
+                                        <button onClick={() => openEdit(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-2 hover:bg-surface-2 rounded text-fg">
                                             <Pencil size={12} />{t(K.edit)}
                                         </button>
-                                        <button onClick={() => handleToggleEnabled(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200">
+                                        <button onClick={() => handleToggleEnabled(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-2 hover:bg-surface-2 rounded text-fg">
                                             <Power size={12} />{conn.enabled ? t(K.disable) : t(K.enable)}
                                         </button>
-                                        <button onClick={() => handleDeleteRequest(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-red-900/60 hover:bg-red-800 rounded text-red-200">
+                                        <button onClick={() => handleDeleteRequest(conn)} className="flex items-center gap-1 px-2 py-1 text-xs bg-danger/10 hover:brightness-110 rounded text-danger">
                                             <Trash2 size={12} />{t(K.delete)}
                                         </button>
                                     </div>
@@ -568,16 +566,16 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                     {view === 'edit' && (
                         <div className="space-y-4">
                             {formError && (
-                                <p className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2">{formError}</p>
+                                <p className="text-sm text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2">{formError}</p>
                             )}
 
                             {/* プリセット */}
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.preset)}</label>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.preset)}</label>
                                 <select
                                     value={form.preset}
                                     onChange={e => applyPreset(e.target.value)}
-                                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                                    className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                                 >
                                     {presets.map(p => (
                                         <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
@@ -587,29 +585,29 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
 
                             {/* 表示名・ベースURL・認証方式 */}
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.label)}</label>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.label)}</label>
                                 <input
                                     type="text"
                                     value={form.label}
                                     onChange={e => setForm(prev => ({ ...prev, label: e.target.value }))}
-                                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                                    className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                                 />
                             </div>
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.baseUrl)}</label>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.baseUrl)}</label>
                                 <input
                                     type="text"
                                     value={form.baseUrl}
                                     onChange={e => setForm(prev => ({ ...prev, baseUrl: e.target.value }))}
-                                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 font-mono"
+                                    className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent font-mono"
                                 />
                             </div>
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.authScheme)}</label>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.authScheme)}</label>
                                 <select
                                     value={form.authScheme}
                                     onChange={e => setForm(prev => ({ ...prev, authScheme: e.target.value }))}
-                                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+                                    className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                                 >
                                     {AUTH_SCHEMES.map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
@@ -617,15 +615,15 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
 
                             {/* APIキー（3状態機械） */}
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.apiKey)}</label>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.apiKey)}</label>
                                 <div className="flex items-center gap-2">
                                     <div className="flex-1 min-w-0">
                                         {form.keyState === 'clearPending' ? (
                                             <div className="flex items-center gap-2 min-h-10">
-                                                <span className="text-xs text-amber-400">{t(K.apiKeyClearPending)}</span>
+                                                <span className="text-xs text-warn">{t(K.apiKeyClearPending)}</span>
                                                 <button
                                                     onClick={() => setForm(prev => ({ ...prev, keyState: 'entering', keyInput: '' }))}
-                                                    className="text-xs text-blue-400 hover:underline"
+                                                    className="text-xs text-accent hover:underline"
                                                 >
                                                     {t(K.apiKeyReenter)}
                                                 </button>
@@ -643,12 +641,12 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                                         keyInput: e.target.value,
                                                         keyState: apiKeyStateAfterInput(e.target.value),
                                                     }))}
-                                                    className="flex-1 min-w-0 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 font-mono"
+                                                    className="flex-1 min-w-0 bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent font-mono"
                                                 />
                                                 {connections.find(c => c.id === editingId)?.hasApiKey && (
                                                     <button
                                                         onClick={() => setKeyClearConfirmOpen(true)}
-                                                        className="px-2 py-1.5 text-xs bg-red-900/60 hover:bg-red-800 rounded text-red-200 shrink-0"
+                                                        className="px-2 py-1.5 text-xs bg-danger/10 hover:brightness-110 rounded text-danger shrink-0"
                                                     >
                                                         {t(K.apiKeyClear)}
                                                     </button>
@@ -659,27 +657,27 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                     <button
                                         onClick={handleTest}
                                         disabled={testing || saving}
-                                        className="flex items-center gap-1 px-3 py-2 text-sm bg-emerald-700 hover:bg-emerald-600 rounded-lg text-white disabled:opacity-50 shrink-0"
+                                        className="flex items-center gap-1 px-3 py-2 text-sm bg-accent hover:brightness-110 rounded-lg text-on-accent disabled:opacity-50 shrink-0"
                                     >
                                         {testing ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}
                                         {t(K.test)}
                                     </button>
                                 </div>
-                                <p className="text-xs text-gray-500 mt-1">{t(K.apiKeyNote)}</p>
-                                <p className="text-xs text-gray-500 mt-1">{t(K.testAutoSaveNote)}</p>
+                                <p className="text-xs text-fg-muted mt-1">{t(K.apiKeyNote)}</p>
+                                <p className="text-xs text-fg-muted mt-1">{t(K.testAutoSaveNote)}</p>
                             </div>
 
                             {/* APIキーの直下で疎通結果と利用モデルを確認・選択する。 */}
                             {testResult && !testResult.success && (
-                                <div className="text-sm text-red-400 bg-red-950/30 border border-red-900/50 rounded px-3 py-2 space-y-1">
+                                <div className="text-sm text-danger bg-danger/10 border border-danger/40 rounded px-3 py-2 space-y-1">
                                     <p>{t(testResult.messageKey || 'apiProviders.testFailedOther')}</p>
                                     {testResult.details && (
-                                        <p className="text-xs text-red-300/80 break-all">{testResult.details}</p>
+                                        <p className="text-xs text-danger/80 break-all">{testResult.details}</p>
                                     )}
                                 </div>
                             )}
                             {testResult?.success && (
-                                <p className="text-sm text-emerald-400">{t(K.testSuccess)}</p>
+                                <p className="text-sm text-ok">{t(K.testSuccess)}</p>
                             )}
                             {editingId && (
                                 pickerModels.length > 0
@@ -687,11 +685,11 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                 || testResult?.failureKind === 'models_unavailable'
                             ) && renderModelPicker()}
                             {testResult && !testResult.success && testResult.failureKind === 'models_unavailable' && (
-                                <p className="text-xs text-gray-400">{t(K.testModelsUnavailable)}</p>
+                                <p className="text-xs text-fg-muted">{t(K.testModelsUnavailable)}</p>
                             )}
 
                             {/* SSE無効 */}
-                            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                            <label className="flex items-center gap-2 text-sm text-fg-muted cursor-pointer">
                                 <input
                                     type="checkbox"
                                     checked={form.forceNonStreaming}
@@ -699,12 +697,12 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                 />
                                 {t(K.forceNonStreaming)}
                             </label>
-                            <p className="text-xs text-gray-500 -mt-2">{t(K.forceNonStreamingNote)}</p>
+                            <p className="text-xs text-fg-muted -mt-2">{t(K.forceNonStreamingNote)}</p>
 
                             {/* 拡張パラメータ（JSON値入力） */}
                             <div>
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.extraParams)}</label>
-                                <p className="text-xs text-gray-500 mb-1">{t(K.extraParamsNote)}</p>
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.extraParams)}</label>
+                                <p className="text-xs text-fg-muted mb-1">{t(K.extraParamsNote)}</p>
                                 {form.extraParams.map((row, i) => (
                                     <React.Fragment key={i}>
                                     <div className="flex items-center gap-2 mb-1">
@@ -717,7 +715,7 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                                 return { ...prev, extraParams: rows };
                                             })}
                                             onInput={() => { if (extraParamError?.row === i) setExtraParamError(null); }}
-                                            className="w-1/3 bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 font-mono"
+                                            className="w-1/3 bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-fg outline-none focus:border-accent font-mono"
                                         />
                                         <input
                                             type="text"
@@ -728,49 +726,49 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                                 return { ...prev, extraParams: rows };
                                             })}
                                             onInput={() => { if (extraParamError?.row === i) setExtraParamError(null); }}
-                                            className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 font-mono"
+                                            className="flex-1 bg-surface border border-line-strong rounded px-2 py-1.5 text-xs text-fg outline-none focus:border-accent font-mono"
                                         />
                                         <button
                                             onClick={() => setForm(prev => ({
                                                 ...prev,
                                                 extraParams: prev.extraParams.filter((_, idx) => idx !== i),
                                             }))}
-                                            className="text-xs text-gray-400 hover:text-red-300 shrink-0"
+                                            className="text-xs text-fg-muted hover:text-danger shrink-0"
                                         >
                                             {t(K.extraParamsRemoveRow)}
                                         </button>
                                     </div>
                                     {extraParamError?.row === i && (
-                                        <p className="text-xs text-red-400 mb-1" role="alert">{extraParamError.message}</p>
+                                        <p className="text-xs text-danger mb-1" role="alert">{extraParamError.message}</p>
                                     )}
                                     </React.Fragment>
                                 ))}
                                 <button
                                     onClick={() => setForm(prev => ({ ...prev, extraParams: [...prev.extraParams, { key: '', value: '' }] }))}
-                                    className="text-xs text-blue-400 hover:underline"
+                                    className="text-xs text-accent hover:underline"
                                 >
                                     {t(K.extraParamsAddRow)}
                                 </button>
                             </div>
 
                             {/* API基本指示は設定ファイルエディタで編集する。 */}
-                            <div className="border-t border-gray-700 pt-3">
-                                <label className="text-xs text-gray-400 block mb-1">{t(K.systemPrompt)}</label>
+                            <div className="border-t border-line-strong pt-3">
+                                <label className="text-xs text-fg-muted block mb-1">{t(K.systemPrompt)}</label>
                                 {!editingId ? (
-                                    <p className="text-xs text-gray-500">{t(K.systemPromptSaveFirst)}</p>
+                                    <p className="text-xs text-fg-muted">{t(K.systemPromptSaveFirst)}</p>
                                 ) : (
                                     <div className="space-y-2">
-                                        <p className="text-xs text-gray-500">{t(K.systemPromptEditorNote)}</p>
+                                        <p className="text-xs text-fg-muted">{t(K.systemPromptEditorNote)}</p>
                                         <div className="flex flex-wrap gap-2">
                                             <button
                                                 onClick={() => onOpenInstruction?.({ connectionId: editingId, preset: savedInstructionPreset, locale: 'ja' })}
-                                                className="px-2 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+                                                className="px-2 py-1.5 text-xs bg-surface-2 hover:bg-surface-2 rounded text-fg"
                                             >
                                                 {t(K.systemPromptOpenJa)}
                                             </button>
                                             <button
                                                 onClick={() => onOpenInstruction?.({ connectionId: editingId, preset: savedInstructionPreset, locale: 'en' })}
-                                                className="px-2 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+                                                className="px-2 py-1.5 text-xs bg-surface-2 hover:bg-surface-2 rounded text-fg"
                                             >
                                                 {t(K.systemPromptOpenEn)}
                                             </button>
@@ -782,7 +780,7 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                             {/* 注意書き（NoticeKeys。常時表示） */}
                             <div className="space-y-1">
                                 {noticeKeys.map(key => (
-                                    <p key={key} className="text-xs text-amber-300/80 bg-amber-950/20 border border-amber-900/40 rounded px-2 py-1.5">
+                                    <p key={key} className="text-xs text-warn/80 bg-warn/10 border border-warn/40 rounded px-2 py-1.5">
                                         {t(key)}
                                     </p>
                                 ))}
@@ -793,14 +791,14 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                 <button
                                     onClick={handleSaveAndBack}
                                     disabled={saving || pickerSaving}
-                                    className="flex items-center gap-1 px-3 py-2 text-sm bg-blue-700 hover:bg-blue-600 rounded-lg text-white disabled:opacity-50"
+                                    className="flex items-center gap-1 px-3 py-2 text-sm bg-accent hover:brightness-110 rounded-lg text-on-accent disabled:opacity-50"
                                 >
                                     {saving || pickerSaving ? <Loader2 size={14} className="animate-spin" /> : null}
                                     {saving || pickerSaving ? t(K.saving) : t(K.save)}
                                 </button>
                                 <button
                                     onClick={() => { setView('list'); setTestResult(null); }}
-                                    className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-200"
+                                    className="px-3 py-2 text-sm bg-surface-2 hover:bg-surface-2 rounded-lg text-fg"
                                 >
                                     {t(K.cancel)}
                                 </button>
@@ -814,13 +812,13 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
             {/* APIキー削除確認（破壊的操作は確認ダイアログ必須） */}
             {keyClearConfirmOpen && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
-                    <div className="bg-gray-900 rounded-xl border border-gray-700 p-5 w-full max-w-sm space-y-3">
-                        <h4 className="text-sm font-semibold text-gray-100">{t(K.keyClearConfirmTitle)}</h4>
-                        <p className="text-sm text-gray-300">{t(K.keyClearConfirmBody)}</p>
+                    <div className="bg-surface rounded-xl border border-line-strong p-5 w-full max-w-sm space-y-3">
+                        <h4 className="text-sm font-semibold text-fg">{t(K.keyClearConfirmTitle)}</h4>
+                        <p className="text-sm text-fg-muted">{t(K.keyClearConfirmBody)}</p>
                         <div className="flex justify-end gap-2">
                             <button
                                 onClick={() => setKeyClearConfirmOpen(false)}
-                                className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+                                className="px-3 py-1.5 text-sm bg-surface-2 hover:bg-surface-2 rounded text-fg"
                             >
                                 {t(K.cancel)}
                             </button>
@@ -830,7 +828,7 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                                     setForm(prev => ({ ...prev, keyState: 'clearPending', keyInput: '' }));
                                     setKeyClearConfirmOpen(false);
                                 }}
-                                className="px-3 py-1.5 text-sm bg-red-800 hover:bg-red-700 rounded text-red-100"
+                                className="px-3 py-1.5 text-sm bg-danger hover:brightness-110 rounded text-danger"
                             >
                                 {t(K.apiKeyClear)}
                             </button>
@@ -842,11 +840,11 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
             {/* 削除確認（dryRun 連動） */}
             {deleteTarget && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
-                    <div className="bg-gray-900 rounded-xl border border-gray-700 p-5 w-full max-w-md space-y-3">
-                        <h4 className="text-sm font-semibold text-gray-100">{t(K.deleteConfirmTitle)}</h4>
-                        <p className="text-sm text-gray-300">{deleteTarget.label}</p>
-                        <p className="text-sm text-gray-300">{t(K.deleteConfirmBody)}</p>
-                        <ul className="text-xs text-gray-400 list-disc pl-5 space-y-1">
+                    <div className="bg-surface rounded-xl border border-line-strong p-5 w-full max-w-md space-y-3">
+                        <h4 className="text-sm font-semibold text-fg">{t(K.deleteConfirmTitle)}</h4>
+                        <p className="text-sm text-fg-muted">{deleteTarget.label}</p>
+                        <p className="text-sm text-fg-muted">{t(K.deleteConfirmBody)}</p>
+                        <ul className="text-xs text-fg-muted list-disc pl-5 space-y-1">
                             {deleteTarget.dryRun.userModels.length > 0 && (
                                 <li>
                                     {t(K.deleteConfirmModels)}:
@@ -863,14 +861,14 @@ export const ApiProvidersModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog 
                         <div className="flex justify-end gap-2">
                             <button
                                 onClick={() => setDeleteTarget(null)}
-                                className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+                                className="px-3 py-1.5 text-sm bg-surface-2 hover:bg-surface-2 rounded text-fg"
                             >
                                 {t(K.cancel)}
                             </button>
                             <button
                                 onClick={handleDeleteExecute}
                                 disabled={deleting}
-                                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-800 hover:bg-red-700 rounded text-red-100 disabled:opacity-50"
+                                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-danger hover:brightness-110 rounded text-danger disabled:opacity-50"
                             >
                                 {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                                 {t(K.deleteExecute)}

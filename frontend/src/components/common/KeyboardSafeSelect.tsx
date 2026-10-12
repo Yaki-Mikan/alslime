@@ -16,6 +16,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronUp } from 'lucide-react';
 import { keepFocusOnPointerDown } from '../../lib/pointer';
+import {
+    MENU_ANCHOR_GAP,
+    MENU_VIEWPORT_MARGIN,
+    measureMenuVerticalLayout,
+} from './keyboardSafeSelectLayout';
 
 export interface KeyboardSafeSelectOption {
     value: string;
@@ -31,14 +36,12 @@ interface Props {
     title?: string;
     ariaLabel?: string;
     disabled?: boolean;
+    /** 選択肢リストを重ねてはならない上側の要素（チャット見出しなど） */
+    topBoundaryRef?: React.RefObject<HTMLElement | null>;
 }
 
-/** 選択肢リストと画面端の間に残す余白 */
-const MENU_VIEWPORT_MARGIN = 8;
 /** 選択肢リストの高さの上限 */
 const MENU_MAX_HEIGHT = 240;
-/** 上に開くだけの高さが無いときに下へ回すかを判断する下限 */
-const MENU_MIN_HEIGHT = 96;
 
 export const KeyboardSafeSelect: React.FC<Props> = ({
     value,
@@ -48,6 +51,7 @@ export const KeyboardSafeSelect: React.FC<Props> = ({
     title,
     ariaLabel,
     disabled = false,
+    topBoundaryRef,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     // キーボード操作でなぞっている選択肢。マウス／タッチ操作では使わない。
@@ -63,27 +67,28 @@ export const KeyboardSafeSelect: React.FC<Props> = ({
 
     // ボタンの位置から選択肢リストの表示位置を決める。
     // 入力欄は画面下部にあるので上方向を基本とし、上が狭ければ下へ回す。
+    // ソフトウェアキーボードで隠れた分は数えず、見えている範囲に収まる高さまで縮めて中をスクロールさせる
+    //（画面全体の高さで数えると、キーボードが出ているときにリストが見える範囲からはみ出して選べなくなる）。
+    // 上に開くときも top で置き、リスト自身の高さ分だけ持ち上げる。bottom で置くと、キーボードが
+    // 出ているときに bottom の基準と画面全体の高さが食い違い、その分リストが上へずれてはみ出す。
     const layoutMenu = useCallback(() => {
         const rect = buttonRef.current?.getBoundingClientRect();
         if (!rect) return;
 
-        const viewportHeight = document.documentElement.clientHeight;
-        const spaceAbove = rect.top - MENU_VIEWPORT_MARGIN;
-        const spaceBelow = viewportHeight - rect.bottom - MENU_VIEWPORT_MARGIN;
-        const opensUpward = spaceAbove >= MENU_MIN_HEIGHT || spaceAbove >= spaceBelow;
-        const available = opensUpward ? spaceAbove : spaceBelow;
+        const topBoundaryBottom = topBoundaryRef?.current?.getBoundingClientRect().bottom;
+        const { opensUpward, available } = measureMenuVerticalLayout(rect, topBoundaryBottom);
 
         setMenuStyle({
             position: 'fixed',
             left: Math.max(MENU_VIEWPORT_MARGIN, rect.left),
             minWidth: rect.width,
             maxWidth: `calc(100vw - ${MENU_VIEWPORT_MARGIN * 2}px)`,
-            maxHeight: Math.max(MENU_MIN_HEIGHT, Math.min(MENU_MAX_HEIGHT, available)),
+            maxHeight: Math.min(MENU_MAX_HEIGHT, available),
             ...(opensUpward
-                ? { bottom: viewportHeight - rect.top + 4 }
-                : { top: rect.bottom + 4 }),
+                ? { top: rect.top - MENU_ANCHOR_GAP, transform: 'translateY(-100%)' }
+                : { top: rect.bottom + MENU_ANCHOR_GAP }),
         });
-    }, []);
+    }, [topBoundaryRef]);
 
     const closeMenu = useCallback((restoreFocus: boolean) => {
         setIsOpen(false);
@@ -185,11 +190,11 @@ export const KeyboardSafeSelect: React.FC<Props> = ({
                 onPointerDown={handleButtonPointerDown}
                 onClick={() => (isOpen ? closeMenu(false) : openMenu(false))}
                 onKeyDown={handleButtonKeyDown}
-                className={`bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer hover:bg-gray-700 transition-colors text-left truncate ${className}`}
+                className={`bg-surface border border-line-strong text-fg text-xs rounded pl-2 pr-7 py-1.5 outline-none focus:border-accent disabled:opacity-50 cursor-pointer hover:bg-surface-2 transition-colors text-left truncate ${className}`}
             >
                 {selectedLabel}
             </button>
-            <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+            <ChevronUp size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
 
             {isOpen && (
                 <div
@@ -197,7 +202,7 @@ export const KeyboardSafeSelect: React.FC<Props> = ({
                     role="listbox"
                     aria-label={ariaLabel}
                     style={menuStyle}
-                    className="z-[80] overflow-y-auto bg-gray-800 border border-gray-600 rounded shadow-xl"
+                    className="z-[80] overflow-y-auto bg-[rgb(var(--c-bg-rgb))] border border-line-strong rounded shadow-xl"
                 >
                     {options.map((option, index) => {
                         const isSelected = option.value === value;
@@ -212,10 +217,10 @@ export const KeyboardSafeSelect: React.FC<Props> = ({
                                 onClick={() => selectAt(index, false)}
                                 className={`w-full text-left text-xs px-3 py-2 transition-colors ${
                                     isSelected
-                                        ? 'bg-blue-600/30 text-blue-200'
+                                        ? 'bg-accent-soft text-fg font-semibold'
                                         : isActive
-                                            ? 'bg-gray-700 text-gray-100'
-                                            : 'text-gray-200 hover:bg-gray-700'
+                                            ? 'bg-surface-2 text-fg'
+                                            : 'text-fg hover:bg-surface-2'
                                 }`}
                             >
                                 {option.label}

@@ -8,23 +8,23 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, Loader2, Clock, AlertCircle, XCircle } from 'lucide-react';
 import { fetchJobs, cancelJob, type Job, type JobsResponse } from '../api/jobs';
 import { BACKEND_URL } from '../api/base-url';
-import { resolveMessage, type I18NCatalog } from '../api/i18n';
+import { resolveBackendError, resolveMessage, type I18NCatalog } from '../api/i18n';
 import { COMMON_I18N_KEYS, COMMON_TEXT_FALLBACK_JA, JOBS_I18N_KEYS, JOBS_TEXT_FALLBACK_JA } from '../constants/i18n';
+import { openAICompatLabel } from '../constants/providers';
 
 const KIND_LABEL: Record<string, string> = {
     gemini: 'Gemini',
     claude: 'Claude',
     antigravity: 'Antigravity',
-    openai_compat: 'API (OpenAI-compatible)',
     comfyui: 'ComfyUI',
 };
 
 const KIND_COLOR: Record<string, string> = {
-    gemini: 'text-blue-400 bg-blue-900/40 border-blue-700',
-    claude: 'text-orange-400 bg-orange-900/40 border-orange-700',
-    antigravity: 'text-purple-400 bg-purple-900/40 border-purple-700',
-    openai_compat: 'text-emerald-400 bg-emerald-900/40 border-emerald-700',
-    comfyui: 'text-pink-400 bg-pink-900/40 border-pink-700',
+    gemini: 'text-accent bg-accent-soft border-line-strong',
+    claude: 'text-accent bg-accent-soft border-line-strong',
+    antigravity: 'text-accent bg-accent-soft border-line-strong',
+    openai_compat: 'text-ok bg-ok/10 border-line-strong',
+    comfyui: 'text-accent bg-accent-soft border-line-strong',
 };
 
 function elapsed(job: Job): string {
@@ -34,10 +34,12 @@ function elapsed(job: Job): string {
     return `${Math.floor(sec / 60)}m${sec % 60}s`;
 }
 
-function KindBadge({ kind }: { kind: string }) {
+function KindBadge({ kind, uiCatalog }: { kind: string; uiCatalog: I18NCatalog | null }) {
+    // API は製品名ではないので、表示言語の文言表から名前を引く
+    const label = kind === 'openai_compat' ? openAICompatLabel(uiCatalog) : (KIND_LABEL[kind] || kind);
     return (
-        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${KIND_COLOR[kind] || 'text-gray-400 bg-gray-800 border-gray-600'}`}>
-            {KIND_LABEL[kind] || kind}
+        <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${KIND_COLOR[kind] || 'text-fg-muted bg-surface border-line-strong'}`}>
+            {label}
         </span>
     );
 }
@@ -54,6 +56,8 @@ export const JobProgressModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog =
         key,
         JOBS_TEXT_FALLBACK_JA[key] || COMMON_TEXT_FALLBACK_JA[key] || key
     );
+    // ジョブの表示名は辞書キー（画像生成など）か会話の題で届く。キーなら表示言語の文にする
+    const jobLabel = (job: Job) => resolveMessage(uiCatalog, job.label, job.label);
     const formatText = (template: string, values: Record<string, string | number>) => {
         return Object.entries(values).reduce((text, [key, value]) => {
             return text.split(`{{${key}}}`).join(String(value));
@@ -100,19 +104,19 @@ export const JobProgressModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog =
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-md border border-gray-700 overflow-hidden">
+            <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-md border border-line-strong overflow-hidden">
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface">
                     <div className="flex items-center gap-2">
-                        <Loader2 size={18} className="text-gray-400" />
-                        <h3 className="font-semibold text-gray-100 text-base">{t(JOBS_I18N_KEYS.progressTitle)}</h3>
+                        <Loader2 size={18} className="text-fg-muted" />
+                        <h3 className="font-semibold text-fg text-base">{t(JOBS_I18N_KEYS.progressTitle)}</h3>
                         {data && (
-                            <span className="text-xs text-gray-500 ml-1">
+                            <span className="text-xs text-fg-muted ml-1">
                                 ({formatText(t(JOBS_I18N_KEYS.globalUsage), { used: data.inUse.global, limit: data.limits.global })})
                             </span>
                         )}
                     </div>
-                    <button onClick={onClose} className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors">
+                    <button onClick={onClose} className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -120,21 +124,21 @@ export const JobProgressModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog =
                 <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
                     {/* 実行中 */}
                     <section>
-                        <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">{t(JOBS_I18N_KEYS.running)} ({running.length})</h4>
+                        <h4 className="text-xs font-medium text-fg-muted mb-2 uppercase tracking-wide">{t(JOBS_I18N_KEYS.running)} ({running.length})</h4>
                         {running.length === 0 ? (
-                            <p className="text-sm text-gray-600 py-2 text-center">{t(COMMON_I18N_KEYS.none)}</p>
+                            <p className="text-sm text-fg-muted py-2 text-center">{t(COMMON_I18N_KEYS.none)}</p>
                         ) : (
                             <ul className="space-y-2">
                                 {running.map(job => (
-                                    <li key={job.jobId} className="flex items-center gap-2 p-2.5 bg-gray-800 rounded-lg border border-gray-700">
-                                        <Loader2 size={14} className="text-gray-400 animate-spin shrink-0" />
-                                        <KindBadge kind={job.kind} />
-                                        <span className="flex-1 text-sm text-gray-200 truncate">{job.label}</span>
-                                        <span className="text-xs text-gray-500 shrink-0">{elapsed(job)}</span>
+                                    <li key={job.jobId} className="flex items-center gap-2 p-2.5 bg-surface rounded-lg border border-line-strong">
+                                        <Loader2 size={14} className="text-fg-muted animate-spin shrink-0" />
+                                        <KindBadge kind={job.kind} uiCatalog={uiCatalog} />
+                                        <span className="flex-1 text-sm text-fg truncate">{jobLabel(job)}</span>
+                                        <span className="text-xs text-fg-muted shrink-0">{elapsed(job)}</span>
                                         <button
                                             onClick={() => handleCancel(job.jobId)}
                                             disabled={cancelingIds.has(job.jobId)}
-                                            className="shrink-0 p-1 hover:bg-red-900/40 rounded text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40"
+                                            className="shrink-0 p-1 hover:bg-danger/10 rounded text-fg-muted hover:text-danger transition-colors disabled:opacity-40"
                                             title={t(JOBS_I18N_KEYS.stop)}
                                         >
                                             <XCircle size={16} />
@@ -147,20 +151,20 @@ export const JobProgressModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog =
 
                     {/* 待機中 */}
                     <section>
-                        <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">{t(JOBS_I18N_KEYS.pending)} ({pending.length})</h4>
+                        <h4 className="text-xs font-medium text-fg-muted mb-2 uppercase tracking-wide">{t(JOBS_I18N_KEYS.pending)} ({pending.length})</h4>
                         {pending.length === 0 ? (
-                            <p className="text-sm text-gray-600 py-2 text-center">{t(COMMON_I18N_KEYS.none)}</p>
+                            <p className="text-sm text-fg-muted py-2 text-center">{t(COMMON_I18N_KEYS.none)}</p>
                         ) : (
                             <ul className="space-y-2">
                                 {pending.map(job => (
-                                    <li key={job.jobId} className="flex items-center gap-2 p-2.5 bg-gray-800 rounded-lg border border-gray-700">
-                                        <Clock size={14} className="text-gray-500 shrink-0" />
-                                        <KindBadge kind={job.kind} />
-                                        <span className="flex-1 text-sm text-gray-300 truncate">{job.label}</span>
+                                    <li key={job.jobId} className="flex items-center gap-2 p-2.5 bg-surface rounded-lg border border-line-strong">
+                                        <Clock size={14} className="text-fg-muted shrink-0" />
+                                        <KindBadge kind={job.kind} uiCatalog={uiCatalog} />
+                                        <span className="flex-1 text-sm text-fg-muted truncate">{jobLabel(job)}</span>
                                         <button
                                             onClick={() => handleCancel(job.jobId)}
                                             disabled={cancelingIds.has(job.jobId)}
-                                            className="shrink-0 p-1 hover:bg-red-900/40 rounded text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40"
+                                            className="shrink-0 p-1 hover:bg-danger/10 rounded text-fg-muted hover:text-danger transition-colors disabled:opacity-40"
                                             title={t(JOBS_I18N_KEYS.cancel)}
                                         >
                                             <XCircle size={16} />
@@ -173,9 +177,9 @@ export const JobProgressModal: React.FC<Props> = ({ isOpen, onClose, uiCatalog =
 
                     {/* エラー（直近のみ） */}
                     {data?.jobs.filter(j => j.status === 'error').slice(0, 3).map(job => (
-                        <div key={job.jobId} className="flex items-start gap-2 p-2.5 bg-red-950/30 rounded-lg border border-red-900/50 text-xs text-red-400">
+                        <div key={job.jobId} className="flex items-start gap-2 p-2.5 bg-danger/10 rounded-lg border border-danger/40 text-xs text-danger">
                             <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                            <span className="truncate">{job.label}: {job.error || t(JOBS_I18N_KEYS.genericError)}</span>
+                            <span className="truncate">{jobLabel(job)}: {job.error ? resolveBackendError(uiCatalog, job.error) : t(JOBS_I18N_KEYS.genericError)}</span>
                         </div>
                     ))}
                 </div>

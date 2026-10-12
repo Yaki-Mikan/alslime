@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -36,6 +37,68 @@ type serverSettings struct {
 	LANPublic   bool   `json:"lanPublic"`
 }
 
+// 起動の失敗の理由を表す辞書キー。コンソールへ出す文は、起動側が利用者の表示言語の
+// 辞書から組み立てる（config は i18n より下の層のため、ここでは鍵と差し込む値だけを持つ）。
+const (
+	KeyStartupLoadConfigFailed                 = "startup.loadConfigFailed"
+	KeyStartupInitWorkspaceFailed              = "startup.initWorkspaceFailed"
+	KeyStartupInitServerFailed                 = "startup.initServerFailed"
+	KeyStartupServerStopped                    = "startup.serverStopped"
+	KeyStartupFirebaseRequired                 = "startup.firebaseRequired"
+	KeyStartupWorkingDirFailed                 = "startup.workingDirFailed"
+	KeyStartupAbsPathFailed                    = "startup.absPathFailed"
+	KeyStartupServerSettingsReadFailed         = "startup.serverSettingsReadFailed"
+	KeyStartupServerSettingsInvalidJSON        = "startup.serverSettingsInvalidJson"
+	KeyStartupServerSettingsInvalidPort        = "startup.serverSettingsInvalidPort"
+	KeyStartupServerSettingsInvalidBindAddress = "startup.serverSettingsInvalidBindAddress"
+	KeyStartupServerSettingsStatFailed         = "startup.serverSettingsStatFailed"
+)
+
+// StartupError は利用者がコンソールで読む起動の失敗の理由。
+// Key は辞書キー、Values は文の {{名前}} へ差し込む値、Err は元のエラー。
+type StartupError struct {
+	Key    string
+	Values map[string]string
+	Err    error
+}
+
+// Error は辞書を引けない場面（テストなど）でも中身が分かるよう、鍵と値を並べて返す。
+func (e *StartupError) Error() string {
+	names := make([]string, 0, len(e.Values))
+	for name := range e.Values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+e.Values[name])
+	}
+	if len(parts) == 0 {
+		return e.Key
+	}
+	return e.Key + ": " + strings.Join(parts, "; ")
+}
+
+func (e *StartupError) Unwrap() error {
+	return e.Err
+}
+
+func newStartupError(key string, err error, values map[string]string) *StartupError {
+	if values == nil {
+		values = map[string]string{}
+	}
+	if err != nil {
+		values["detail"] = err.Error()
+	}
+	return &StartupError{Key: key, Values: values, Err: err}
+}
+
+// ResolveWorkspaceRoot は WORKSPACE_ROOT を Load と同じ規則で解決する。
+// Load が失敗したときに、作業場所の表示言語で理由を出すために使う。
+func ResolveWorkspaceRoot() (string, error) {
+	return resolveWorkspaceRoot()
+}
+
 // Load は環境変数と既定値から Config を組み立てる。
 //
 // WORKSPACE_ROOT は現行 Node 版に合わせ「環境変数 > カレントディレクトリ」で解決し、
@@ -55,7 +118,7 @@ func Load() (*Config, error) {
 	// 公開ビルド（-tags public）は認証必須。設定漏れのまま無認証で公開待受する
 	// 事故を構造的に防ぐため、警告ではなく起動エラーにする（フェイルクローズ）。
 	if buildinfo.PublicBuild && firebaseProjectID == "" {
-		return nil, fmt.Errorf("公開ビルドでは %s が必須です（認証なしでの起動は禁止）", EnvFirebaseProjectID)
+		return nil, newStartupError(KeyStartupFirebaseRequired, nil, map[string]string{"name": EnvFirebaseProjectID})
 	}
 
 	return &Config{
@@ -88,14 +151,14 @@ func resolveWorkspaceRoot() (string, error) {
 	if raw == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return "", fmt.Errorf("WORKSPACE_ROOT 未指定かつ作業ディレクトリ取得に失敗: %w", err)
+			return "", newStartupError(KeyStartupWorkingDirFailed, err, nil)
 		}
 		raw = cwd
 	}
 
 	abs, err := filepath.Abs(raw)
 	if err != nil {
-		return "", fmt.Errorf("WORKSPACE_ROOT の絶対パス解決に失敗 (%q): %w", raw, err)
+		return "", newStartupError(KeyStartupAbsPathFailed, err, map[string]string{"path": strconv.Quote(raw)})
 	}
 	return filepath.Clean(abs), nil
 }
@@ -112,17 +175,17 @@ func loadServerSettings(root string) (serverSettings, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return serverSettings{}, fmt.Errorf("サーバー設定の読み込みに失敗 (%s): %w", logical, err)
+		return serverSettings{}, newStartupError(KeyStartupServerSettingsReadFailed, err, map[string]string{"file": logical})
 	}
 	var settings serverSettings
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return serverSettings{}, fmt.Errorf("サーバー設定のJSONが不正です (%s): %w", logical, err)
+		return serverSettings{}, newStartupError(KeyStartupServerSettingsInvalidJSON, err, map[string]string{"file": logical})
 	}
 	if settings.Port != 0 && !validPort(settings.Port) {
-		return serverSettings{}, fmt.Errorf("サーバー設定の port が不正です (%s): %d", logical, settings.Port)
+		return serverSettings{}, newStartupError(KeyStartupServerSettingsInvalidPort, nil, map[string]string{"file": logical, "value": strconv.Itoa(settings.Port)})
 	}
 	if settings.BindAddress != "" && !validBindAddress(settings.BindAddress) {
-		return serverSettings{}, fmt.Errorf("サーバー設定の bindAddress が不正です (%s): %q", logical, settings.BindAddress)
+		return serverSettings{}, newStartupError(KeyStartupServerSettingsInvalidBindAddress, nil, map[string]string{"file": logical, "value": strconv.Quote(settings.BindAddress)})
 	}
 	return settings, nil
 }
@@ -133,7 +196,7 @@ func existingServerSettingsPath(root string) (string, string, error) {
 		if _, err := os.Stat(path); err == nil {
 			return path, logical, nil
 		} else if !os.IsNotExist(err) {
-			return "", logical, fmt.Errorf("サーバー設定の確認に失敗 (%s): %w", logical, err)
+			return "", logical, newStartupError(KeyStartupServerSettingsStatFailed, err, map[string]string{"file": logical})
 		}
 	}
 	return "", "", nil

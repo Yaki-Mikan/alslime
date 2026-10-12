@@ -1,38 +1,25 @@
 /**
  * constants.ts - ComfyUI設定画面共通の定数定義
  *
- * モーダル・統合設定画面で使用するラベル、プレースホルダー、メッセージ等を一元管理する。
+ * 画像生成まわりの画面で使用するラベル、プレースホルダー、メッセージ等を一元管理する。
  */
 
 // ===== モーダル・セクション名 =====
 
-/** 統合設定画面のタイトル */
-export const INTEGRATED_SETTINGS_TITLE = '画像生成設定';
-
 /** 各セクション名 */
 export const SECTION_NAMES = {
-    CHARACTER_SETTINGS: 'キャラクター画像生成設定',
     TAG_MAPPING: 'タグマッピング設定',
     GENERATE_TEST: '画像生成テスト',
     GENERATE_RESULT: '生成結果',
     RESOLVED_PROMPT: '解決済みプロンプト',
-    SETTINGS: '画像生成設定',
     CONNECTION_SETTINGS: '接続設定',
     TAG_JUDGE_GENERATION_SETTINGS: 'タグ判定・生成設定',
+    TAG_ENABLE: 'タグ有効/無効設定',
     USER_APPEARANCE: 'ユーザーの容姿設定',
-    API_SERVICE_PRESET: '生成プリセット',
     DANBOORU_FORMAT: 'Danbooruタグ取得形式',
     TRIGGER_FORMAT: 'トリガーワード取得形式',
-    TAG_TRIGGER_FORMAT: 'タグ・トリガーワード形式',
-    TAG_JUDGE_WORKFLOW_SETTINGS: 'タグ判定・ワークフロー設定',
-    LIGHTWEIGHT_SAVE: 'Yakimikan軽量画像保存',
-    WORKFLOW_TEMPLATE: 'ワークフローテンプレート',
-    WORKFLOW_SELECT: 'ワークフロー選択',
     TEST_WORKFLOW_SELECT: 'テスト生成用ワークフロー',
     WORKFLOW_IMPORT: 'ワークフローインポート',
-    OTHER_IMAGE_SETTINGS: 'タグマッピング設定',
-    LORA_DIR_SETTINGS: 'LoRAディレクトリ設定',
-    TAG_ENABLE: 'タグ有効/無効設定',
 } as const;
 
 export const DIRECTIVE_MODE_OPTIONS = {
@@ -55,15 +42,11 @@ export const DIRECTIVE_MODE_OPTIONS_API = {
     DANBOORU_THIRD: 'Danbooruタグのみ（三人称視点）',
 } as const;
 
-// ===== 統合設定画面固有 =====
+// ===== 素材づくりのキャラ画像の「試しに生成」 =====
 
 export const INTEGRATED = {
-    /** キャラ設定連動トグルのラベル */
-    USE_LEFT_CHARACTER_TOGGLE: '左のキャラ設定を使用',
-    /** 統合設定を開くボタンのラベル */
-    OPEN_BUTTON_LABEL: '画像生成設定',
-    /** 統合設定ボタン表示の最小画面幅 (px) */
-    MIN_SCREEN_WIDTH: 1280,
+    /** 選んでいるキャラの保存した画像設定を試しに生成へ使うかのトグルのラベル（保存前の編集は使わない） */
+    USE_LEFT_CHARACTER_TOGGLE: 'このキャラの画像設定を使う',
 } as const;
 
 // ===== キャラクター設定 =====
@@ -112,10 +95,10 @@ export const CHARACTER = {
         EXTRA_NEGATIVE_PLACEHOLDER: "→ '__EXTRA_NEGATIVE__'",
         CHARACTER_PROMPT_DESC: '追加のbooru系タグ（キャラ名・作品名と結合されます）',
         PHYSICAL_FEATURES_DESC: '髪色・髪型・体型・目の色など外見タグ',
-        ALIASES_DESC: 'ファイル名と異なるキャラ名でTURNタグが出力される場合に設定（カンマ区切り）',
+        ALIASES_DESC: '会話内の話者名が設定ファイル名と異なる場合に、別名をカンマ区切りで指定します。',
         OUTFIT_DESC: 'AIが服装名を返した場合、対応するプロンプトとLoRAを画像生成に使用します',
         API_OUTFIT_DESC: 'AIが服装名を返した場合、対応するプロンプトを人物プロンプトに使用します',
-        API_PROMPT_DESC: 'API サービスへ送る人物プロンプト。LoRA は使えません。名前・作品名・別名は ComfyUI 用と共用です。',
+        API_PROMPT_DESC: 'API サービスへ送信する人物用のプロンプトです。API サービスでは LoRA を利用できません。キャラクター名、作品名、別名は ComfyUI の設定と共通です。',
         USER_NAMES_DESC: '会話文でユーザーを指す呼び名。登場人物の判定に使います。',
         USER_APPEARANCE_DESC: 'ユーザー（会話の相手）を 1 人の人物として画像に入れるための容姿設定です。ComfyUI 連携には使われません。',
     },
@@ -124,7 +107,7 @@ export const CHARACTER = {
         NO_RESULTS: '該当なし',
     },
     BUTTONS: {
-        APPEARANCE_PROMPT: '容姿プロンプトを AI に作らせる',
+        APPEARANCE_PROMPT: 'AI で容姿プロンプトを作成',
     },
 } as const;
 
@@ -132,15 +115,14 @@ export const CHARACTER = {
 
 export const TAG_MAPPING = {
     LABELS: {
-        CATEGORY: 'カテゴリ',
         LORA_DIRECTORY: 'LoRAディレクトリ（このカテゴリ用）',
         TAG_LIST: 'タグ一覧',
+        EDIT_TAG: '選択中のタグ編集',
         MATCH_KEY: '照合キー',
         AI_DESCRIPTION: 'AIへの説明',
         DANBOORU_PROMPT: 'danbooru語 (プロンプト)',
         NEGATIVE_PROMPT: 'ネガティブプロンプト',
         LORA: 'LoRA',
-        EDIT_TAG: '選択中のタグ編集',
         DANBOORU_PROMPT_SHORT: 'danbooru語',
         PRIORITY_WORKFLOW: '優先ワークフロー',
         PRIORITY_PRESET: '優先プリセット',
@@ -162,13 +144,13 @@ export const TAG_MAPPING = {
     },
     MESSAGES: {
         NO_TAGS: 'タグが登録されていません',
+        NO_MATCH: '該当するタグがありません',
+        UPDATE_FAILED: '更新に失敗しました',
+        AUTO_SAVE: '切り替えは即座に保存されます',
         NOT_SET: '(未設定)',
         NO_LORA_FOUND: 'LoRAが見つかりません',
         USE_CURRENT_WORKFLOW: '現在のワークフロー設定を使用',
         USE_CURRENT_PRESET: '現在のプリセット設定を使用',
-        NO_MATCH: '該当するタグがありません',
-        AUTO_SAVE: '切り替えは即座に保存されます',
-        UPDATE_FAILED: '更新に失敗しました',
     },
 } as const;
 
@@ -178,19 +160,13 @@ export const GENERATE_TEST = {
     LABELS: {
         TEMPLATE: 'テンプレート',
         CHARACTER: 'キャラクター',
-        CHARACTER_SETTINGS: 'キャラクター設定',
         TAG_SELECTION: 'タグ選択',
-        DIRECT_PLACEHOLDERS: 'その他（プレースホルダ直指定）',
-        DIRECT_TEXT: '直テキスト',
-        DIRECT_SHORT: '直',
-        CHAR_NAME: 'キャラ名',
-        CHAR_WORK_NAME: '作品名',
+        DIRECT_TEXT: 'プロンプトを直接入力',
+        DIRECT_SHORT: '直接入力',
         POSITIVE_PROMPT: 'ポジティブ',
         NEGATIVE_PROMPT: 'ネガティブ',
-        RESULT: '生成結果',
         RESOLVED_PROMPT: '解決済みプロンプト',
         PRESET: '生成プリセット',
-        BASE_PROMPT: 'ベース',
         PERSON_PROMPTS: '人物プロンプト',
         ANLAS_ESTIMATE: 'Anlas 概算',
         WARNINGS: '注意',
@@ -199,7 +175,6 @@ export const GENERATE_TEST = {
     },
     PLACEHOLDERS: {
         DIRECT_TEXT_CHARACTER: '例: 1girl, original, twin tails, blue hair',
-        DIRECT_PLACEHOLDERS: '1行1件で「プレースホルダ名: 値」\n例: QUALITY_EXTRA: masterpiece, best quality',
         DIRECT_TAG_PROMPT: '{{label}}のプロンプトを直接入力...',
         NOT_SELECTED: '(未選択)',
         NOT_SET: '(未設定)',
@@ -209,13 +184,10 @@ export const GENERATE_TEST = {
         NO_CHARACTER_FOUND: 'キャラクターが見つかりません',
         NO_CATEGORY: 'カテゴリが登録されていません',
         GENERATE_FAILED: '生成に失敗しました',
-        TEST_DONE: '✓ テスト生成完了',
-        TEST_RESULT_ALT: 'テスト生成結果',
         GENERATING: '生成中... (最大120秒)',
         CLICK_TO_ZOOM: 'クリックで拡大',
-        CLICK_TO_ZOOM_DISPLAY: 'クリックで拡大表示',
-        RESEED_TOOLTIP: 'seed違いで再生成',
-        DIRECT_TEXT_INPUT: '直テキスト入力',
+        RESEED_TOOLTIP: 'シード値を変更して再生成',
+        DIRECT_TEXT_INPUT: 'プロンプトの直接入力',
         APPLIED_LORA: '適用LoRA',
         INTERMEDIATE: '途中経過（{{step}} ステップ目）',
         COMMON_PRESET_OPTION: '（共通プリセットを使用）',
@@ -252,7 +224,6 @@ export const PLACEHOLDER_PRESET = {
         OPEN_SETTINGS_TOOLTIP: 'プレースホルダ設定を開く',
         DELETE_CONFIRM: 'プリセット「{{name}}」を削除しますか？',
         DELETE_PRESET_TOOLTIP: '選択中のプリセットを削除',
-        NO_PRESETS: '保存済みプリセットはありません',
         NAME_REQUIRED: 'プリセット名を入力してください',
         SAVE_FAILED: '保存に失敗しました',
         DELETE_FAILED: '削除に失敗しました',
@@ -273,15 +244,14 @@ export const PLACEHOLDER_PRESET = {
 export const DANBOORU = {
     LABELS: {
         TAG_SEARCH: 'Danbooruタグ検索',
-        DANBOORU_TAGS: 'Danbooruタグ',
         TRIGGER_WORDS: 'トリガーワード',
         CHARA_WORK_ONLY: 'キャラ/作品のみ',
         FILTER_ON_DESC: 'キャラクター名・作品名のみ',
         FILTER_OFF_DESC: '全カテゴリ',
     },
     PLACEHOLDERS: {
-        SEARCH_CHARA: '例: キャラクターA、作品A',
         SEARCH_ALL: '例: ツインテール、青い髪',
+        SEARCH_CHARA: '例: キャラクターA、作品A',
     },
     MESSAGES: {
         CLICK_TO_COPY: 'クリックでコピー',
@@ -309,7 +279,6 @@ export const LORA = {
         SIMPLE_MODE: 'M/C',
     },
     PLACEHOLDERS: {
-        DIRECTORY_NAME: 'ディレクトリ名',
         SELECT_LORA: 'LoRAを選択...',
         SEARCH_LORA: 'LoRAを検索...',
     },
@@ -351,7 +320,6 @@ export const COMMON = {
         CLOSE: '閉じる',
         CANCEL: 'キャンセル',
         TEST: 'テスト',
-        EDIT: '編集',
         DELETE: '削除',
         ADD: '追加',
         GENERATE: '生成',
@@ -379,19 +347,18 @@ export const COMMON = {
         TAG_JUDGE_TIMEOUT_SECONDS: 'タグ判定タイムアウト（秒）',
         IMAGE_JOB_MODE: '画像生成ジョブの単位',
         IMAGE_JOB_MODE_COMBINED: '分析と生成をまとめて 1 ジョブ',
-        IMAGE_JOB_MODE_COMBINED_DESCRIPTION: '1 枚の画像が完成するまで、次の画像の分析を始めません。',
+        IMAGE_JOB_MODE_COMBINED_DESCRIPTION: '現在の画像の生成が完了した後、次の画像の分析を開始します。',
         IMAGE_JOB_MODE_SPLIT: '分析と生成を分ける',
-        IMAGE_JOB_MODE_SPLIT_DESCRIPTION: '分析が終わった時点で次の画像の分析を始められます。生成は ComfyUI へ 1 枚ずつ順番に送ります。',
-        IMAGE_JOB_MODE_NOTE: 'どちらの場合も、画像生成ジョブが待機中・実行中の間は同じセッションでチャットを送れません。',
+        IMAGE_JOB_MODE_SPLIT_DESCRIPTION: '現在の画像の分析が完了した後、次の画像の分析を開始します。画像生成の依頼は ComfyUI に 1 枚ずつ順番に送信します。',
+        IMAGE_JOB_MODE_NOTE: '画像生成の待機中または実行中も、この会話ではメッセージの送信を受け付けます。',
         AUTO_GENERATE: '応答時に自動で画像生成する',
-        AUTO_GENERATE_DESCRIPTION: 'AI の応答が届くと、その応答の各チャットバブルへ上から順に画像生成を予約します。予約の前に ComfyUI の応答を確認し、応答が無ければ予約しません。会話設定のキャラクター詳細設定で、キャラクター毎に対象から外せます。',
-        AUTO_GENERATE_UNREACHABLE: 'ComfyUI に接続できないため、自動の画像生成を予約しませんでした。',
+        AUTO_GENERATE_DESCRIPTION: 'AI の応答に含まれる各メッセージについて、上から順に画像生成を依頼します。実行前に ComfyUI との接続を確認し、接続を確認できない場合は画像生成を依頼しません。自動生成の対象とするキャラクターは、会話設定のキャラクター詳細設定で個別に指定します。',
         FORMAT: '形式',
-        UNSAVED: '未保存',
     },
     MESSAGES: {
         SAVED: '保存しました',
         SAVE_FAILED: '保存に失敗しました',
+        JAPANESE_SEARCH_TO_COPY: '日本語で検索 → {{action}}',
         TEMPLATE_NAME_REQUIRED: 'テンプレート名を入力してください',
         TEMPLATE_NAME_PLACEHOLDER: '例: アニメ調 標準',
         DELETE_SELECTED_TEMPLATE_TOOLTIP: '選択中のテンプレートを削除',
@@ -417,27 +384,18 @@ export const COMMON = {
         TAG_JUDGE_OPENAI_COMPAT_HINT: '推論の強さなどの追加パラメータは、接続先の追加パラメータ設定が使われます。',
         DANBOORU_FORMAT_DESC: 'Danbooru検索結果のコピーと、取得タグを欄へ追加するときの区切り形式に使用します。',
         TRIGGER_FORMAT_DESC: 'トリガーワードを行コピーするときの変換形式です。「そのまま」は元の表記を変更しません。',
-        FORMAT_AUTO_SAVE_DESC: '変更は自動保存されます。Danbooruは検索結果コピー、トリガーワードは行コピー時の変換に使用します。',
         LIGHTWEIGHT_SAVE_LABEL: '画像生成時に保存形式を上書きする',
         LIGHTWEIGHT_SAVE_DESC: 'ワークフロー内に Yakimikan Save Image Lightweight ノードがある場合のみ反映します。',
         WORKFLOW_DROP_TEXT: 'ワークフローJSONファイルを',
         WORKFLOW_DROP_ACTION: 'ドラッグ&ドロップ、またはクリックして選択',
         WORKFLOW_DROP_HINT: 'ComfyUIの「Save (API Format)」で保存したJSONファイル',
-        TEMPLATE_SELECT_DESC: '画像生成時に使用するワークフローテンプレートを選択してください。',
-        INTEGRATED_SETTINGS_DESC: 'キャラクター設定・タグマッピング・テスト生成を1画面で操作できます。',
-        CHARACTER_SETTINGS_DESC: 'キャラクターごとのプロンプト・LoRA・身体的特徴を設定します。',
-        OTHER_IMAGE_SETTINGS_DESC: '体位・構図・服装等のタグマッピング（danbooru語・LoRA紐づけ）を設定します。',
-        LORA_DIR_SETTINGS_DESC: '各カテゴリに対応するLoRAフォルダのパスを設定します。',
         TAG_ENABLE_DESC: 'カテゴリを横断してタグの有効/無効を切り替えます。無効にしたタグは判定・生成に使われません。',
-        GENERATE_TEST_DESC: 'テンプレート・キャラクター・タグを選択してプレースホルダ置換込みの画像生成をテストします。',
         COUNT_SUFFIX: '件',
-        JAPANESE_SEARCH_TO_COPY: '日本語で検索 → {{action}}',
         RAW: 'そのまま',
         UNDERSCORE: 'アンダーバー',
         SPACE: '半角スペース',
         ANIMA: 'Anima向け',
         LORA_DIR_DESCRIPTION: 'ComfyUIのLoRAディレクトリ内のサブディレクトリ名を各カテゴリに指定してください。',
-        DEFAULT_VALUE: 'デフォルト値: {{value}}',
         COPY_ROW_TOOLTIP: 'クリックでこの行をまるごとコピー',
         DOWNLOAD: 'ダウンロード',
         REFRESH_TOOLTIP: 'LoRA一覧を再読み込み',
@@ -450,7 +408,6 @@ export const COMMON = {
     },
     /** 値なし表示 */
     EMPTY_MARKER: '-',
-    /** LoRA有無表示 */
     HAS_LORA: '有',
 } as const;
 
@@ -481,7 +438,6 @@ export const API_SERVICE = {
         FREE_TIER: '無料枠',
         USAGE: '使用量枠',
         COMMON_PRESET: '共通プリセット',
-        PRESET_FOR_MODE: 'この形式で使うプリセット',
         BALANCE_PANEL: 'API サービス残高',
         AUTO_SOUND_EFFECTS: '自動効果音描画',
     },
@@ -508,12 +464,12 @@ export const API_SERVICE = {
         TOKEN_SAVE_FAILED: 'トークンを保存できませんでした',
         CONNECTION_FAILED: '接続できませんでした',
         BALANCE_UNAVAILABLE: '残高を取得できませんでした',
-        BALANCE_STALE: '前回の値を表示しています（更新に失敗）',
+        BALANCE_STALE: '残高を更新できなかったため、前回取得した値を表示しています。',
         BALANCE_LOADING: '取得中',
         COMMON_PRESET_OPTION: '共通',
         NO_PRESET: '生成プリセットがありません',
         FREE_TIER_NONE: '無料枠なし',
-        USAGE_NEGATIVE: '使用量枠を使い切っています',
+        USAGE_NEGATIVE: '利用可能な使用量枠がありません',
         EXPIRES_AT: '有効期限: {{date}}',
         AUTO_SOUND_EFFECTS_SAVE_FAILED: '自動効果音描画の設定を保存できませんでした',
     },
@@ -554,9 +510,7 @@ export const NOVELAI = {
     },
     LABELS: {
         PRESET: 'プリセット',
-        PRESET_NAME: 'プリセット名',
         MODEL: 'モデル',
-        CURRENT_MODEL: 'いま選んであるモデル',
         SIZE_PRESET: '解像度',
         WIDTH: '幅',
         HEIGHT: '高さ',
@@ -567,7 +521,7 @@ export const NOVELAI = {
         NOISE_SCHEDULE: 'ノイズスケジュール',
         UC_PRESET: 'UC Preset',
         QUALITY_TAGS: 'Quality Tags',
-        QUALITY_TAGS_TEXT: '送る品質タグの文',
+        QUALITY_TAGS_TEXT: '生成時に送信する品質タグ',
         VARIETY_BOOST: 'Variety+',
         SEED: 'シード',
         SEED_RANDOM: '毎回乱数',
@@ -604,7 +558,7 @@ export const NOVELAI = {
         NOT_IN_MODEL: '選択中のモデルでは選べない項目があります。',
         TRANSPARENT: '有効にすると出力形式は PNG に固定されます。',
         FURRY_MODE: '「ケモノ」は獣人向けの描き方に切り替えます（画面全体プロンプトの先頭に fur dataset を付けます）。人物の絵は「アニメ」のままにします。',
-        VARIETY_UNAVAILABLE: 'このモデルでは送る値が未確認のため使えません。',
+        VARIETY_UNAVAILABLE: '選択中のモデルでは、この項目に対応する送信値を確認できていないため利用できません。',
         REFERENCE_V45_ONLY: '参照画像は V4.5 モデルでのみ使えます。',
         FREE_TIER_WARNING: 'この設定は Opus の無料枠を超えるため Anlas を消費します（1 枚あたり概算 {{anlas}}）。',
         JAPANESE_V45: 'V4.5 モデルは日本語のプロンプトを解釈できません。',
@@ -626,4 +580,17 @@ export const NOVELAI = {
         CUSTOM_SIZE: 'カスタム',
         NAME_REQUIRED: 'プリセット名を入力してください',
     },
+    // 解像度プリセットの名前（鍵は本体の解像度プリセット ID）。{{width}}・{{height}} を差し込む
+    SIZE_PRESETS: {
+        small_portrait: 'Small 縦 ({{width}}×{{height}})',
+        small_landscape: 'Small 横 ({{width}}×{{height}})',
+        small_square: 'Small 正方 ({{width}}×{{height}})',
+        normal_portrait: 'Normal 縦 ({{width}}×{{height}})',
+        normal_landscape: 'Normal 横 ({{width}}×{{height}})',
+        normal_square: 'Normal 正方 ({{width}}×{{height}})',
+        large_portrait: 'Large 縦 ({{width}}×{{height}})',
+        large_landscape: 'Large 横 ({{width}}×{{height}})',
+        wallpaper_portrait: 'Wallpaper 縦 ({{width}}×{{height}})',
+        wallpaper_landscape: 'Wallpaper 横 ({{width}}×{{height}})',
+    } as Record<string, string>,
 } as const;

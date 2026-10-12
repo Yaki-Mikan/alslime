@@ -93,23 +93,9 @@ func (s *SecretStore) load() error {
 	return nil
 }
 
-// resolveSecretFileForWrite は秘匿領域のファイルを書くためのパスを返す（親ディレクトリを作る）。
-// 別プロセス（本体と画像生成モジュール）が同じ秘匿領域を同時に初めて作ると、片方の
-// ディレクトリ作成が「既に存在する」で失敗することがあるため、その場合は一度だけやり直す。
-func resolveSecretFileForWrite(resolver *paths.Resolver, rel string) (string, error) {
-	path, err := resolver.ResolveForCreateMkdirAll(rel, config.SecretDirPerm)
-	if err == nil {
-		return path, nil
-	}
-	if retried, retryErr := resolver.ResolveForCreateMkdirAll(rel, config.SecretDirPerm); retryErr == nil {
-		return retried, nil
-	}
-	return "", err
-}
-
 // save は現在のキャッシュ内容を 0600 で原子的に書き込み、書いたファイルの印を覚える（mu 保持前提）。
 func (s *SecretStore) save() error {
-	path, err := resolveSecretFileForWrite(s.resolver, config.APIProviderSecretsFile)
+	path, err := s.resolver.ResolveForCreateMkdirAll(config.APIProviderSecretsFile, config.SecretDirPerm)
 	if err != nil {
 		return err
 	}

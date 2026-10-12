@@ -128,7 +128,7 @@ func kinds() []Kind {
 		},
 		Kind{
 			ID:    "ssrpPresets",
-			Label: "SSRPプリセット",
+			Label: "準備・調整のプリセット",
 			Class: ClassSchema,
 			Roots: []string{config.PresetSSRPModeDir},
 		},

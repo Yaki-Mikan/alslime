@@ -1,9 +1,9 @@
 // Package cliexecutable は各 AI CLI の起動パス解決関数を組み立てる。
 //
 // 保存済み設定（server-settings の cliPaths）を最優先し、空なら OS 別の既定候補へ
-// フォールバックする（検証と探索の規則は cliresolve）。本体のチャット実行は 3 CLI とも
-// この解決を使う。タグ判定・容姿プロンプト作成でこの解決を使うのは Antigravity だけで
-// （ComfyUI サイドカーと comfyembed の両方）、Gemini・Claude は tagjudge 内の固定名で起動する。
+// フォールバックする（検証と探索の規則は cliresolve）。本体のチャット実行、タグ判定・
+// 容姿プロンプト作成（ComfyUI サイドカーと comfyembed の両方）、CLI 診断は、3 CLI とも
+// この解決を使う。設定画面の疎通確認（Check）も、入力値を設定パスとみなして同じ解決を使う。
 package cliexecutable
 
 import (
@@ -14,7 +14,6 @@ import (
 
 	"alslime/internal/config"
 	serversettingssvc "alslime/internal/domain/serversettings"
-	"alslime/internal/system/cliresolve"
 )
 
 // Gemini は Gemini CLI の起動パス解決関数を返す。
@@ -22,20 +21,14 @@ import (
 // 設定は都度読みし、起動中の設定変更を次の実行から反映する（誤設定に運用中気づいて直せる）。
 func Gemini(svc *serversettingssvc.Service) func() (string, error) {
 	return func() (string, error) {
-		return cliresolve.Resolver{
-			ConfiguredPath: cliPaths(svc).Gemini,
-			Fallbacks:      geminiFallbacks(),
-		}.Resolve()
+		return Resolve(CLIGemini, cliPaths(svc).Gemini)
 	}
 }
 
 // Claude は Claude Code CLI の起動パス解決関数を返す。
 func Claude(svc *serversettingssvc.Service) func() (string, error) {
 	return func() (string, error) {
-		return cliresolve.Resolver{
-			ConfiguredPath: cliPaths(svc).Claude,
-			Fallbacks:      claudeFallbacks(),
-		}.Resolve()
+		return Resolve(CLIClaude, cliPaths(svc).Claude)
 	}
 }
 
@@ -45,10 +38,7 @@ func Claude(svc *serversettingssvc.Service) func() (string, error) {
 // AGY_PATH はデバッグ・上書き用として残しつつ、設定パスを最優先する。
 func Antigravity(svc *serversettingssvc.Service) func() (string, error) {
 	return func() (string, error) {
-		return cliresolve.Resolver{
-			ConfiguredPath: cliPaths(svc).Antigravity,
-			Fallbacks:      antigravityFallbacks(),
-		}.Resolve()
+		return Resolve(CLIAntigravity, cliPaths(svc).Antigravity)
 	}
 }
 
@@ -75,27 +65,50 @@ func geminiFallbacks() []string {
 }
 
 // claudeFallbacks は設定未指定時の Claude 探索候補。
+//
+// PATH 探索を先に置き、続けてネイティブインストーラーの既定配置先（ホーム配下の
+// .local/bin）を並べる。サービス起動では PATH に .local/bin が含まれないことが多いため。
+// Windows は npm 版の claude.cmd に加え、ネイティブ版の claude.exe も探す。
 func claudeFallbacks() []string {
+	home, _ := os.UserHomeDir()
 	if runtime.GOOS == "windows" {
-		return []string{"claude.cmd"}
+		fallbacks := []string{"claude.cmd", "claude.exe"}
+		if home != "" {
+			fallbacks = append(fallbacks, filepath.Join(home, ".local", "bin", "claude.exe"))
+		}
+		return fallbacks
 	}
-	return []string{"claude"}
+	fallbacks := []string{"claude"}
+	if home != "" {
+		fallbacks = append(fallbacks, filepath.Join(home, ".local", "bin", "claude"))
+	}
+	return fallbacks
 }
 
 // antigravityFallbacks は設定未指定時の Antigravity 探索候補。
 //
 // 先頭に AGY_PATH（あれば）を置き、次に OS 別の既定を並べる。
-// Windows は既定インストール先のフルパス、それ以外は PATH 上の agy。
+// Windows は既定インストール先のフルパス、続けて PATH 上の agy.exe。
+// それ以外は PATH 上の agy、続けてホーム配下の .local/bin（サービス起動では PATH に
+// .local/bin が含まれないことが多いため）。
+// ホームが取れない場合はホーム配下の候補を並べない（相対パスになり作業ディレクトリを
+// 探索してしまうため）。
 func antigravityFallbacks() []string {
-	fallbacks := make([]string, 0, 2)
+	home, _ := os.UserHomeDir()
+	fallbacks := make([]string, 0, 3)
 	if agyPath := strings.TrimSpace(os.Getenv(config.EnvAntigravityPath)); agyPath != "" {
 		fallbacks = append(fallbacks, agyPath)
 	}
 	if runtime.GOOS == "windows" {
-		home, _ := os.UserHomeDir()
-		fallbacks = append(fallbacks, filepath.Join(home, "AppData", "Local", "agy", "bin", "agy.exe"))
+		if home != "" {
+			fallbacks = append(fallbacks, filepath.Join(home, "AppData", "Local", "agy", "bin", "agy.exe"))
+		}
+		fallbacks = append(fallbacks, "agy.exe")
 		return fallbacks
 	}
 	fallbacks = append(fallbacks, "agy")
+	if home != "" {
+		fallbacks = append(fallbacks, filepath.Join(home, ".local", "bin", "agy"))
+	}
 	return fallbacks
 }

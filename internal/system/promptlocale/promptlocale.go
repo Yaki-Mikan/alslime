@@ -18,6 +18,14 @@ func Resolver(i18nService *i18nsvc.Service, pwaSvc *pwasettingssvc.Service) func
 	}
 }
 
+// DefaultSessionTitle は、題が空の会話へ補う題を表示言語で返す関数を作る
+// （会話の実行が新しい会話に付ける題と同じ辞書キー・同じ日本語既定）。
+func DefaultSessionTitle(locale func() coreapi.PromptLocale) func() string {
+	return func() string {
+		return locale().Text("prompt.session.defaultTitle", "新規セッション")
+	}
+}
+
 // Resolve は UI 言語設定（uiLanguage）に対応するプロンプト層の
 // 言語解決コンテキスト（prompt.* キーを含む i18n カタログ）を返す。
 // 設定・辞書の取得に失敗した場合は空（呼び出し側が日本語既定へフォールバック）。

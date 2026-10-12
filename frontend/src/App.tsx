@@ -101,10 +101,10 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div className="h-screen overflow-y-auto flex items-center justify-center bg-gray-900 text-white">
+      <div className="h-screen overflow-y-auto flex items-center justify-center bg-surface text-fg">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-gray-400">{t(COMMON_I18N_KEYS.loading)}</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
+          <p className="text-fg-muted">{t(COMMON_I18N_KEYS.loading)}</p>
         </div>
       </div>
     );
@@ -113,23 +113,23 @@ function AuthGate() {
   // 未ログイン状態
   if (!user) {
     return (
-      <div className="h-screen overflow-y-auto flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-        <div className="bg-gray-800 p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6">
+      <div className="h-screen overflow-y-auto flex flex-col items-center justify-center bg-surface text-fg p-4">
+        <div className="bg-surface p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6">
           <div className="flex justify-center items-end gap-2">
             <img src="/icons/app-192.png" alt="" aria-hidden="true" className="w-16 h-16" />
             <img src="/icons/app-192.png" alt="AlSlime" className="w-24 h-24" />
             <img src="/icons/app-192.png" alt="" aria-hidden="true" className="w-16 h-16" />
           </div>
           <h1 className="text-2xl font-bold">AlSlime</h1>
-          <p className="text-gray-400">{t(APP_I18N_KEYS.googleLoginPrompt)}</p>
+          <p className="text-fg-muted">{t(APP_I18N_KEYS.googleLoginPrompt)}</p>
           {error && (
-            <div className="text-red-400 text-sm bg-red-900/20 p-3 rounded-lg">
+            <div className="text-danger text-sm bg-danger/10 p-3 rounded-lg">
               {error}
             </div>
           )}
           <button
             onClick={handleLogin}
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-accent hover:brightness-110 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

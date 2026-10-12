@@ -217,6 +217,7 @@ func writeLinkedSettingsError(w http.ResponseWriter, err error) {
 // RegisterImages はキャラクター画像系ルートを mux へ登録する。
 func RegisterImages(mux *http.ServeMux, svc *charsvc.ImageService) {
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterEmotions, handleEmotions(svc))
+	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeCharacterMaterialStatus, handleMaterialStatus(svc))
 	mux.HandleFunc(http.MethodGet+" "+config.APIPrefix+routeEmotionCatalog, handleEmotionCatalog(svc))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeEmotionCatalog, handleSaveEmotionCatalog(svc))
 	mux.HandleFunc(http.MethodPost+" "+config.APIPrefix+routeEmotionImagePrune, handlePruneEmotionImages(svc))
@@ -276,6 +277,18 @@ func handleEmotions(svc *charsvc.ImageService) http.HandlerFunc {
 		data, err := svc.Emotions()
 		if err != nil {
 			apierror.Write(w, apierror.Internal(err))
+			return
+		}
+		writeJSON(w, apiDataResponse{Success: true, Data: data})
+	}
+}
+
+// handleMaterialStatus は全キャラの表情画像の作成状況を返す（素材づくりのキャラ一覧用。読むだけ）。
+func handleMaterialStatus(svc *charsvc.ImageService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := svc.ImageStatus()
+		if err != nil {
+			writeImageServiceError(w, err)
 			return
 		}
 		writeJSON(w, apiDataResponse{Success: true, Data: data})

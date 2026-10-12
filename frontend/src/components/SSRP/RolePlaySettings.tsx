@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Check, Save, Plus, ChevronDown, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Search, Image, MessageSquare, FolderOpen, SlidersHorizontal, Users, Globe, FileText, AudioLines, UserPlus, FolderPlus } from 'lucide-react';
+import { X, Check, Save, Plus, ChevronDown, ChevronLeft, ChevronRight, Trash2, RotateCcw, Pin, PinOff, Image, FileText, AudioLines, UserPlus, FolderPlus, ArrowLeftRight } from 'lucide-react';
+import { Button, Chip, IconButton, Segmented, cn } from '../ui';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { GridSelectionModal } from '../common/GridSelectionModal';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -25,15 +26,11 @@ import {
     initializeParameterGroups
 } from '../../api/parameters';
 import type { ParameterSchema, ParameterGroupState } from '../../types/Parameter';
+import { getLocalizedText, parameterLangOf } from '../../types/Parameter';
 import { RenderGroup } from '../common/ParameterElements';
 import { DateTimeSettings } from './DateTimeSettings';
 import { CharacterImagePanel } from './CharacterImagePanel';
 import { CharacterVoicePanel } from './CharacterVoicePanel';
-import { ComfyUICharacterSettingsModal } from '../comfyui/ComfyUICharacterSettingsModal';
-import { ComfyUIIntegratedSettingsModal } from '../comfyui/ComfyUIIntegratedSettingsModal';
-import { TTSCharacterSettingsModal } from '../tts/TTSCharacterSettingsModal';
-import { TTSIntegratedSettingsModal } from '../tts/TTSIntegratedSettingsModal';
-import { INTEGRATED } from '../comfyui/constants';
 import type { DateTimeSettingsState } from '../../types/datetime';
 import { getDefaultDateTimeSettings } from '../../types/datetime';
 import { getGlobalSettings, updateGlobalSettings } from '../../api/global-settings';
@@ -42,6 +39,7 @@ import { extractCharacterDirectoryName } from '../chat/characterImagePath';
 import { loadDirRecursive } from './individualOptions';
 import { getLinkedSettings, type LinkedSettings } from '../../api/characters';
 import { CHARACTER_IMAGES_UPDATED_EVENT } from '../../lib/characterImageEvents';
+import { notifyConfigFilesChanged, subscribeConfigFilesChanged } from '../../lib/configFilesChanged';
 import {
     listSSRPAllPresets,
     getSSRPAllPreset,
@@ -53,9 +51,10 @@ import {
     deleteSSRPParamPreset
 } from '../../api/datetime-presets';
 import type { SSRPAllPreset, SSRPParamPreset } from '../../api/datetime-presets';
-import { resolveMessage, type I18NCatalog } from '../../api/i18n';
-import { SSRP_I18N_KEYS, SSRP_TEXT_FALLBACK_JA } from '../../constants/i18n';
+import { formatLabelValue, joinNames, resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { PREPARE_PANEL_I18N_KEYS, PREPARE_PANEL_TEXT_FALLBACK_JA, SETTINGS_VIEW_I18N_KEYS, SETTINGS_VIEW_TEXT_FALLBACK_JA, SSRP_I18N_KEYS, SSRP_TEXT_FALLBACK_JA } from '../../constants/i18n';
 import { ImageGenerationSettings, getDefaultImageGenSettings, type ImageGenSettingsState } from './ImageGenerationSettings';
+import { ParameterSchemaEditorModal } from '../settings/ParameterSchemaEditorModal';
 
 
 interface RolePlaySettingsProps {
@@ -63,12 +62,16 @@ interface RolePlaySettingsProps {
     onClose: () => void;
     onStartSession: (settings: any) => void;
     initialSettings?: any;
+    /** 初期設定と選択肢の反映が終わったときに呼ぶ。更新復旧内容を最後に重ねるために使う。 */
+    onInitialized?: () => void;
     backendUrl: string;
     canRestoreSessionSettings?: boolean;
     onConversationPresetChanged?: () => void;
     onRestoreSessionSettings?: () => void;
     /** 既存セッションで設定が未反映変更ありのとき、会話開始ボタンの上に反映ボタンを表示する */
     canApplyToSession?: boolean;
+    /** 既存セッションと比べて話す相手（キャラ）が替わっているか。替わっていれば「新しく始める」を主ボタンにする */
+    charactersChangedFromSession?: boolean;
     onApplyToSession?: () => void;
     applyToSessionState?: 'idle' | 'applying' | 'done';
     /** SSRP設定でdirectiveModeが未指定の場合に使用するデフォルト値（通常設定から） */
@@ -81,9 +84,8 @@ interface RolePlaySettingsProps {
      */
     imageGenSettingsVisible?: boolean;
     /**
-     * キャラ詳細設定横アイコンの画像生成統合設定を、設定メニュー経由と同じ
-     * ConfigEditorHub の imageGen タブで開く導線（引数は初期選択キャラクター名。
-     * 未指定なら従来どおり内蔵モーダルで開く。表示条件の判定は Chat 側で行う）。
+     * キャラ詳細の画像の設定を、素材づくりのキャラ画像のタブで開く導線（引数は初期選択キャラクター名。
+     * 画像生成が使えるときだけ渡す。表示条件の判定は Chat 側で行う）。
      */
     onOpenIntegratedImageSettings?: (characterName: string) => void;
     /**
@@ -92,8 +94,8 @@ interface RolePlaySettingsProps {
      */
     ttsSettingsVisible?: boolean;
     /**
-     * キャラ詳細設定横アイコンのTTS統合設定を ConfigEditorHub の tts タブで開く導線
-     * （引数は初期選択キャラクター名。未指定なら内蔵モーダルで開く）。
+     * キャラ詳細の声の設定を素材づくりの声のタブで開く導線
+     * （引数は初期選択キャラクター名。読み上げが使えるときだけ渡す）。
      */
     onOpenIntegratedTTSSettings?: (characterName: string) => void;
     /**
@@ -109,6 +111,8 @@ interface RolePlaySettingsProps {
     tempImport?: TempCharacterImportHandle;
     /** サーバー側で会話設定が更新されたとき（一時キャラの本文更新・削除・キャラ設定登録）に Chat 側の保持値を差し替える */
     onSessionSettingsUpdated?: (ssrpSettings: any) => void;
+    /** 選択中のキャラクター一覧（空枠を除く）が変わるたびに Chat 側へ伝える。発言前の見出しの参加者表示に使う */
+    onCharactersChange?: (characters: string[]) => void;
     uiCatalog: I18NCatalog | null;
 }
 
@@ -150,24 +154,12 @@ interface SSRPOptionsData {
 let ssrpOptionsCache: { data: SSRPOptionsData; fetchedAt: number } | null = null;
 const SSRP_OPTIONS_CACHE_TTL_MS = 30_000;
 
-// キャッシュ破棄の通知を受け取る購読者。開いている会話設定メニューが、
-// メニューを閉じずに（ピン留め等で isOpen が変化しないまま）即時再取得するために使う。
-const ssrpOptionsInvalidationSubscribers = new Set<() => void>();
-
-// 開いている会話設定メニューがキャッシュ破棄通知を購読する。戻り値で購読解除する。
-export function subscribeSSRPOptionsInvalidation(fn: () => void): () => void {
-    ssrpOptionsInvalidationSubscribers.add(fn);
-    return () => { ssrpOptionsInvalidationSubscribers.delete(fn); };
-}
-
 // 設定パック取り込み等、メニュー外の操作でワークスペース内容が変わった際に呼ぶ。
-// 破棄しておくと次回メニューを開いたときに必ず再取得される。加えて、開きっぱなしの
-// メニューにも通知し、その場で再取得させる。
+// 破棄しておくと次回メニューを開いたときに必ず再取得される。加えて、設定ファイルの変更を
+// 全画面へ知らせ、開きっぱなしのメニューや素材づくりの一覧にもその場で再取得させる。
 export function invalidateSSRPOptionsCache(): void {
     ssrpOptionsCache = null;
-    for (const fn of ssrpOptionsInvalidationSubscribers) {
-        fn();
-    }
+    notifyConfigFilesChanged();
 }
 
 async function fetchSSRPOptions(backendUrl: string): Promise<SSRPOptionsData> {
@@ -277,6 +269,16 @@ function getCharacterSettingNameFromPath(charPath: string): string {
 // React.memo の props 安定用の空配列（毎レンダー `|| []` で新配列を作らない）
 const EMPTY_OPTIONS: Option[] = [];
 
+// 欄の入力欄・見出しの見た目
+const PANEL_FIELD_CLASS = 'w-full bg-surface border border-line-strong text-fg rounded-ui text-sm px-3 py-2 outline-none focus:border-accent transition-colors';
+const PANEL_HEADING_CLASS = 'font-head text-xs font-bold tracking-wider text-fg-muted';
+// 会話に入れられるキャラの数の上限
+const MAX_CHARACTERS = 5;
+// キャラ選択の窓を「キャラを追加」で開いたときの印（差し替えのときは枠の位置を入れる）
+const ADD_CHARACTER_SLOT = -1;
+
+type PrepareTab = 'characters' | 'scene' | 'style' | 'preset';
+
 // 選択セクション（世界観・舞台・シチュエーション・ユーザー・文体）。
 // 巨大な親の再レンダーから切り離すため React.memo で包む。
 // setter は useState の dispatch（参照不変）を直接受けるため、
@@ -289,14 +291,14 @@ const SelectSection = React.memo<{
     placeholder: string;
 }>(({ title, options, selected, setter, placeholder }) => (
     <div className="space-y-2">
-        <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">{title}</h3>
+        <h3 className={PANEL_HEADING_CLASS}>{title}</h3>
         {selected.map((val, idx) => (
             <div key={idx} className="flex flex-col gap-2 animate-fade-in">
                 <div className="flex gap-2">
                     <select
                         value={val}
                         onChange={(e) => setter(prev => listWithChange(idx, e.target.value, prev))}
-                        className="flex-1 min-w-0 bg-gray-800 border-gray-700 text-gray-200 rounded-md p-2 text-sm outline-none focus:border-blue-500 border outline-none transition-all"
+                        className={cn(PANEL_FIELD_CLASS, 'flex-1 min-w-0')}
                     >
                         <option value="">{placeholder}</option>
                         {options.map((opt) => (
@@ -308,7 +310,7 @@ const SelectSection = React.memo<{
                     {(val || (idx !== selected.length - 1 && selected.length > 1)) && (
                         <button
                             onClick={() => setter(prev => listWithDelete(idx, prev))}
-                            className="text-gray-500 hover:text-red-400 p-2 rounded hover:bg-gray-800 transition-colors"
+                            className="text-fg-muted hover:text-danger p-2 rounded-ui hover:bg-surface transition-colors"
                         >
                             <Trash2 size={16} />
                         </button>
@@ -320,14 +322,26 @@ const SelectSection = React.memo<{
 ));
 SelectSection.displayName = 'SelectSection';
 
-// キャラクター詳細設定パネル（1キャラ分）。
-// 旧 renderCharacterDetail の抽出。親（RolePlaySettings）は state 64 個を持ち
-// どれか 1 つの変更で全体が再レンダーされるため、ここを React.memo で切り離す。
-// updateDetail は `{...prev, [charPath]: ...}` 形式なので、他キャラの編集や
-// 追加設定テキスト入力では detail の参照が変わらず再レンダーがスキップされる。
+// キャラクター詳細（1キャラ分）。準備・調整欄の上に重ねて出し、区切り（状態・個別設定・相関関係・画像と声）を切り替えて見せる。
+// 親（RolePlaySettings）は state が多く、どれか1つの変更で全体が再描画されるため React.memo で切り離す。
+// updateDetail は `{...prev, [charPath]: ...}` 形式なので、他キャラの編集では detail の参照が変わらず再描画を飛ばせる。
 interface CharacterDetailPanelProps {
     charPath: string;
     characterDirName: string;
+    /** 見出しに出す名前 */
+    label: string;
+    /** 一時キャラクター（実ファイルを持たない） */
+    isTemp: boolean;
+    /** 一覧へ戻る */
+    onClose: () => void;
+    /** 別のキャラに替える（キャラ選択の窓を開く） */
+    onReplace: () => void;
+    /** この会話から外す */
+    onRemove: () => void;
+    /** 一時キャラクターの本文を編集する */
+    onEditTemp?: () => void;
+    /** 一時キャラクターをキャラ設定に登録する（会話が保存されているときだけ） */
+    onRegisterTemp?: () => void;
     detail: CharacterDetail;
     parameterSchema: ParameterSchema | null;
     uiCatalog: I18NCatalog | null;
@@ -364,9 +378,15 @@ interface CharacterDetailPanelProps {
     onUpdateParamValue: (charPath: string, groupId: string, elementId: string, value: any) => void;
 }
 
-const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({ 
+type DetailSection = 'status' | 'individual' | 'correlation' | 'media';
+
+const DETAIL_FIELD_CLASS = 'w-full bg-surface border border-line-strong text-fg rounded-ui text-xs p-2 outline-none focus:border-accent transition-colors';
+
+const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
     charPath,
     characterDirName,
+    label,
+    isTemp,
     detail,
     parameterSchema,
     uiCatalog,
@@ -383,25 +403,33 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
     onParamPresetsChange,
     onFetchRelationshipOptions,
     onSelectRelation,
+    onOpenImageSettings,
     imageGenSettingsVisible,
     linkedSettings,
+    onOpenEditor,
     canUseTTS,
+    onOpenTTSSettings,
     presetVoiceDesign,
     onPresetVoiceDesignChange,
     onUpdateCorrelation,
     onUpdateParamGroup,
     onUpdateParamValue,
+    onClose,
+    onReplace,
+    onRemove,
+    onEditTemp,
+    onRegisterTemp,
 }) => {
-    const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
+    const t = (key: string) => resolveMessage(uiCatalog, key, PREPARE_PANEL_TEXT_FALLBACK_JA[key] || SSRP_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string | number>) => {
         return Object.entries(values).reduce((text, [key, value]) => {
             return text.split(`{{${key}}}`).join(String(value));
         }, template);
     };
+    // どの区切りを見ているか（詳細 → 区切りの2段まで）
+    const [section, setSection] = useState<DetailSection>('status');
 
-    // プリセット名入力への参照。複数キャラの詳細パネルが同時に開いていても、
-    // 保存ボタンが必ず自パネルの入力欄を読むようにする（document.querySelector だと
-    // 文書順で最初のパネルの入力欄を拾ってしまう）。
+    // プリセット名入力への参照（保存ボタンが自分の入力欄を読むため）
     const presetNameInputRef = useRef<HTMLInputElement | null>(null);
 
     // 詳細設定をデフォルト値にリセットする関数
@@ -449,359 +477,389 @@ const CharacterDetailPanel = React.memo<CharacterDetailPanelProps>(({
         onParamPresetsChange(await listSSRPParamPresets(backendUrl));
     };
 
+    const loadParamPreset = async (name: string) => {
+        const preset = await getSSRPParamPreset(backendUrl, name);
+        if (!preset) return;
+        // ユーザー名を復元
+        if (preset.userName) {
+            onUserNameSet(preset.userName);
+        }
+        onUpdateDetail(charPath, d => ({
+            ...d,
+            individualBackground: preset.individualBackground || d.individualBackground,
+            individualBackgrounds: (preset.individualBackgrounds && preset.individualBackgrounds.length > 0) ? [...preset.individualBackgrounds, ''] : (preset.individualBackground ? [preset.individualBackground, ''] : d.individualBackgrounds || ['']),
+            individualOutfits: (preset.individualOutfits && preset.individualOutfits.length > 0) ? [...preset.individualOutfits, ''] : d.individualOutfits || [''],
+            individualPersonalities: (preset.individualPersonalities && preset.individualPersonalities.length > 0) ? [...preset.individualPersonalities, ''] : d.individualPersonalities || [''],
+            parameterGroups: preset.parameterGroups ? JSON.parse(JSON.stringify(preset.parameterGroups)) : d.parameterGroups,
+            // 追加服装・追加背景・追加性格設定の復元
+            additionalOutfitEnabled: preset.additionalOutfitEnabled ?? d.additionalOutfitEnabled,
+            additionalOutfitText: preset.additionalOutfitText ?? d.additionalOutfitText,
+            additionalBackgroundEnabled: preset.additionalBackgroundEnabled ?? d.additionalBackgroundEnabled,
+            additionalBackgroundText: preset.additionalBackgroundText ?? d.additionalBackgroundText,
+            additionalPersonalityEnabled: preset.additionalPersonalityEnabled ?? d.additionalPersonalityEnabled,
+            additionalPersonalityText: preset.additionalPersonalityText ?? d.additionalPersonalityText,
+            autoImageGenEnabled: preset.autoImageGenEnabled ?? d.autoImageGenEnabled,
+            correlations: d.correlations.map(c => {
+                if (c.targetId === 'user') {
+                    return {
+                        ...c,
+                        // ユーザー名をtargetNameに反映
+                        targetName: preset.userName || c.targetName,
+                        ...(preset.userCorrelation ? {
+                            relationship: preset.userCorrelation.relationship,
+                            details: preset.userCorrelation.details,
+                            favorability: preset.userCorrelation.favorability
+                        } : {})
+                    };
+                }
+                return c;
+            })
+        }));
+    };
+
+    const sections: { value: DetailSection; label: string }[] = [
+        { value: 'status', label: t(PREPARE_PANEL_I18N_KEYS.detailStatus) },
+        { value: 'individual', label: t(PREPARE_PANEL_I18N_KEYS.detailIndividual) },
+        { value: 'correlation', label: t(PREPARE_PANEL_I18N_KEYS.detailCorrelation) },
+        { value: 'media', label: t(PREPARE_PANEL_I18N_KEYS.detailMedia) },
+    ];
+
+    // 操作（一覧のカードの横にあったアイコン列を、文字付きでここへ移した）。
+    // 相手だけを替えて始めるのが基本の使い方なので、入れ替えを先頭に枠付きで出す
+    const actions: { key: string; label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; primary?: boolean }[] = [];
+    actions.push({ key: 'replace', label: t(PREPARE_PANEL_I18N_KEYS.detailReplace), icon: <ArrowLeftRight size={14} />, onClick: onReplace, primary: true });
+    if (isTemp && onRegisterTemp) actions.push({ key: 'register', label: t(PREPARE_PANEL_I18N_KEYS.detailRegisterTemp), icon: <FolderPlus size={14} />, onClick: onRegisterTemp });
+    if (isTemp && onEditTemp) actions.push({ key: 'editTemp', label: t(PREPARE_PANEL_I18N_KEYS.detailEditTemp), icon: <FileText size={14} />, onClick: onEditTemp });
+    if (!isTemp && onOpenEditor) actions.push({ key: 'editor', label: t(PREPARE_PANEL_I18N_KEYS.detailOpenEditor), icon: <FileText size={14} />, onClick: () => onOpenEditor(charPath) });
+    if (!isTemp && imageGenSettingsVisible) actions.push({ key: 'image', label: t(PREPARE_PANEL_I18N_KEYS.detailImage), icon: <Image size={14} />, onClick: () => onOpenImageSettings(charPath) });
+    if (!isTemp && canUseTTS && onOpenTTSSettings) actions.push({ key: 'voice', label: t(PREPARE_PANEL_I18N_KEYS.detailVoice), icon: <AudioLines size={14} />, onClick: () => onOpenTTSSettings(charPath) });
+    actions.push({ key: 'remove', label: t(PREPARE_PANEL_I18N_KEYS.detailRemove), icon: <Trash2 size={14} />, onClick: onRemove, danger: true });
+
     return (
-        <div className="ml-2 pl-3 border-l-2 border-gray-700 space-y-4 mb-4 mt-1 bg-gray-800/30 rounded-r p-3 relative group">
-            <div className="flex items-center justify-between">
-                <button
-                    onClick={() => onUpdateDetail(charPath, d => ({ ...d, isOpen: !d.isOpen }))}
-                    className="flex-1 flex items-center text-xs text-gray-400 hover:text-white text-left font-medium outline-none py-2 -ml-2 pl-2 hover:bg-gray-700/30 rounded"
-                >
-                    {detail.isOpen ? <ChevronDown size={16} className="mr-1.5" /> : <ChevronRight size={16} className="mr-1.5" />}
-                    {t(SSRP_I18N_KEYS.characterDetail)}
-                </button>
-                {/* キャラ設定・画像設定・TTS 設定のアイコンは、キャラクター選択欄の上のアイコンバーへ移した */}
-                {detail.isOpen && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            resetToDefault();
-                        }}
-                        className="flex items-center gap-1 text-xs text-gray-500 hover:text-orange-400 hover:bg-gray-700/50 px-2 py-1.5 rounded transition-colors ml-2"
-                        title={t(SSRP_I18N_KEYS.resetToDefaultTitle)}
-                    >
-                        <RotateCcw size={14} />
-                        {t(SSRP_I18N_KEYS.reset)}
-                    </button>
-                )}
+        <div className="absolute inset-0 z-20 flex flex-col bg-panel-solid animate-fade-in">
+            {/* 見出し：戻る・名前・既定に戻す */}
+            <div className="flex items-center gap-1 px-2 h-14 shrink-0 border-b border-line">
+                <IconButton label={t(PREPARE_PANEL_I18N_KEYS.detailBack)} onClick={onClose}>
+                    <ChevronLeft size={18} />
+                </IconButton>
+                <h3 className="flex-1 min-w-0 font-head text-base font-bold truncate">
+                    {label}
+                    {isTemp && (
+                        <span className="ml-2 align-middle text-xs font-normal px-1 py-0.5 rounded border border-warn text-warn">
+                            {t(SSRP_I18N_KEYS.tempCharacterBadge)}
+                        </span>
+                    )}
+                </h3>
+                <Button size="sm" variant="ghost" onClick={resetToDefault} title={t(SSRP_I18N_KEYS.resetToDefaultTitle)}>
+                    <RotateCcw size={13} />
+                    {t(SSRP_I18N_KEYS.reset)}
+                </Button>
             </div>
 
-            {detail.isOpen && (
-                <div className="space-y-5 animate-fade-in pl-1">
-                    {/* 詳細設定プリセット */}
-                    <div className="space-y-2 pb-3 border-b border-gray-700/50">
-                        <label className="text-xs text-gray-500 font-medium">{t(SSRP_I18N_KEYS.characterDetailPreset)}</label>
-                        <div className="flex gap-2">
-                            <select
-                                className="flex-1 bg-gray-900 border-gray-700 text-gray-200 rounded text-xs p-2 appearance-none outline-none focus:border-blue-500 transition-colors"
-                                onChange={async (e) => {
-                                    const name = e.target.value;
-                                    if (!name) return;
-                                    const preset = await getSSRPParamPreset(backendUrl, name);
-                                    if (preset) {
-                                        // ユーザー名を復元
-                                        if (preset.userName) {
-                                            onUserNameSet(preset.userName);
-                                        }
-                                        onUpdateDetail(charPath, d => ({
-                                            ...d,
-                                            individualBackground: preset.individualBackground || d.individualBackground,
-                                            individualBackgrounds: (preset.individualBackgrounds && preset.individualBackgrounds.length > 0) ? [...preset.individualBackgrounds, ''] : (preset.individualBackground ? [preset.individualBackground, ''] : d.individualBackgrounds || ['']),
-                                            individualOutfits: (preset.individualOutfits && preset.individualOutfits.length > 0) ? [...preset.individualOutfits, ''] : d.individualOutfits || [''],
-                                            individualPersonalities: (preset.individualPersonalities && preset.individualPersonalities.length > 0) ? [...preset.individualPersonalities, ''] : d.individualPersonalities || [''],
-                                            parameterGroups: preset.parameterGroups ? JSON.parse(JSON.stringify(preset.parameterGroups)) : d.parameterGroups,
-                                            // 追加服装・追加背景・追加性格設定の復元
-                                            additionalOutfitEnabled: preset.additionalOutfitEnabled ?? d.additionalOutfitEnabled,
-                                            additionalOutfitText: preset.additionalOutfitText ?? d.additionalOutfitText,
-                                            additionalBackgroundEnabled: preset.additionalBackgroundEnabled ?? d.additionalBackgroundEnabled,
-                                            additionalBackgroundText: preset.additionalBackgroundText ?? d.additionalBackgroundText,
-                                            additionalPersonalityEnabled: preset.additionalPersonalityEnabled ?? d.additionalPersonalityEnabled,
-                                            additionalPersonalityText: preset.additionalPersonalityText ?? d.additionalPersonalityText,
-                                            autoImageGenEnabled: preset.autoImageGenEnabled ?? d.autoImageGenEnabled,
-                                            correlations: d.correlations.map(c => {
-                                                if (c.targetId === 'user') {
-                                                    return {
-                                                        ...c,
-                                                        // ユーザー名をtargetNameに反映
-                                                        targetName: preset.userName || c.targetName,
-                                                        ...(preset.userCorrelation ? {
-                                                            relationship: preset.userCorrelation.relationship,
-                                                            details: preset.userCorrelation.details,
-                                                            favorability: preset.userCorrelation.favorability
-                                                        } : {})
-                                                    };
-                                                }
-                                                return c;
-                                            })
-                                        }));
-                                    }
-                                    e.target.value = '';
-                                }}
-                            >
-                                <option value="">{t(SSRP_I18N_KEYS.presetLoadPlaceholder)}</option>
-                                {ssrpParamPresets.map(p => (
-                                    <option key={p} value={p}>{p}</option>
-                                ))}
-                            </select>
-                            {ssrpParamPresets.length > 0 && (
+            <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-line">
+                {actions.map(action => (
+                    <Button
+                        key={action.key}
+                        size="sm"
+                        variant={action.danger ? 'danger' : action.primary ? 'secondary' : 'ghost'}
+                        onClick={action.onClick}
+                    >
+                        {action.icon}
+                        {action.label}
+                    </Button>
+                ))}
+            </div>
+
+            <div className="px-3 pt-3">
+                <Segmented<DetailSection> label={label} value={section} onChange={setSection} options={sections} block />
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5 custom-scrollbar">
+                {section === 'status' && (
+                    <>
+                        {/* 詳細設定プリセット */}
+                        <div className="space-y-2 pb-4 border-b border-line">
+                            <label className="text-xs text-fg-muted font-medium">{t(SSRP_I18N_KEYS.characterDetailPreset)}</label>
+                            <div className="flex gap-2">
                                 <select
-                                    className="bg-gray-900 border-gray-700 text-gray-200 rounded text-xs p-2 appearance-none outline-none focus:border-red-500 transition-colors"
+                                    className={cn(DETAIL_FIELD_CLASS, 'flex-1')}
                                     onChange={async (e) => {
                                         const name = e.target.value;
                                         if (!name) return;
-                                        await deleteSSRPParamPreset(backendUrl, name);
-                                        onParamPresetsChange(await listSSRPParamPresets(backendUrl));
+                                        await loadParamPreset(name);
                                         e.target.value = '';
                                     }}
                                 >
-                                    <option value="">{t(SSRP_I18N_KEYS.presetDeletePlaceholder)}</option>
+                                    <option value="">{t(SSRP_I18N_KEYS.presetLoadPlaceholder)}</option>
                                     {ssrpParamPresets.map(p => (
                                         <option key={p} value={p}>{p}</option>
                                     ))}
                                 </select>
-                            )}
-                        </div>
-                        <div className="flex gap-2">
-                            <input
-                                ref={presetNameInputRef}
-                                type="text"
-                                placeholder={t(SSRP_I18N_KEYS.presetNameSavePlaceholder)}
-                                className="flex-1 bg-gray-900 border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors"
-                                onKeyDown={async (e) => {
-                                    if (e.key === 'Enter') {
-                                        const name = (e.target as HTMLInputElement).value.trim();
+                                {ssrpParamPresets.length > 0 && (
+                                    <select
+                                        className={cn(DETAIL_FIELD_CLASS, 'w-auto')}
+                                        onChange={async (e) => {
+                                            const name = e.target.value;
+                                            if (!name) return;
+                                            await deleteSSRPParamPreset(backendUrl, name);
+                                            onParamPresetsChange(await listSSRPParamPresets(backendUrl));
+                                            e.target.value = '';
+                                        }}
+                                    >
+                                        <option value="">{t(SSRP_I18N_KEYS.presetDeletePlaceholder)}</option>
+                                        {ssrpParamPresets.map(p => (
+                                            <option key={p} value={p}>{p}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <input
+                                    ref={presetNameInputRef}
+                                    type="text"
+                                    placeholder={t(SSRP_I18N_KEYS.presetNameSavePlaceholder)}
+                                    className={cn(DETAIL_FIELD_CLASS, 'flex-1')}
+                                    onKeyDown={async (e) => {
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                            const name = (e.target as HTMLInputElement).value.trim();
+                                            if (!name) return;
+                                            await saveParamPreset(name);
+                                            (e.target as HTMLInputElement).value = '';
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    size="sm"
+                                    variant="primary"
+                                    className="h-auto"
+                                    onClick={async () => {
+                                        const input = presetNameInputRef.current;
+                                        const name = input?.value.trim();
                                         if (!name) return;
                                         await saveParamPreset(name);
-                                        (e.target as HTMLInputElement).value = '';
-                                    }
-                                }}
-                            />
-                            <button
-                                onClick={async () => {
-                                    const input = presetNameInputRef.current;
-                                    const name = input?.value.trim();
-                                    if (!name) return;
-                                    await saveParamPreset(name);
-                                    if (input) input.value = '';
-                                }}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium transition-colors flex items-center gap-1"
-                            >
-                                <Save size={12} />
-                                {t(SSRP_I18N_KEYS.save)}
-                            </button>
+                                        if (input) input.value = '';
+                                    }}
+                                >
+                                    <Save size={12} />
+                                    {t(SSRP_I18N_KEYS.save)}
+                                </Button>
+                            </div>
                         </div>
-                    </div>
 
-                    {/* 個別性格・個別服装・個別背景（開閉可能、デフォルト閉） */}
-                    <div className="space-y-2">
-                        <button
-                            onClick={() => onUpdateDetail(charPath, d => ({ ...d, isIndividualOpen: !d.isIndividualOpen }))}
-                            className="w-full flex items-center text-xs text-gray-400 hover:text-white font-medium transition-colors py-2 -ml-2 pl-2 hover:bg-gray-700/30 rounded text-left"
-                        >
-                            {detail.isIndividualOpen ? <ChevronDown size={16} className="mr-1.5" /> : <ChevronRight size={16} className="mr-1.5" />}
-                            {t(SSRP_I18N_KEYS.individualSettingsTitle)}
-                        </button>
-                        {detail.isIndividualOpen && (
-                            <div className="space-y-3">
-                                {([
-                                    { field: 'individualPersonalities' as const, label: t(SSRP_I18N_KEYS.individualPersonality), options: personalityOptions, additionalEnabledField: 'additionalPersonalityEnabled' as const, additionalTextField: 'additionalPersonalityText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalPersonality), linkedAdditional: linkedSettings?.personalities.additional },
-                                    { field: 'individualOutfits' as const, label: t(SSRP_I18N_KEYS.individualOutfit), options: outfitOptions, additionalEnabledField: 'additionalOutfitEnabled' as const, additionalTextField: 'additionalOutfitText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalOutfit), linkedAdditional: linkedSettings?.outfits.additional },
-                                    { field: 'individualBackgrounds' as const, label: t(SSRP_I18N_KEYS.individualBackground), options: backgroundOptions, additionalEnabledField: 'additionalBackgroundEnabled' as const, additionalTextField: 'additionalBackgroundText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalBackground), linkedAdditional: linkedSettings?.backgrounds.additional },
-                                ]).map(({ field, label, options, additionalEnabledField, additionalTextField, additionalLabel, linkedAdditional }) => (
-                                    <div key={field} className="space-y-1">
-                                        <label className="text-xs text-gray-500 font-medium">{label}</label>
-                                        {((detail[field] as string[] | undefined) || ['']).map((itemVal, idx, arr) => (
-                                            <div key={idx} className="flex gap-2 relative mt-1">
-                                                <div className="relative flex-1">
-                                                    <select
-                                                        value={itemVal}
-                                                        onChange={(e) => {
-                                                            onUpdateDetail(charPath, d => {
-                                                                const next = [...((d[field] as string[] | undefined) || arr)];
-                                                                next[idx] = e.target.value;
-                                                                if (e.target.value && idx === next.length - 1 && next.length < 5) next.push('');
-                                                                return { ...d, [field]: next };
-                                                            });
-                                                        }}
-                                                        className="w-full bg-gray-900 border-gray-700 text-gray-200 rounded text-xs p-2 appearance-none outline-none focus:border-blue-500 transition-colors pr-6"
-                                                    >
-                                                        <option value="">{t(SSRP_I18N_KEYS.none)}</option>
-                                                        {options.map(opt => (
-                                                            <option key={opt.value} value={opt.value} disabled={arr.includes(opt.value) && itemVal !== opt.value}>{opt.label}</option>
-                                                        ))}
-                                                    </select>
-                                                    <ChevronDown size={12} className="absolute right-2 top-2.5 text-gray-500 pointer-events-none" />
-                                                </div>
-                                                {(itemVal || (idx !== arr.length - 1 && arr.length > 1)) && (
-                                                    <button
-                                                        onClick={() => {
-                                                            onUpdateDetail(charPath, d => {
-                                                                const next = ((d[field] as string[] | undefined) || arr).filter((_, i) => i !== idx);
-                                                                if (next.length === 0) next.push('');
-                                                                return { ...d, [field]: next };
-                                                            });
-                                                        }}
-                                                        className="text-gray-500 hover:text-red-400 p-2 rounded hover:bg-gray-800 transition-colors"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        {/* 追加設定テキストエリア（各カテゴリの直下） */}
-                                        <div className="mt-2 space-y-1.5">
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() => onUpdateDetail(charPath, d => ({ ...d, [additionalEnabledField]: !d[additionalEnabledField] }))}
-                                                    className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${detail[additionalEnabledField] ? 'bg-blue-600' : 'bg-gray-700'}`}
-                                                >
-                                                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${detail[additionalEnabledField] ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                                </button>
-                                                <span className="text-[10px] text-gray-500">{additionalLabel}</span>
-                                                {/* キャラクター側の追加設定（設定ファイルエディタで紐づけたもの）。合成はプロンプト生成時に Go 側で行う */}
-                                                {linkedAdditional && linkedAdditional.text.trim() && (
-                                                    <span
-                                                        className={`text-[10px] rounded px-1.5 py-0.5 border ${linkedAdditional.mode === 'replace' ? 'border-amber-700 text-amber-300' : 'border-green-800 text-green-300'}`}
-                                                        title={linkedAdditional.text.slice(0, 80)}
-                                                    >
-                                                        {t(linkedAdditional.mode === 'replace' ? SSRP_I18N_KEYS.linkedBadgeReplace : SSRP_I18N_KEYS.linkedBadgeAppend)}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {detail[additionalEnabledField] && (
-                                                <textarea
-                                                    value={(detail[additionalTextField] as string) || ''}
-                                                    onChange={(e) => onUpdateDetail(charPath, d => ({ ...d, [additionalTextField]: e.target.value }))}
-                                                    placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: additionalLabel })}
-                                                    className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y"
-                                                    style={{ minHeight: '60px' }}
-                                                />
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* 相関関係（開閉可能、デフォルト閉） */}
-                    <div className="space-y-2">
-                        <button
-                            onClick={() => onUpdateDetail(charPath, d => ({ ...d, isCorrelationOpen: !d.isCorrelationOpen }))}
-                            className="w-full flex items-center text-xs text-gray-400 hover:text-white font-medium transition-colors py-2 -ml-2 pl-2 hover:bg-gray-700/30 rounded text-left"
-                        >
-                            {detail.isCorrelationOpen ? <ChevronDown size={16} className="mr-1.5" /> : <ChevronRight size={16} className="mr-1.5" />}
-                            {t(SSRP_I18N_KEYS.correlationTitle)}
-                        </button>
-                        {detail.isCorrelationOpen && (
-                            <div className="space-y-3">
-                                {detail.correlations.map((rel, relIdx) => (
-                                    <div key={relIdx} className="bg-gray-900/60 p-3 rounded border border-gray-700/50 space-y-2">
-                                        <div className="text-xs font-bold text-gray-300 border-b border-gray-700/50 pb-1 flex justify-between items-center">
-                                            {rel.targetId === 'user' ? (
-                                                <div className="flex items-center gap-1.5 flex-1">
-                                                    <input
-                                                        type="text"
-                                                        value={userName}
-                                                        onChange={(e) => onUserNameInput(e.target.value)}
-                                                        placeholder={t(SSRP_I18N_KEYS.userNamePlaceholder)}
-                                                        className="bg-transparent border-b border-gray-600 text-gray-300 text-xs w-20 outline-none focus:border-blue-500 px-0.5"
-                                                    />
-                                                    <span>{t(SSRP_I18N_KEYS.relationWithUser)}</span>
-                                                </div>
-                                            ) : (
-                                                <span>{formatText(t(SSRP_I18N_KEYS.relationWithTarget), { target: rel.targetName })}</span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2 items-center">
-                                            <span className="text-[10px] text-gray-500 w-12 flex-shrink-0">{t(SSRP_I18N_KEYS.relationship)}</span>
-                                            <button
-                                                onClick={() => {
-                                                    onFetchRelationshipOptions();
-                                                    onSelectRelation(charPath, relIdx);
-                                                }}
-                                                className="flex-1 bg-gray-800 border border-gray-600 text-gray-200 rounded text-xs p-1.5 text-left hover:border-blue-500 transition-colors flex items-center justify-between group"
-                                            >
-                                                <span className={!rel.relationship ? "text-gray-500" : ""}>
-                                                    {relationshipOptions.find(o => o.value === rel.relationship)?.label || rel.relationship || t(SSRP_I18N_KEYS.notSelected)}
-                                                </span>
-                                                <ChevronDown size={14} className="text-gray-500 group-hover:text-blue-400" />
-                                            </button>
-                                        </div>
-                                        <textarea
-                                            placeholder={t(SSRP_I18N_KEYS.detailsPlaceholder)}
-                                            value={rel.details}
-                                            onChange={(e) => onUpdateCorrelation(charPath, relIdx, 'details', e.target.value)}
-                                            className="w-full bg-gray-800 border-gray-600 text-gray-200 rounded text-xs p-2 h-16 outline-none focus:border-blue-500 resize-none"
-                                        />
-                                        <div className="flex gap-2 items-center pt-1">
-                                            <span className="text-[10px] text-gray-500 w-12 flex-shrink-0">{t(SSRP_I18N_KEYS.favorability)}</span>
-                                            <input
-                                                type="range"
-                                                min="-100" max="100"
-                                                value={rel.favorability || 0}
-                                                onChange={(e) => onUpdateCorrelation(charPath, relIdx, 'favorability', parseInt(e.target.value))}
-                                                className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        {/* 個別パラメータ（スキーマベースの動的パラメータ） */}
+                        <div className="space-y-3">
+                            <label className="text-xs text-fg-muted font-medium block">{t(SSRP_I18N_KEYS.individualParameters)}</label>
+                            {parameterSchema && detail.parameterGroups && (
+                                <div className="space-y-4">
+                                    {detail.parameterGroups.map((groupState) => {
+                                        const groupDef = parameterSchema.groups.find(g => g.id === groupState.id);
+                                        if (!groupDef) return null;
+                                        return (
+                                            <RenderGroup
+                                                key={groupState.id}
+                                                groupDef={groupDef}
+                                                groupState={groupState}
+                                                onGroupStateChange={(updates) => onUpdateParamGroup(charPath, groupState.id, updates)}
+                                                onValueChange={(elementId, value) => onUpdateParamValue(charPath, groupState.id, elementId, value)}
+                                                uiCatalog={uiCatalog}
                                             />
-                                            <span className={`text-xs w-8 text-right font-mono ${(rel.favorability || 0) < 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                                                {rel.favorability || 0}
-                                            </span>
-                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+
+                {section === 'individual' && (
+                    <div className="space-y-5">
+                        {([
+                            { field: 'individualPersonalities' as const, label: t(SSRP_I18N_KEYS.individualPersonality), options: personalityOptions, additionalEnabledField: 'additionalPersonalityEnabled' as const, additionalTextField: 'additionalPersonalityText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalPersonality), linkedAdditional: linkedSettings?.personalities.additional },
+                            { field: 'individualOutfits' as const, label: t(SSRP_I18N_KEYS.individualOutfit), options: outfitOptions, additionalEnabledField: 'additionalOutfitEnabled' as const, additionalTextField: 'additionalOutfitText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalOutfit), linkedAdditional: linkedSettings?.outfits.additional },
+                            { field: 'individualBackgrounds' as const, label: t(SSRP_I18N_KEYS.individualBackground), options: backgroundOptions, additionalEnabledField: 'additionalBackgroundEnabled' as const, additionalTextField: 'additionalBackgroundText' as const, additionalLabel: t(SSRP_I18N_KEYS.additionalBackground), linkedAdditional: linkedSettings?.backgrounds.additional },
+                        ]).map(({ field, label: fieldLabel, options, additionalEnabledField, additionalTextField, additionalLabel, linkedAdditional }) => (
+                            <div key={field} className="space-y-1.5">
+                                <label className="text-xs text-fg-muted font-medium">{fieldLabel}</label>
+                                {((detail[field] as string[] | undefined) || ['']).map((itemVal, idx, arr) => (
+                                    <div key={idx} className="flex gap-2">
+                                        <select
+                                            value={itemVal}
+                                            onChange={(e) => {
+                                                onUpdateDetail(charPath, d => {
+                                                    const next = [...((d[field] as string[] | undefined) || arr)];
+                                                    next[idx] = e.target.value;
+                                                    if (e.target.value && idx === next.length - 1 && next.length < 5) next.push('');
+                                                    return { ...d, [field]: next };
+                                                });
+                                            }}
+                                            className={cn(DETAIL_FIELD_CLASS, 'flex-1')}
+                                        >
+                                            <option value="">{t(SSRP_I18N_KEYS.none)}</option>
+                                            {options.map(opt => (
+                                                <option key={opt.value} value={opt.value} disabled={arr.includes(opt.value) && itemVal !== opt.value}>{opt.label}</option>
+                                            ))}
+                                        </select>
+                                        {(itemVal || (idx !== arr.length - 1 && arr.length > 1)) && (
+                                            <IconButton
+                                                label={t(SSRP_I18N_KEYS.deletePreset)}
+                                                size="sm"
+                                                className="self-center hover:text-danger"
+                                                onClick={() => {
+                                                    onUpdateDetail(charPath, d => {
+                                                        const next = ((d[field] as string[] | undefined) || arr).filter((_, i) => i !== idx);
+                                                        if (next.length === 0) next.push('');
+                                                        return { ...d, [field]: next };
+                                                    });
+                                                }}
+                                            >
+                                                <Trash2 size={14} />
+                                            </IconButton>
+                                        )}
                                     </div>
                                 ))}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="pt-3 border-t border-gray-700 space-y-3">
-                        <label className="text-xs text-gray-500 font-medium block">{t(SSRP_I18N_KEYS.individualParameters)}</label>
-
-                        {/* スキーマベースの動的パラメータ */}
-                        {parameterSchema && detail.parameterGroups && (
-                            <div className="space-y-4">
-                                {detail.parameterGroups.map((groupState) => {
-                                    const groupDef = parameterSchema.groups.find(g => g.id === groupState.id);
-                                    if (!groupDef) return null;
-                                    return (
-                                        <RenderGroup
-                                            key={groupState.id}
-                                            groupDef={groupDef}
-                                            groupState={groupState}
-                                            onGroupStateChange={(updates) => onUpdateParamGroup(charPath, groupState.id, updates)}
-                                            onValueChange={(elementId, value) => onUpdateParamValue(charPath, groupState.id, elementId, value)}
-                                            uiCatalog={uiCatalog}
+                                {/* 追加設定（各項目の直下） */}
+                                <div className="pt-1 space-y-1.5">
+                                    <div className="flex items-center gap-2">
+                                        <ToggleSwitch
+                                            checked={!!detail[additionalEnabledField]}
+                                            onChange={(on) => onUpdateDetail(charPath, d => ({ ...d, [additionalEnabledField]: on }))}
+                                            label={additionalLabel}
+                                            labelPosition="right"
+                                            labelClassName="text-xs text-fg-muted"
+                                            size="sm"
                                         />
-                                    );
-                                })}
+                                        {/* キャラクター側の追加設定（設定ファイルエディタで紐づけたもの）。合成はプロンプト生成時に Go 側で行う */}
+                                        {linkedAdditional && linkedAdditional.text.trim() && (
+                                            <span
+                                                className={cn('text-xs rounded px-1.5 py-0.5 border', linkedAdditional.mode === 'replace' ? 'border-warn text-warn' : 'border-ok text-ok')}
+                                                title={linkedAdditional.text.slice(0, 80)}
+                                            >
+                                                {t(linkedAdditional.mode === 'replace' ? SSRP_I18N_KEYS.linkedBadgeReplace : SSRP_I18N_KEYS.linkedBadgeAppend)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {detail[additionalEnabledField] && (
+                                        <textarea
+                                            value={(detail[additionalTextField] as string) || ''}
+                                            onChange={(e) => onUpdateDetail(charPath, d => ({ ...d, [additionalTextField]: e.target.value }))}
+                                            placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: additionalLabel })}
+                                            className={cn(DETAIL_FIELD_CLASS, 'resize-y')}
+                                            style={{ minHeight: '60px' }}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {section === 'correlation' && (
+                    <div className="space-y-3">
+                        {detail.correlations.map((rel, relIdx) => (
+                            <div key={relIdx} className="bg-surface p-3 rounded-ui-lg border border-line space-y-2">
+                                <div className="text-xs font-bold text-fg border-b border-line pb-1.5 flex justify-between items-center">
+                                    {rel.targetId === 'user' ? (
+                                        <div className="flex items-center gap-1.5 flex-1">
+                                            <input
+                                                type="text"
+                                                value={userName}
+                                                onChange={(e) => onUserNameInput(e.target.value)}
+                                                placeholder={t(SSRP_I18N_KEYS.userNamePlaceholder)}
+                                                className="bg-transparent border-b border-line-strong text-fg text-xs w-24 outline-none focus:border-accent px-0.5"
+                                            />
+                                            <span>{t(SSRP_I18N_KEYS.relationWithUser)}</span>
+                                        </div>
+                                    ) : (
+                                        <span>{formatText(t(SSRP_I18N_KEYS.relationWithTarget), { target: rel.targetName })}</span>
+                                    )}
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <span className="text-xs text-fg-muted w-12 flex-shrink-0">{t(SSRP_I18N_KEYS.relationship)}</span>
+                                    <button
+                                        onClick={() => {
+                                            onFetchRelationshipOptions();
+                                            onSelectRelation(charPath, relIdx);
+                                        }}
+                                        className={cn(DETAIL_FIELD_CLASS, 'flex-1 p-1.5 text-left flex items-center justify-between hover:border-accent')}
+                                    >
+                                        <span className={!rel.relationship ? 'text-fg-muted' : ''}>
+                                            {relationshipOptions.find(o => o.value === rel.relationship)?.label || rel.relationship || t(SSRP_I18N_KEYS.notSelected)}
+                                        </span>
+                                        <ChevronDown size={14} className="text-fg-muted" />
+                                    </button>
+                                </div>
+                                <textarea
+                                    placeholder={t(SSRP_I18N_KEYS.detailsPlaceholder)}
+                                    value={rel.details}
+                                    onChange={(e) => onUpdateCorrelation(charPath, relIdx, 'details', e.target.value)}
+                                    className={cn(DETAIL_FIELD_CLASS, 'h-16 resize-none')}
+                                />
+                                <div className="flex gap-2 items-center pt-1">
+                                    <span className="text-xs text-fg-muted w-12 flex-shrink-0">{t(SSRP_I18N_KEYS.favorability)}</span>
+                                    <input
+                                        type="range"
+                                        min="-100" max="100"
+                                        value={rel.favorability || 0}
+                                        onChange={(e) => onUpdateCorrelation(charPath, relIdx, 'favorability', parseInt(e.target.value))}
+                                        className="flex-1 accent-[var(--c-accent)]"
+                                    />
+                                    <span className={cn('text-xs w-8 text-right font-mono', (rel.favorability || 0) < 0 ? 'text-danger' : 'text-fg')}>
+                                        {rel.favorability || 0}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {section === 'media' && (
+                    <div className="space-y-4">
+                        {/* そのキャラを素材づくりで開く（画像生成が使えるならキャラ画像、読み上げだけなら声） */}
+                        {!isTemp && (imageGenSettingsVisible || (canUseTTS && onOpenTTSSettings)) && (
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => (imageGenSettingsVisible ? onOpenImageSettings(charPath) : onOpenTTSSettings?.(charPath))}
+                            >
+                                {t(PREPARE_PANEL_I18N_KEYS.detailOpenInMaterial)}
+                            </Button>
+                        )}
+                        {/* 自動画像生成の対象（自動画像生成が ON のとき、このキャラのバブルへ予約するか） */}
+                        {imageGenSettingsVisible && (
+                            <div className="space-y-1">
+                                <ToggleSwitch
+                                    checked={detail.autoImageGenEnabled !== false}
+                                    onChange={value => onUpdateDetail(charPath, d => ({ ...d, autoImageGenEnabled: value }))}
+                                    label={t(SSRP_I18N_KEYS.autoImageGenTarget)}
+                                    labelPosition="right"
+                                    size="sm"
+                                />
+                                <p className="text-xs text-fg-muted pl-11">{t(SSRP_I18N_KEYS.autoImageGenTargetHint)}</p>
                             </div>
                         )}
-                    </div>
 
-                    {/* キャラクター音声設定パネル（個別パラメータの直後・画像管理の直前。要件6.4） */}
-                    {canUseTTS && (
-                        <CharacterVoicePanel
+                        {/* キャラクター音声設定パネル */}
+                        {canUseTTS && (
+                            <CharacterVoicePanel
+                                characterName={characterDirName}
+                                backendUrl={backendUrl}
+                                uiCatalog={uiCatalog}
+                                presetVoiceDesign={presetVoiceDesign}
+                                onPresetVoiceDesignChange={onPresetVoiceDesignChange
+                                    ? value => onPresetVoiceDesignChange(charPath, value)
+                                    : undefined}
+                            />
+                        )}
+
+                        {/* キャラクター画像管理パネル */}
+                        <CharacterImagePanel
                             characterName={characterDirName}
                             backendUrl={backendUrl}
                             uiCatalog={uiCatalog}
-                            presetVoiceDesign={presetVoiceDesign}
-                            onPresetVoiceDesignChange={onPresetVoiceDesignChange
-                                ? value => onPresetVoiceDesignChange(charPath, value)
-                                : undefined}
                         />
-                    )}
-
-                    {/* 自動画像生成の対象（ドロワーの自動画像生成が ON のとき、このキャラのバブルへ予約するか） */}
-                    {imageGenSettingsVisible && (
-                        <div className="space-y-1">
-                            <ToggleSwitch
-                                checked={detail.autoImageGenEnabled !== false}
-                                onChange={value => onUpdateDetail(charPath, d => ({ ...d, autoImageGenEnabled: value }))}
-                                label={t(SSRP_I18N_KEYS.autoImageGenTarget)}
-                                labelPosition="right"
-                                accent="green"
-                                size="sm"
-                            />
-                            <p className="text-[10px] text-gray-500 pl-11">{t(SSRP_I18N_KEYS.autoImageGenTargetHint)}</p>
-                        </div>
-                    )}
-
-                    {/* キャラクター画像管理パネル */}
-                    <CharacterImagePanel
-                        characterName={characterDirName}
-                        backendUrl={backendUrl}
-                        uiCatalog={uiCatalog}
-                    />
-                </div>
-            )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 });
@@ -812,11 +870,13 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     onClose,
     onStartSession,
     initialSettings,
+    onInitialized,
     backendUrl,
     canRestoreSessionSettings = false,
     onConversationPresetChanged,
     onRestoreSessionSettings,
     canApplyToSession = false,
+    charactersChangedFromSession = false,
     onApplyToSession,
     applyToSessionState = 'idle',
     fallbackDirectiveMode: _fallbackDirectiveMode,
@@ -830,9 +890,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     messages,
     tempImport,
     onSessionSettingsUpdated,
+    onCharactersChange,
     uiCatalog
 }, ref) => {
-    const t = (key: string) => resolveMessage(uiCatalog, key, SSRP_TEXT_FALLBACK_JA[key] || key);
+    const t = (key: string) => resolveMessage(uiCatalog, key, PREPARE_PANEL_TEXT_FALLBACK_JA[key] || SSRP_TEXT_FALLBACK_JA[key] || key);
     const formatText = (template: string, values: Record<string, string | number>) => {
         return Object.entries(values).reduce((text, [key, value]) => {
             return text.split(`{{${key}}}`).join(String(value));
@@ -856,9 +917,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [personalityOptionsCache, setPersonalityOptionsCache] = useState<Record<string, Option[]>>({});
 
     // キャラクターフィルタリング
-    const [charWorkFilters, setCharWorkFilters] = useState<Record<number, string>>({});       // idx → 作品フィルタ
-    const [charTagFilters, setCharTagFilters] = useState<Record<number, string[]>>({});        // idx → タグフィルタ
-    const [charDropdownOpenIdx, setCharDropdownOpenIdx] = useState<number | null>(null);       // キャラクター選択モーダルを開いているidx
+    const [charPickerWork, setCharPickerWork] = useState('');          // キャラ選択の窓の作品の絞り込み
+    const [charPickerTags, setCharPickerTags] = useState<string[]>([]); // キャラ選択の窓のタグの絞り込み（AND）
+    const [charDropdownOpenIdx, setCharDropdownOpenIdx] = useState<number | null>(null);       // キャラクター選択モーダルを開いている枠（追加は ADD_CHARACTER_SLOT）
     const [filterWorks, setFilterWorks] = useState<string[]>([]);
     const [filterTags, setFilterTags] = useState<string[]>([]);
     const [characterTagMap, setCharacterTagMap] = useState<Record<string, { work: string | null; tags: string[] }>>({});
@@ -877,6 +938,11 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [selectedWorlds, setSelectedWorlds] = useState<string[]>(['']);
     const [selectedStages, setSelectedStages] = useState<string[]>(['']);
     const [selectedWritingStyles, setSelectedWritingStyles] = useState<string[]>(['']);
+
+    // 外す・足す・プリセット読み込みなど、どの経路の変更も選択状態を通るのでここで伝える
+    useEffect(() => {
+        onCharactersChange?.(selectedCharacters.filter(Boolean));
+    }, [selectedCharacters, onCharactersChange]);
 
     // キャラクター詳細設定状態
     const [characterDetails, setCharacterDetails] = useState<Record<string, CharacterDetail>>({});
@@ -922,8 +988,11 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     const [ssrpParamPresets, setSSRPParamPresets] = useState<string[]>([]);
 
     // UI開閉状態
-    const [isCharacterSectionOpen, setIsCharacterSectionOpen] = useState(true); // キャラクター設定（デフォルト開）
-    const [isEnvironmentSectionOpen, setIsEnvironmentSectionOpen] = useState(false); // 環境グループ（デフォルト閉）
+    const [prepareTab, setPrepareTab] = useState<PrepareTab>('characters');
+    // 詳細を開いているキャラ（欄の上に重ねて出す）
+    const [detailCharPath, setDetailCharPath] = useState<string | null>(null);
+    // パラメータ項目の管理画面（設定画面の「キャラパラメータ項目の管理」と同じもの）
+    const [isSchemaEditorOpen, setIsSchemaEditorOpen] = useState(false);
 
     // グローバル追加設定
     const [additionalWorldEnabled, setAdditionalWorldEnabled] = useState(false);
@@ -972,13 +1041,6 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
 
     // ピン留め状態
     const [isPinned, setIsPinned] = useState(false);
-    const [imageSettingsTargetCharacter, setImageSettingsTargetCharacter] = useState('');
-    const [isCharacterImageSettingsOpen, setIsCharacterImageSettingsOpen] = useState(false);
-    // TTS設定の導線（3段フォールバック。設計04の5-3）
-    const [ttsSettingsTargetCharacter, setTtsSettingsTargetCharacter] = useState('');
-    const [isCharacterTTSSettingsOpen, setIsCharacterTTSSettingsOpen] = useState(false);
-    const [isIntegratedTTSSettingsOpen, setIsIntegratedTTSSettingsOpen] = useState(false);
-    const [isIntegratedImageSettingsOpen, setIsIntegratedImageSettingsOpen] = useState(false);
     // コンテナ参照
     const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -993,6 +1055,8 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             if (isOpen && !isPinned && containerRef.current && !containerRef.current.contains(event.target as Node)) {
                 // 関係性選択モーダルが開いている場合は閉じない
                 if (selectingRelation) return;
+                // パラメータ項目の管理画面は欄の外に出しているため、開いている間は閉じない
+                if (isSchemaEditorOpen) return;
 
                 onClose();
             }
@@ -1001,7 +1065,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         // マウスダウンで判定（クリック開始時点で外なら閉じる）
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen, isPinned, onClose, selectingRelation]);
+    }, [isOpen, isPinned, onClose, selectingRelation, isSchemaEditorOpen]);
 
     // 関係性の選択肢 (APIから取得)
     const [relationshipOptions, setRelationshipOptions] = useState<RelationshipOption[]>([]);
@@ -1224,6 +1288,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             }
 
             await reloadPresetsAndSchemas();
+            onInitialized?.();
         };
         if (isOpen) {
             init();
@@ -1232,12 +1297,12 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         // 設定パック取り込み等（invalidateSSRPOptionsCache 呼び出し）で、メニューを
         // 閉じ直さなくても項目設定・各種プリセットの一覧を取り直す。選択中の値や
         // スキーマ本体は触らず、プルダウンの選択肢（一覧）だけを更新する。
-        const unsubscribe = subscribeSSRPOptionsInvalidation(() => {
+        const unsubscribe = subscribeConfigFilesChanged(() => {
             if (isOpen) void reloadPresetsAndSchemas();
         });
 
         return () => { unsubscribe(); };
-    }, [isOpen, initialSettings, backendUrl]);
+    }, [isOpen, initialSettings, backendUrl, onInitialized]);
 
     // データロード
     useEffect(() => {
@@ -1281,7 +1346,7 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         // 閉じ直さなくても即時再取得する。この時点でキャッシュは null なので必ずサーバへ取りに行く。
         // 併せて、キャラ別の個別背景・衣装・性格キャッシュ（cache[charPath] があると
         // スキップされる）を空にし、次の個別同期 useEffect で取り直させる。
-        const unsubscribe = subscribeSSRPOptionsInvalidation(() => {
+        const unsubscribe = subscribeConfigFilesChanged(() => {
             setPersonalityOptionsCache({});
             setOutfitOptionsCache({});
             setBackgroundOptionsCache({});
@@ -1309,30 +1374,26 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         [characterOptions]
     );
 
-    // キャラクターフィルタリング（インデックスごと）
-    const getFilteredCharacterOptions = (idx: number) => {
-        const workFilter = charWorkFilters[idx] || '';
-        const tagFilters = charTagFilters[idx] || [];
-
+    // キャラ選択の窓の候補。ほかの枠で選んでいるキャラは除き、作品・タグで絞り込む
+    const getPickerCharacterOptions = (idx: number) => {
+        const current = idx === ADD_CHARACTER_SLOT ? '' : selectedCharacters[idx];
         return characterOptions.filter(opt => {
-            // 既に選択済みのキャラは常に表示（自分自身の選択は除く）
-            if (selectedCharacters.includes(opt.value) && selectedCharacters[idx] !== opt.value) return false;
-            // 自分自身が選択中なら表示
-            if (selectedCharacters[idx] === opt.value) return true;
+            if (opt.value === current) return true;
+            if (selectedCharacters.includes(opt.value)) return false;
 
             const meta = characterTagMap[opt.value];
             const isUnclassified = !meta || !meta.work;
 
             // 作品フィルタ
-            if (workFilter === '__unclassified__') {
+            if (charPickerWork === '__unclassified__') {
                 if (!isUnclassified) return false;
-            } else if (workFilter) {
-                if (!meta || meta.work !== workFilter) return false;
+            } else if (charPickerWork) {
+                if (!meta || meta.work !== charPickerWork) return false;
             }
 
             // タグフィルタ（AND条件）
-            if (tagFilters.length > 0) {
-                if (!meta || !tagFilters.every((tag: string) => meta.tags.includes(tag))) return false;
+            if (charPickerTags.length > 0) {
+                if (!meta || !charPickerTags.every((tag: string) => meta.tags.includes(tag))) return false;
             }
 
             return true;
@@ -1698,6 +1759,10 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
             setPresets(await listPresets(backendUrl));
             setNewPresetName('');
             setIsPresetModalOpen(false);
+        } catch (error) {
+            // 名前の重複・使えない文字などで失敗したら、入力欄は残したまま失敗を知らせる
+            console.error('[RolePlaySettings] Failed to save preset:', error);
+            showTempToast(t(SSRP_I18N_KEYS.presetSaveFailed));
         } finally {
             setIsSavingPreset(false);
         }
@@ -1885,22 +1950,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         setCharacterDetails(prev => ({ ...prev, [charPath]: updater(prev[charPath]) }));
     }, []);
 
+    // 画像の設定は、素材づくりのキャラのタブでそのキャラを選んで開く
     const openImageSettingsForCharacter = useCallback((charPath: string) => {
-        const characterName = getCharacterSettingNameFromPath(charPath);
-        if (window.innerWidth >= INTEGRATED.MIN_SCREEN_WIDTH) {
-            // 導線があれば設定メニュー経由と同じ ConfigEditorHub の imageGen タブへ
-            // 統一する（タブ・設定ファイルエディタで開くボタンを含めて同一画面）。
-            // 無い環境（支援者機能無効など）は従来どおり内蔵モーダルで開く。
-            if (onOpenIntegratedImageSettings) {
-                onOpenIntegratedImageSettings(characterName);
-                return;
-            }
-            setImageSettingsTargetCharacter(characterName);
-            setIsIntegratedImageSettingsOpen(true);
-        } else {
-            setImageSettingsTargetCharacter(characterName);
-            setIsCharacterImageSettingsOpen(true);
-        }
+        onOpenIntegratedImageSettings?.(getCharacterSettingNameFromPath(charPath));
     }, [onOpenIntegratedImageSettings]);
 
     // 会話設定側VoiceDesignの更新（キーはキャラ.mdパス。characterDetails と同じキー規約）。
@@ -1908,20 +1960,9 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
         setVoiceDesignByCharacter(prev => ({ ...prev, [charPath]: value }));
     }, []);
 
-    // 音声設定アイコンの3段フォールバック（openImageSettingsForCharacter と同じ規約）。
+    // 声の紐づけも、素材づくりのキャラのタブでそのキャラを選んで開く
     const openTTSSettingsForCharacter = useCallback((charPath: string) => {
-        const characterName = getCharacterSettingNameFromPath(charPath);
-        if (window.innerWidth >= INTEGRATED.MIN_SCREEN_WIDTH) {
-            if (onOpenIntegratedTTSSettings) {
-                onOpenIntegratedTTSSettings(characterName);
-                return;
-            }
-            setTtsSettingsTargetCharacter(characterName);
-            setIsIntegratedTTSSettingsOpen(true);
-        } else {
-            setTtsSettingsTargetCharacter(characterName);
-            setIsCharacterTTSSettingsOpen(true);
-        }
+        onOpenIntegratedTTSSettings?.(getCharacterSettingNameFromPath(charPath));
     }, [onOpenIntegratedTTSSettings]);
 
     const updateCorrelation = useCallback((charPath: string, idx: number, field: keyof Correlation, val: any) => {
@@ -1987,65 +2028,126 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
     }, []);
 
 
+    // 追加設定のスイッチと入力欄（世界観・舞台・シチュエーション・ユーザー・文体で共通）
+    const renderAdditional = (enabled: boolean, setEnabled: (value: boolean) => void, text: string, setText: (value: string) => void, label: string) => (
+        <div className="space-y-1.5">
+            <ToggleSwitch
+                checked={enabled}
+                onChange={setEnabled}
+                label={label}
+                labelPosition="right"
+                labelClassName="text-xs text-fg-muted"
+                size="sm"
+            />
+            {enabled && (
+                <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label })}
+                    className={cn(PANEL_FIELD_CLASS, 'text-xs resize-y')}
+                    style={{ minHeight: '60px' }}
+                />
+            )}
+        </div>
+    );
+
+    // キャラのカードに出す主な状態（パラメータ項目の先頭のスライダー2つ）
+    const characterSummary = (charPath: string): string => {
+        const detail = characterDetails[charPath];
+        if (!parameterSchema || !detail?.parameterGroups) return '';
+        const parts: string[] = [];
+        for (const groupState of detail.parameterGroups) {
+            if (!groupState.enabled) continue;
+            const groupDef = parameterSchema.groups.find(g => g.id === groupState.id);
+            if (!groupDef) continue;
+            for (const element of groupDef.elements) {
+                if (element.type !== 'slider') continue;
+                const value = groupState.values?.[element.id];
+                if (value === undefined || value === null) continue;
+                parts.push(`${getLocalizedText(element.displayName, parameterLangOf(uiCatalog?.lang))} ${value}`);
+                if (parts.length >= 2) return joinNames(uiCatalog, parts);
+            }
+        }
+        return joinNames(uiCatalog, parts);
+    };
+
+    const selectedCharacterList = selectedCharacters.filter(Boolean);
+    // 詳細を開いているキャラが外れたら、詳細は出さない
+    const detailTarget = detailCharPath && selectedCharacterList.includes(detailCharPath) && characterDetails[detailCharPath]
+        ? detailCharPath
+        : null;
+
+    const removeCharacter = (charPath: string) => {
+        const idx = selectedCharacters.indexOf(charPath);
+        if (idx < 0) return;
+        setDetailCharPath(null);
+        if (isTempCharacterPath(charPath)) {
+            // 一時キャラクターは会話設定内の本文も消す（サーバー側で削除）
+            void handleTempRemove(idx, charPath);
+            return;
+        }
+        setSelectedCharacters(prev => listWithDelete(idx, prev));
+    };
+
+    const tabs: { value: PrepareTab; label: string }[] = [
+        { value: 'characters', label: t(PREPARE_PANEL_I18N_KEYS.tabCharacters) },
+        { value: 'scene', label: t(PREPARE_PANEL_I18N_KEYS.tabScene) },
+        { value: 'style', label: t(PREPARE_PANEL_I18N_KEYS.tabStyle) },
+        { value: 'preset', label: t(PREPARE_PANEL_I18N_KEYS.tabPreset) },
+    ];
+
     return (
         <>
             <div
                 ref={containerRef}
                 className={`
-                    fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-gray-950 border-l border-gray-800 
+                    fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-panel-solid lg:bg-none lg:bg-panel text-fg border-l border-line
                     transform transition-all duration-300 ease-in-out shadow-2xl flex flex-col
                     ${isOpen ? 'translate-x-0' : 'translate-x-full'}
-                    
+
                     lg:relative lg:transform-none lg:shadow-none lg:z-auto
                     ${isOpen ? 'lg:w-96 lg:min-w-[24rem]' : 'lg:w-0 lg:min-w-0 lg:border-l-0'}
                 `}
             >
-                {/* ヘッダー */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-md min-w-0 lg:min-w-[24rem]">
-                    <h2 className="font-semibold text-lg text-gray-100 flex items-center gap-2">
-                        <MessageSquare size={20} className="text-purple-400" />
-                        {t(SSRP_I18N_KEYS.menuTitle)}
-                    </h2>
+                {/* 下のボタンの帯より上。キャラ詳細はこの範囲にだけ重ね、詳細を開いていても会話開始などを押せるようにする */}
+                <div className="relative flex-1 min-h-0 flex flex-col">
+                {/* 見出し */}
+                <div className="flex items-center justify-between gap-2 pl-5 pr-3 h-14 shrink-0 border-b border-line min-w-0 lg:min-w-[24rem]">
+                    <h2 className="font-head text-base font-bold tracking-wide truncate">{t(PREPARE_PANEL_I18N_KEYS.title)}</h2>
                     <div className="flex items-center gap-1">
-                        {/* ピン留めボタン (Large画面のみ表示) */}
-                        <button
+                        {/* ピン留め（広い画面だけ。開いたままにしておく） */}
+                        <IconButton
+                            label={isPinned ? t(SSRP_I18N_KEYS.menuPinOn) : t(SSRP_I18N_KEYS.menuPinOff)}
+                            active={isPinned}
+                            className="hidden lg:inline-grid"
                             onClick={() => {
                                 const next = !isPinned;
                                 setIsPinned(next);
                                 updateGlobalSettings(backendUrl, { isMenuPinned: next });
                             }}
-                            className={`hidden lg:flex p-1.5 rounded-full transition-colors ${isPinned ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'}`}
-                            title={isPinned ? t(SSRP_I18N_KEYS.menuPinOn) : t(SSRP_I18N_KEYS.menuPinOff)}
                         >
-                            {isPinned ? <Pin size={18} fill="currentColor" /> : <PinOff size={18} />}
-                        </button>
-                        <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors">
-                            <X size={20} />
-                        </button>
+                            {isPinned ? <Pin size={17} fill="currentColor" /> : <PinOff size={17} />}
+                        </IconButton>
+                        <IconButton label={resolveMessage(uiCatalog, 'common.close', '閉じる')} onClick={onClose}>
+                            <X size={18} />
+                        </IconButton>
                     </div>
                 </div>
 
-                {/* スクロールエリア */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar min-w-0 lg:min-w-[24rem]">
-
-                    {/* SSRP全体プリセット（会話設定全体） */}
-                    <div className="bg-gray-900 rounded-lg p-3 border border-gray-800 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                <FolderOpen size={14} className="text-blue-400" />
-                                {t(SSRP_I18N_KEYS.presetTitle)}
-                            </h3>
+                {/* 会話設定全体のプリセット。キャラ・場面・文体・プリセットのタブの上に置く */}
+                <div className="px-4 pt-3 min-w-0 lg:min-w-[24rem]">
+                    <section className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <h3 className={PANEL_HEADING_CLASS}>{t(SSRP_I18N_KEYS.presetTitle)}</h3>
                             <div className="flex items-center gap-1">
                                 {canRestoreSessionSettings && (
-                                    <button
-                                        onClick={onRestoreSessionSettings}
-                                        className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium px-2 py-1 rounded hover:bg-emerald-500/10 transition-colors"
-                                        title={t(SSRP_I18N_KEYS.restoreSessionTitle)}
-                                    >
+                                    <Button size="sm" variant="ghost" onClick={onRestoreSessionSettings} title={t(SSRP_I18N_KEYS.restoreSessionTitle)}>
                                         <RotateCcw size={12} /> {t(SSRP_I18N_KEYS.restoreSession)}
-                                    </button>
+                                    </Button>
                                 )}
-                                <button
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
                                     onClick={() => {
                                         setIsSaveSSRPPresetOpen((prev) => {
                                             if (!prev) {
@@ -2054,30 +2156,25 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                             return !prev;
                                         });
                                     }}
-                                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
                                 >
                                     <Plus size={12} /> {t(SSRP_I18N_KEYS.newSave)}
-                                </button>
+                                </Button>
                             </div>
                         </div>
-                        <div className="flex gap-2 mb-2">
+                        <div className="flex gap-2">
                             <button
                                 onClick={() => setIsPresetSelectionOpen(true)}
-                                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-left hover:border-blue-500 hover:bg-gray-700 transition-colors flex items-center justify-between group"
+                                className={cn(PANEL_FIELD_CLASS, 'flex-1 text-left flex items-center justify-between hover:border-accent')}
                             >
-                                <span className={!selectedSSRPAllPreset ? 'text-gray-400' : 'text-gray-200'}>
+                                <span className={!selectedSSRPAllPreset ? 'text-fg-muted' : 'text-fg'}>
                                     {selectedSSRPAllPreset || t(SSRP_I18N_KEYS.selectPreset)}
                                 </span>
-                                <ChevronDown size={14} className="text-gray-500 group-hover:text-blue-400" />
+                                <ChevronDown size={14} className="text-fg-muted" />
                             </button>
                             {selectedSSRPAllPreset && (
-                                <button
-                                    onClick={() => handleDeleteSSRPAllPreset(selectedSSRPAllPreset)}
-                                    className="px-2 py-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors"
-                                    title={t(SSRP_I18N_KEYS.deletePreset)}
-                                >
+                                <IconButton label={t(SSRP_I18N_KEYS.deletePreset)} className="hover:text-danger" onClick={() => handleDeleteSSRPAllPreset(selectedSSRPAllPreset)}>
                                     <Trash2 size={16} />
-                                </button>
+                                </IconButton>
                             )}
                         </div>
                         {/* プリセット名入力と保存ボタン（トグル表示） */}
@@ -2088,15 +2185,15 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                     value={newSSRPAllPresetName}
                                     onChange={(e) => setNewSSRPAllPresetName(e.target.value)}
                                     placeholder={t(SSRP_I18N_KEYS.presetNamePlaceholder)}
-                                    className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none transition-colors"
+                                    className={cn(PANEL_FIELD_CLASS, 'flex-1')}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleSaveSSRPAllPreset();
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleSaveSSRPAllPreset();
                                     }}
                                 />
-                                <button
+                                <Button
+                                    variant="primary"
                                     onClick={handleSaveSSRPAllPreset}
                                     disabled={!newSSRPAllPresetName.trim() || isSavingSSRPAllPreset}
-                                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm font-medium transition-colors flex items-center gap-1"
                                 >
                                     {isSavingSSRPAllPreset ? (
                                         <span className="animate-pulse">{t(SSRP_I18N_KEYS.saving)}</span>
@@ -2106,509 +2203,374 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                                             {t(SSRP_I18N_KEYS.save)}
                                         </>
                                     )}
-                                </button>
+                                </Button>
                             </div>
                         )}
-                    </div>
+                    </section>
+                </div>
 
-                    {/* パラメータ項目設定選択 */}
-                    <div className="bg-gray-900 rounded-lg p-3 border border-gray-800 shadow-sm">
-                        <h3 className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                            <SlidersHorizontal size={14} className="text-purple-400" />
-                            {t(SSRP_I18N_KEYS.parameterSchemaTitle)}
-                        </h3>
-                        <select
-                            value={selectedSchemaId}
-                            onFocus={fetchSchemaList}
-                            onChange={async (e) => {
-                                const newSchemaId = e.target.value;
-                                setSelectedSchemaId(newSchemaId);
-                                // 新しいスキーマを読み込み
-                                const schema = await getParameterSchema(newSchemaId);
-                                setParameterSchema(schema);
-                                // キャラクター詳細のparameterGroupsをリセット
-                                if (schema) {
-                                    setCharacterDetails(prev => {
-                                        const updated: Record<string, CharacterDetail> = {};
-                                        for (const [key, detail] of Object.entries(prev)) {
-                                            updated[key] = {
-                                                ...detail,
-                                                parameterGroups: initializeParameterGroups(schema)
-                                            };
-                                        }
-                                        return updated;
-                                    });
-                                }
-                            }}
-                            disabled={!!initialSettings}
-                            className={`w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm ${initialSettings ? 'opacity-60 cursor-not-allowed' : 'focus:border-blue-500'} outline-none transition-colors`}
-                        >
-                            {schemaList.length === 0 && <option value="">{t(SSRP_I18N_KEYS.loading)}</option>}
-                            {schemaList.map(s => (
-                                <option key={s.id} value={s.id}>{s.name.ja}</option>
-                            ))}
-                        </select>
-                        {initialSettings && (
-                            <p className="text-xs text-gray-500 mt-1">{t(SSRP_I18N_KEYS.notChangeableAfterStart)}</p>
-                        )}
-                    </div>
+                {/* タブ */}
+                <div className="px-3 pt-3 min-w-0 lg:min-w-[24rem]">
+                    <Segmented<PrepareTab> label={t(PREPARE_PANEL_I18N_KEYS.title)} value={prepareTab} onChange={setPrepareTab} options={tabs} block />
+                </div>
 
-                    {/* キャラ設定プリセット */}
-                    <div className="bg-gray-900 rounded-lg p-3 border border-gray-800 shadow-sm">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                <FolderOpen size={14} className="text-pink-400" />
-                                {t(SSRP_I18N_KEYS.characterPresetTitle)}
-                            </h3>
-                            <button
-                                onClick={() => setIsPresetModalOpen(!isPresetModalOpen)}
-                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-medium px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
-                            >
-                                <Plus size={12} /> {t(SSRP_I18N_KEYS.newSave)}
-                            </button>
-                        </div>
-
-                        {isPresetModalOpen && (
-                            <div className="mb-3 flex gap-2 animate-slide-down">
-                                <input
-                                    type="text"
-                                    value={newPresetName}
-                                    onChange={(e) => setNewPresetName(e.target.value)}
-                                    placeholder={t(SSRP_I18N_KEYS.presetNameShortPlaceholder)}
-                                    className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:border-blue-500 outline-none placeholder-gray-600"
-                                />
-                                <button
-                                    onClick={handleSavePreset}
-                                    disabled={isSavingPreset}
-                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1"
-                                >
-                                    <Save size={12} /> {t(SSRP_I18N_KEYS.save)}
-                                </button>
-                            </div>
-                        )}
-
-                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar">
-                            {presets.length === 0 && <span className="text-xs text-gray-600 italic px-1">{t(SSRP_I18N_KEYS.noPresets)}</span>}
-                            {presets.map(p => (
-                                <button
-                                    key={p}
-                                    onClick={() => handleLoadPreset(p)}
-                                    className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded text-xs border border-gray-700 transition-colors"
-                                >
-                                    {p}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* メイン設定フォーム */}
-                    <div className="space-y-4">
-                        {/* キャラクター設定（開閉可能、デフォルト開） */}
-                        <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
-                            {/* 見出し行：開閉ボタンと、右端に「セッションからキャラクターを取り込む」 */}
-                            <div className="flex items-center">
-                                <button
-                                    onClick={() => setIsCharacterSectionOpen(!isCharacterSectionOpen)}
-                                    className="flex-1 min-w-0 flex items-center justify-between p-3 hover:bg-gray-800/50 transition-colors"
-                                >
-                                    <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-                                        {isCharacterSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                        <Users size={16} className="text-pink-400" />
+                {/* スクロールエリア */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar min-w-0 lg:min-w-[24rem]">
+                    {prepareTab === 'characters' && (
+                        <>
+                            <section className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <h3 className={PANEL_HEADING_CLASS}>
                                         {t(SSRP_I18N_KEYS.characterSectionTitle)}
+                                        <span className="ml-2 font-normal tracking-normal">
+                                            {formatText(t(PREPARE_PANEL_I18N_KEYS.characterCount), { count: selectedCharacterList.length })}
+                                        </span>
                                     </h3>
-                                    <span className="text-xs text-gray-500">
-                                        {formatText(t(SSRP_I18N_KEYS.selectedCount), { count: selectedCharacters.filter(c => c).length })}
-                                    </span>
-                                </button>
-                                {tempImport && (
-                                    <button
-                                        onClick={() => setIsTempImportOpen(true)}
-                                        disabled={!canImportTempCharacters}
-                                        className="p-3 text-gray-400 hover:text-orange-300 hover:bg-gray-800/50 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"
-                                        title={t(SSRP_I18N_KEYS.tempImportOpen)}
-                                    >
-                                        <UserPlus size={16} />
-                                    </button>
-                                )}
-                            </div>
-                            {isCharacterSectionOpen && (
-                                <div className="p-3 pt-0 border-t border-gray-800/50 space-y-2">
-                                    {selectedCharacters.map((val, idx) => {
-                                        const workFilter = charWorkFilters[idx] || '';
-                                        const tagFiltersForIdx = charTagFilters[idx] || [];
-                                        return (
-                                            <div key={idx} className="flex flex-col gap-2 animate-fade-in">
-                                                {/* フィルタUI（各ドロップダウンごと） */}
-                                                <div className="space-y-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-xs text-gray-500 whitespace-nowrap">{t(SSRP_I18N_KEYS.characterWorkFilter)}</span>
-                                                        <select
-                                                            value={workFilter}
-                                                            onChange={(e) => setCharWorkFilters(prev => ({ ...prev, [idx]: e.target.value }))}
-                                                            className="flex-1 bg-gray-800 border-gray-700 text-gray-200 rounded text-xs p-1 border outline-none focus:border-blue-500"
-                                                        >
-                                                            <option value="">ALL</option>
-                                                            <option value="__unclassified__">{t(SSRP_I18N_KEYS.characterUnclassified)}</option>
-                                                            {filterWorks.map(w => (
-                                                                <option key={w} value={w}>{w}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    {filterTags.length > 0 && (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-gray-500 whitespace-nowrap">{t(SSRP_I18N_KEYS.characterTagFilter)}</span>
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {filterTags.map(tag => {
-                                                                    const isActive = tagFiltersForIdx.includes(tag);
-                                                                    return (
-                                                                        <button
-                                                                            key={tag}
-                                                                            onClick={() => setCharTagFilters(prev => {
-                                                                                const current = prev[idx] || [];
-                                                                                return { ...prev, [idx]: isActive ? current.filter((t: string) => t !== tag) : [...current, tag] };
-                                                                            })}
-                                                                            className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
-                                                                                isActive
-                                                                                    ? 'bg-blue-600 text-white'
-                                                                                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                                                            }`}
-                                                                        >
-                                                                            {tag}
-                                                                        </button>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
+                                    {tempImport && (
+                                        <IconButton
+                                            label={t(SSRP_I18N_KEYS.tempImportOpen)}
+                                            size="sm"
+                                            disabled={!canImportTempCharacters}
+                                            onClick={() => setIsTempImportOpen(true)}
+                                        >
+                                            <UserPlus size={15} />
+                                        </IconButton>
+                                    )}
+                                </div>
+                                {selectedCharacterList.map(val => {
+                                    // キャラカード：default 表情の画像を背景に敷き、名前と主な状態を重ねる
+                                    const cardUrl = characterIconMap.get(val);
+                                    // 一時キャラクター（キャラ設定登録前）は枠線の色で区別する
+                                    const isTemp = isTempCharacterPath(val) && !tempCharacters[val]?.registeredPath;
+                                    const summary = characterSummary(val);
+                                    const cardLabel = characterLabelMap.get(val) || tempCharacters[val]?.name || val;
+                                    return (
+                                        // 同じ場面で相手だけを替えて始めるのが基本の使い方なので、入れ替えはカードから直接行う。
+                                        // カードの左端の区画（高さいっぱい・幅は約2割）はキャラ選択の窓を開いて入れ替え、残りは個別の設定を開く
+                                        <div
+                                            key={val}
+                                            className={cn(
+                                                'relative flex h-16 overflow-hidden rounded-ui-lg border transition-colors',
+                                                isTemp ? 'border-warn' : 'border-line hover:border-accent',
+                                                cardUrl ? 'bg-black' : 'bg-surface',
+                                            )}
+                                        >
+                                            {cardUrl && (
+                                                <>
+                                                    <img src={cardUrl} alt="" className="absolute inset-0 w-full h-full object-cover object-center opacity-70" />
+                                                    <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
+                                                </>
+                                            )}
+                                            {/* 入れ替えの区画。残りより濃くし、入れ替えの記号を出して押すと入れ替えだと分かるようにする */}
+                                            <button
+                                                type="button"
+                                                title={formatLabelValue(uiCatalog, cardLabel, t(PREPARE_PANEL_I18N_KEYS.detailReplace))}
+                                                aria-label={formatLabelValue(uiCatalog, cardLabel, t(PREPARE_PANEL_I18N_KEYS.detailReplace))}
+                                                onClick={() => setCharDropdownOpenIdx(selectedCharacters.indexOf(val))}
+                                                className={cn(
+                                                    'relative z-10 shrink-0 w-[20%] min-w-14 flex flex-col items-center justify-center gap-1 border-r transition-colors',
+                                                    cardUrl
+                                                        // 画像の上は配色によらず暗く敷くので、記号は白で出す
+                                                        ? 'bg-black/60 border-white/15 text-white hover:bg-black/75'
+                                                        : 'bg-surface-2 border-line text-fg-muted hover:text-fg hover:bg-accent-soft',
+                                                )}
+                                            >
+                                                <ArrowLeftRight size={18} />
+                                                <span className="text-[10px] leading-none whitespace-nowrap">{t(PREPARE_PANEL_I18N_KEYS.cardReplace)}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDetailCharPath(val)}
+                                                className="relative z-10 flex-1 min-w-0 flex items-center gap-3 px-3 text-left"
+                                            >
+                                            <span className="min-w-0 flex-1">
+                                                <span className={cn('block truncate font-semibold', cardUrl ? 'text-fg drop-shadow' : 'text-fg')}>
+                                                    {cardLabel}
+                                                    {isTemp && (
+                                                        <span className="ml-2 align-middle text-xs font-normal px-1 py-0.5 rounded border border-warn text-warn">
+                                                            {t(SSRP_I18N_KEYS.tempCharacterBadge)}
+                                                        </span>
                                                     )}
-                                                </div>
-                                                {/* アイコンバー：キャラ設定・画像設定・TTS 設定・削除（選択欄の上の一行） */}
-                                                {(val || (idx !== selectedCharacters.length - 1 && selectedCharacters.length > 1)) && (
-                                                    <div className="flex items-center justify-end gap-0.5 bg-blue-950/60 border border-blue-900/60 rounded-md px-1.5 py-0.5">
-                                                        {/* 一時キャラクターだけ：キャラ設定登録（設定アイコンの左。枠と同じ橙色） */}
-                                                        {val && isTempCharacterPath(val) && !tempCharacters[val]?.registeredPath && (
-                                                            <button
-                                                                onClick={() => setTempRegisterPath(val)}
-                                                                disabled={!sessionId}
-                                                                className="p-1.5 text-orange-400 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors disabled:opacity-40"
-                                                                title={t(SSRP_I18N_KEYS.tempCharacterRegisterTitle)}
-                                                            >
-                                                                <FolderPlus size={14} />
-                                                            </button>
-                                                        )}
-                                                        {val && isTempCharacterPath(val) ? (
-                                                            <button
-                                                                onClick={() => setTempEditorPath(val)}
-                                                                className="p-1.5 text-gray-400 hover:text-green-300 hover:bg-gray-700/50 rounded transition-colors"
-                                                                title={t(SSRP_I18N_KEYS.tempCharacterEditorTitle)}
-                                                            >
-                                                                <FileText size={14} />
-                                                            </button>
-                                                        ) : val && onOpenCharacterEditor && (
-                                                            <button
-                                                                onClick={() => onOpenCharacterEditor({
-                                                                    dirName: characterDirNameMap.get(val) || getCharacterNameFromPath(val),
-                                                                    fileName: getCharacterSettingNameFromPath(val),
-                                                                })}
-                                                                className="p-1.5 text-gray-400 hover:text-green-300 hover:bg-gray-700/50 rounded transition-colors"
-                                                                title={t(SSRP_I18N_KEYS.characterEditorOpenTitle)}
-                                                            >
-                                                                <FileText size={14} />
-                                                            </button>
-                                                        )}
-                                                        {/* 画像生成設定・音声設定は一時キャラクターでは使わない（キャラ設定登録後に通常の手順で設定する） */}
-                                                        {val && !isTempCharacterPath(val) && (
-                                                            <button
-                                                                onClick={() => openImageSettingsForCharacter(val)}
-                                                                className="p-1.5 text-gray-400 hover:text-pink-300 hover:bg-gray-700/50 rounded transition-colors"
-                                                                title={t(SSRP_I18N_KEYS.characterImageSettingsTitle)}
-                                                            >
-                                                                <Image size={14} />
-                                                            </button>
-                                                        )}
-                                                        {val && !isTempCharacterPath(val) && ttsSettingsVisible && (
-                                                            <button
-                                                                onClick={() => openTTSSettingsForCharacter(val)}
-                                                                className="p-1.5 text-gray-400 hover:text-orange-300 hover:bg-gray-700/50 rounded transition-colors"
-                                                                title={resolveMessage(uiCatalog, 'tts.voicePanel.title', '音声設定')}
-                                                            >
-                                                                <AudioLines size={14} />
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            onClick={() => {
-                                                                if (val && isTempCharacterPath(val)) {
-                                                                    // 一時キャラクターは会話設定内の本文も消す（サーバー側で削除）
-                                                                    void handleTempRemove(idx, val);
-                                                                    return;
-                                                                }
-                                                                setSelectedCharacters(prev => listWithDelete(idx, prev));
-                                                            }}
-                                                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700/50 rounded transition-colors"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
+                                                </span>
+                                                {summary && (
+                                                    <span className={cn('block truncate text-xs', cardUrl ? 'text-fg/80' : 'text-fg-muted')}>{summary}</span>
                                                 )}
-                                                {/* キャラクター選択（プリセットと同様のグリッド選択モーダルを開く） */}
-                                                <div className="flex gap-2">
-                                                    <div className="flex-1 min-w-0 space-y-1">
-                                                        {/* 選択表示ボタン */}
-                                                        {(() => {
-                                                            // キャラカード：default 表情の画像を選択欄の背景いっぱいに敷き、名前を重ねる
-                                                            const cardUrl = val ? characterIconMap.get(val) : undefined;
-                                                            // 一時キャラクター（キャラ設定登録前）は枠線を橙色にして区別する
-                                                            const isTemp = !!val && isTempCharacterPath(val) && !tempCharacters[val]?.registeredPath;
-                                                            return (
-                                                                <div
-                                                                    onClick={() => setCharDropdownOpenIdx(idx)}
-                                                                    className={`relative overflow-hidden w-full bg-gray-800 border rounded-md text-sm cursor-pointer transition-colors flex items-center justify-between ${isTemp ? 'border-orange-500 hover:border-orange-400' : 'border-gray-700 hover:border-blue-500'} ${cardUrl ? 'h-20' : 'p-2'}`}
-                                                                >
-                                                                    {cardUrl && (
-                                                                        <>
-                                                                            <img
-                                                                                src={cardUrl}
-                                                                                alt=""
-                                                                                className="absolute inset-0 w-full h-full object-cover object-center opacity-70"
-                                                                            />
-                                                                            <div className="absolute inset-0 bg-gradient-to-r from-gray-900/85 via-gray-900/40 to-transparent" />
-                                                                        </>
-                                                                    )}
-                                                                    <span className={`relative z-10 truncate flex-1 ${cardUrl ? 'px-3 font-semibold text-base text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]' : (val ? 'text-gray-200' : 'text-gray-500')}`}>
-                                                                        {val ? (characterLabelMap.get(val) || tempCharacters[val]?.name || val) : t(SSRP_I18N_KEYS.characterSelect)}
-                                                                        {isTemp && (
-                                                                            <span className="ml-2 align-middle text-[10px] font-normal px-1 py-0.5 rounded bg-orange-900/70 text-orange-200 border border-orange-600/60">
-                                                                                {t(SSRP_I18N_KEYS.tempCharacterBadge)}
-                                                                            </span>
-                                                                        )}
-                                                                    </span>
-                                                                    <Search size={12} className={`relative z-10 shrink-0 ml-1 ${cardUrl ? 'mr-3 text-gray-200 drop-shadow' : 'text-gray-500'}`} />
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                                {val && characterDetails[val] && (
-                                                    <CharacterDetailPanel
-                                                        charPath={val}
-                                                        characterDirName={characterDirNameMap.get(val) || getCharacterNameFromPath(val)}
-                                                        detail={characterDetails[val]}
-                                                        parameterSchema={parameterSchema}
-                                                        uiCatalog={uiCatalog}
-                                                        backendUrl={backendUrl}
-                                                        ssrpParamPresets={ssrpParamPresets}
-                                                        userName={userName}
-                                                        relationshipOptions={relationshipOptions}
-                                                        personalityOptions={personalityOptionsCache[val] ?? EMPTY_OPTIONS}
-                                                        outfitOptions={outfitOptionsCache[val] ?? EMPTY_OPTIONS}
-                                                        backgroundOptions={backgroundOptionsCache[val] ?? EMPTY_OPTIONS}
-                                                        onUpdateDetail={updateDetail}
-                                                        onUserNameInput={handleUserNameInput}
-                                                        onUserNameSet={setUserName}
-                                                        onParamPresetsChange={setSSRPParamPresets}
-                                                        onFetchRelationshipOptions={fetchRelationshipOptions}
-                                                        onSelectRelation={handleSelectRelation}
-                                                        onOpenImageSettings={openImageSettingsForCharacter}
-                                                        imageGenSettingsVisible={imageGenSettingsVisible && !isTempCharacterPath(val)}
-                                                        linkedSettings={linkedSettingsByChar[val]}
-                                                        onOpenEditor={onOpenCharacterEditor
-                                                            ? charPath => onOpenCharacterEditor({
-                                                                dirName: characterDirNameMap.get(charPath) || getCharacterNameFromPath(charPath),
-                                                                fileName: getCharacterSettingNameFromPath(charPath),
-                                                            })
-                                                            : undefined}
-                                                        canUseTTS={ttsSettingsVisible && !isTempCharacterPath(val)}
-                                                        onOpenTTSSettings={ttsSettingsVisible && !isTempCharacterPath(val) ? openTTSSettingsForCharacter : undefined}
-                                                        presetVoiceDesign={voiceDesignByCharacter[val]}
-                                                        onPresetVoiceDesignChange={ttsSettingsVisible && !isTempCharacterPath(val) ? updateVoiceDesignForCharacter : undefined}
-                                                        onUpdateCorrelation={updateCorrelation}
-                                                        onUpdateParamGroup={updateCharacterParamGroup}
-                                                        onUpdateParamValue={updateCharacterParamValue}
-                                                    />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                            </span>
+                                            <ChevronRight size={16} className={cn('shrink-0', cardUrl ? 'text-fg/80' : 'text-fg-muted')} />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                                {selectedCharacterList.length < MAX_CHARACTERS && (
+                                    <Button block variant="secondary" onClick={() => setCharDropdownOpenIdx(ADD_CHARACTER_SLOT)}>
+                                        <Plus size={15} />
+                                        {t(PREPARE_PANEL_I18N_KEYS.addCharacter)}
+                                    </Button>
+                                )}
+                            </section>
+
+                            <section className="space-y-2">
+                                <SelectSection title={t(SSRP_I18N_KEYS.userSection)} options={userOptions} selected={selectedUsers} setter={setSelectedUsers} placeholder={t(SSRP_I18N_KEYS.userSelect)} />
+                                {renderAdditional(additionalUserEnabled, setAdditionalUserEnabled, additionalUserText, setAdditionalUserText, t(SSRP_I18N_KEYS.additionalUser))}
+                            </section>
+
+                            {imageGenSettingsVisible && (
+                                <section className="space-y-3">
+                                    <h3 className={PANEL_HEADING_CLASS}>{t(PREPARE_PANEL_I18N_KEYS.mediaThisConversation)}</h3>
+                                    {/* その会話だけに効く画像生成設定（すべての会話に効く設定はクイック設定にある） */}
+                                    <ImageGenerationSettings
+                                        settings={imageGenSettings}
+                                        onChange={setImageGenSettings}
+                                        backendUrl={backendUrl}
+                                        uiCatalog={uiCatalog}
+                                    />
+                                </section>
                             )}
-                        </div>
+                        </>
+                    )}
 
-                        {/* 環境グループ（開閉可能、デフォルト閉） */}
-                        <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
-                            <button
-                                onClick={() => setIsEnvironmentSectionOpen(!isEnvironmentSectionOpen)}
-                                className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50 transition-colors"
-                            >
-                                <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-                                    {isEnvironmentSectionOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                    <Globe size={16} className="text-green-400" />
-                                    {t(SSRP_I18N_KEYS.environmentTitle)}
-                                </h3>
-                                <span className="text-xs text-gray-500">
-                                    {formatText(t(SSRP_I18N_KEYS.selectedCount), { count: [...selectedWorlds, ...selectedStages, ...selectedSituations, ...selectedUsers].filter(v => v).length })}
-                                </span>
-                            </button>
-                            {isEnvironmentSectionOpen && (
-                                <div className="p-3 pt-0 border-t border-gray-800/50 space-y-6">
-                                    <SelectSection title={t(SSRP_I18N_KEYS.worldSection)} options={worldOptions} selected={selectedWorlds} setter={setSelectedWorlds} placeholder={t(SSRP_I18N_KEYS.worldSelect)} />
-                                    {/* 追加世界観設定 */}
-                                    <div className="ml-2 flex items-center gap-2">
-                                        <button onClick={() => setAdditionalWorldEnabled(!additionalWorldEnabled)} className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${additionalWorldEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}>
-                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${additionalWorldEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        </button>
-                                        <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.additionalWorld)}</span>
-                                    </div>
-                                    {additionalWorldEnabled && (
-                                        <textarea value={additionalWorldText} onChange={(e) => setAdditionalWorldText(e.target.value)} placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: t(SSRP_I18N_KEYS.additionalWorld) })} className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y ml-2" style={{ minHeight: '60px' }} />
-                                    )}
-
-                                    <SelectSection title={t(SSRP_I18N_KEYS.stageSection)} options={stageOptions} selected={selectedStages} setter={setSelectedStages} placeholder={t(SSRP_I18N_KEYS.stageSelect)} />
-                                    {/* 追加舞台設定 */}
-                                    <div className="ml-2 flex items-center gap-2">
-                                        <button onClick={() => setAdditionalStageEnabled(!additionalStageEnabled)} className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${additionalStageEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}>
-                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${additionalStageEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        </button>
-                                        <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.additionalStage)}</span>
-                                    </div>
-                                    {additionalStageEnabled && (
-                                        <textarea value={additionalStageText} onChange={(e) => setAdditionalStageText(e.target.value)} placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: t(SSRP_I18N_KEYS.additionalStage) })} className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y ml-2" style={{ minHeight: '60px' }} />
-                                    )}
-
-                                    <SelectSection title={t(SSRP_I18N_KEYS.situationSection)} options={situationOptions} selected={selectedSituations} setter={setSelectedSituations} placeholder={t(SSRP_I18N_KEYS.situationSelect)} />
-                                    {/* 追加シチュエーション設定 */}
-                                    <div className="ml-2 flex items-center gap-2">
-                                        <button onClick={() => setAdditionalSituationEnabled(!additionalSituationEnabled)} className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${additionalSituationEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}>
-                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${additionalSituationEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        </button>
-                                        <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.additionalSituation)}</span>
-                                    </div>
-                                    {additionalSituationEnabled && (
-                                        <textarea value={additionalSituationText} onChange={(e) => setAdditionalSituationText(e.target.value)} placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: t(SSRP_I18N_KEYS.additionalSituation) })} className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y ml-2" style={{ minHeight: '60px' }} />
-                                    )}
-
-                                    <SelectSection title={t(SSRP_I18N_KEYS.userSection)} options={userOptions} selected={selectedUsers} setter={setSelectedUsers} placeholder={t(SSRP_I18N_KEYS.userSelect)} />
-                                    {/* 追加ユーザー設定 */}
-                                    <div className="ml-2 flex items-center gap-2">
-                                        <button onClick={() => setAdditionalUserEnabled(!additionalUserEnabled)} className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${additionalUserEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}>
-                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${additionalUserEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        </button>
-                                        <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.additionalUser)}</span>
-                                    </div>
-                                    {additionalUserEnabled && (
-                                        <textarea value={additionalUserText} onChange={(e) => setAdditionalUserText(e.target.value)} placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: t(SSRP_I18N_KEYS.additionalUser) })} className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y ml-2" style={{ minHeight: '60px' }} />
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* 全体の追加設定（新規セクション） */}
-                        <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
-                            <div className="p-3 flex items-center gap-3">
+                    {prepareTab === 'scene' && (
+                        <>
+                            <section className="space-y-2">
+                                <SelectSection title={t(SSRP_I18N_KEYS.worldSection)} options={worldOptions} selected={selectedWorlds} setter={setSelectedWorlds} placeholder={t(SSRP_I18N_KEYS.worldSelect)} />
+                                {renderAdditional(additionalWorldEnabled, setAdditionalWorldEnabled, additionalWorldText, setAdditionalWorldText, t(SSRP_I18N_KEYS.additionalWorld))}
+                            </section>
+                            <section className="space-y-2">
+                                <SelectSection title={t(SSRP_I18N_KEYS.stageSection)} options={stageOptions} selected={selectedStages} setter={setSelectedStages} placeholder={t(SSRP_I18N_KEYS.stageSelect)} />
+                                {renderAdditional(additionalStageEnabled, setAdditionalStageEnabled, additionalStageText, setAdditionalStageText, t(SSRP_I18N_KEYS.additionalStage))}
+                            </section>
+                            <section className="space-y-2">
+                                <SelectSection title={t(SSRP_I18N_KEYS.situationSection)} options={situationOptions} selected={selectedSituations} setter={setSelectedSituations} placeholder={t(SSRP_I18N_KEYS.situationSelect)} />
+                                {renderAdditional(additionalSituationEnabled, setAdditionalSituationEnabled, additionalSituationText, setAdditionalSituationText, t(SSRP_I18N_KEYS.additionalSituation))}
+                            </section>
+                            {/* 全体の追加設定（会話全体に効く補足。場面の選択の後に置く） */}
+                            <section className="space-y-2">
+                                <h3 className={PANEL_HEADING_CLASS}>{t(SSRP_I18N_KEYS.overallAdditional)}</h3>
                                 <ToggleSwitch
                                     checked={additionalOverallEnabled}
                                     onChange={setAdditionalOverallEnabled}
-                                    accent="amber"
+                                    label={t(SSRP_I18N_KEYS.overallAdditional)}
+                                    labelPosition="right"
+                                    labelClassName="text-xs text-fg-muted"
                                     size="sm"
                                 />
-                                <h3 className="flex items-center gap-2 text-sm font-bold text-gray-300 uppercase tracking-wider">
-                                    <FileText size={16} className="text-amber-400" />
-                                    {t(SSRP_I18N_KEYS.overallAdditional)}
-                                </h3>
-                            </div>
-                            {additionalOverallEnabled && (
-                                <div className="px-3 pb-3">
+                                {additionalOverallEnabled && (
                                     <textarea
                                         value={additionalOverallText}
                                         onChange={(e) => setAdditionalOverallText(e.target.value)}
                                         placeholder={t(SSRP_I18N_KEYS.overallAdditionalPlaceholder)}
-                                        className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y"
+                                        className={cn(PANEL_FIELD_CLASS, 'text-xs resize-y')}
                                         style={{ minHeight: '80px' }}
                                     />
-                                </div>
-                            )}
-                        </div>
-
-                        {/* 文体設定 */}
-                        <div className="bg-gray-900 rounded-lg border border-gray-800 shadow-sm overflow-hidden">
-                            <div className="p-3 space-y-3">
-                                <SelectSection title={t(SSRP_I18N_KEYS.writingStyleSection)} options={writingStyleOptions} selected={selectedWritingStyles} setter={setSelectedWritingStyles} placeholder={t(SSRP_I18N_KEYS.writingStyleSelect)} />
-                                {/* 追加文体設定 */}
-                                <div className="ml-2 flex items-center gap-2">
-                                    <button onClick={() => setAdditionalWritingStyleEnabled(!additionalWritingStyleEnabled)} className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${additionalWritingStyleEnabled ? 'bg-blue-600' : 'bg-gray-700'}`}>
-                                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${additionalWritingStyleEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                    </button>
-                                    <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.additionalWritingStyle)}</span>
-                                </div>
-                                {additionalWritingStyleEnabled && (
-                                    <textarea value={additionalWritingStyleText} onChange={(e) => setAdditionalWritingStyleText(e.target.value)} placeholder={formatText(t(SSRP_I18N_KEYS.additionalInput), { label: t(SSRP_I18N_KEYS.additionalWritingStyle) })} className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y ml-2" style={{ minHeight: '60px' }} />
                                 )}
-                                <div className="ml-2 space-y-1">
-                                    <span className="text-[10px] text-gray-500">{t(SSRP_I18N_KEYS.imageGenerationNotes)}</span>
-                                    <textarea
-                                        value={imageGenerationNotes}
-                                        onChange={(e) => setImageGenerationNotes(e.target.value)}
-                                        placeholder={t(SSRP_I18N_KEYS.imageGenerationNotesPlaceholder)}
-                                        className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded text-xs p-2 outline-none focus:border-blue-500 transition-colors resize-y"
-                                        style={{ minHeight: '70px' }}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 日付時刻設定 */}
-                        <div className="border-t border-gray-800 pt-4">
-                            <DateTimeSettings
-                                settings={dateTimeSettings}
-                                onChange={setDateTimeSettings}
-                                isLocked={dateTimeLocked}
-                        onLockChange={handleDateTimeLockChange}
-                        backendUrl={backendUrl}
-                        uiCatalog={uiCatalog}
-                    />
-                        </div>
-
-                        {/* 画像生成設定（ComfyUI機能が有効な支援レベル かつ モジュール連携済みのみ） */}
-                        {imageGenSettingsVisible && (
-                            <div className="border-t border-gray-800 pt-4">
-                                <ImageGenerationSettings
-                                    settings={imageGenSettings}
-                                    onChange={setImageGenSettings}
+                            </section>
+                            {/* 日付時刻設定 */}
+                            <section className="pt-4 border-t border-line">
+                                <DateTimeSettings
+                                    settings={dateTimeSettings}
+                                    onChange={setDateTimeSettings}
+                                    isLocked={dateTimeLocked}
+                                    onLockChange={handleDateTimeLockChange}
                                     backendUrl={backendUrl}
                                     uiCatalog={uiCatalog}
                                 />
-                            </div>
-                        )}
+                            </section>
+                        </>
+                    )}
 
-                    </div>
+                    {prepareTab === 'style' && (
+                        <>
+                            <section className="space-y-2">
+                                <SelectSection title={t(SSRP_I18N_KEYS.writingStyleSection)} options={writingStyleOptions} selected={selectedWritingStyles} setter={setSelectedWritingStyles} placeholder={t(SSRP_I18N_KEYS.writingStyleSelect)} />
+                                {renderAdditional(additionalWritingStyleEnabled, setAdditionalWritingStyleEnabled, additionalWritingStyleText, setAdditionalWritingStyleText, t(SSRP_I18N_KEYS.additionalWritingStyle))}
+                            </section>
+                            {/* 画像生成への補足 */}
+                            <section className="space-y-2">
+                                <h3 className={PANEL_HEADING_CLASS}>{t(SSRP_I18N_KEYS.imageGenerationNotes)}</h3>
+                                <textarea
+                                    value={imageGenerationNotes}
+                                    onChange={(e) => setImageGenerationNotes(e.target.value)}
+                                    placeholder={t(SSRP_I18N_KEYS.imageGenerationNotesPlaceholder)}
+                                    className={cn(PANEL_FIELD_CLASS, 'text-xs resize-y')}
+                                    style={{ minHeight: '70px' }}
+                                />
+                            </section>
+                        </>
+                    )}
+
+                    {prepareTab === 'preset' && (
+                        <>
+                            {/* キャラ設定プリセット */}
+                            <section className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <h3 className={PANEL_HEADING_CLASS}>{t(SSRP_I18N_KEYS.characterPresetTitle)}</h3>
+                                    <Button size="sm" variant="ghost" onClick={() => setIsPresetModalOpen(!isPresetModalOpen)}>
+                                        <Plus size={12} /> {t(SSRP_I18N_KEYS.newSave)}
+                                    </Button>
+                                </div>
+                                {isPresetModalOpen && (
+                                    <div className="flex gap-2 animate-slide-down">
+                                        <input
+                                            type="text"
+                                            value={newPresetName}
+                                            onChange={(e) => setNewPresetName(e.target.value)}
+                                            placeholder={t(SSRP_I18N_KEYS.presetNameShortPlaceholder)}
+                                            className={cn(PANEL_FIELD_CLASS, 'flex-1')}
+                                        />
+                                        <Button variant="primary" onClick={handleSavePreset} disabled={isSavingPreset}>
+                                            <Save size={12} /> {t(SSRP_I18N_KEYS.save)}
+                                        </Button>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar">
+                                    {presets.length === 0 && <span className="text-xs text-fg-muted italic px-1">{t(SSRP_I18N_KEYS.noPresets)}</span>}
+                                    {presets.map(p => (
+                                        <Chip key={p} onClick={() => handleLoadPreset(p)}>{p}</Chip>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* パラメータ項目設定 */}
+                            <section className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <h3 className={PANEL_HEADING_CLASS}>{t(SSRP_I18N_KEYS.parameterSchemaTitle)}</h3>
+                                    <Button size="sm" onClick={() => setIsSchemaEditorOpen(true)}>
+                                        {resolveMessage(uiCatalog, SETTINGS_VIEW_I18N_KEYS.manage, SETTINGS_VIEW_TEXT_FALLBACK_JA[SETTINGS_VIEW_I18N_KEYS.manage])}
+                                    </Button>
+                                </div>
+                                <select
+                                    value={selectedSchemaId}
+                                    onFocus={fetchSchemaList}
+                                    onChange={async (e) => {
+                                        const newSchemaId = e.target.value;
+                                        setSelectedSchemaId(newSchemaId);
+                                        // 新しいスキーマを読み込み
+                                        const schema = await getParameterSchema(newSchemaId);
+                                        setParameterSchema(schema);
+                                        // キャラクター詳細のparameterGroupsをリセット
+                                        if (schema) {
+                                            setCharacterDetails(prev => {
+                                                const updated: Record<string, CharacterDetail> = {};
+                                                for (const [key, detail] of Object.entries(prev)) {
+                                                    updated[key] = {
+                                                        ...detail,
+                                                        parameterGroups: initializeParameterGroups(schema)
+                                                    };
+                                                }
+                                                return updated;
+                                            });
+                                        }
+                                    }}
+                                    disabled={!!initialSettings}
+                                    className={cn(PANEL_FIELD_CLASS, initialSettings && 'opacity-60 cursor-not-allowed')}
+                                >
+                                    {schemaList.length === 0 && <option value="">{t(SSRP_I18N_KEYS.loading)}</option>}
+                                    {schemaList.map(s => (
+                                        <option key={s.id} value={s.id}>{getLocalizedText(s.name, parameterLangOf(uiCatalog?.lang))}</option>
+                                    ))}
+                                </select>
+                                {initialSettings && (
+                                    <p className="text-xs text-fg-muted">{t(SSRP_I18N_KEYS.notChangeableAfterStart)}</p>
+                                )}
+                            </section>
+                        </>
+                    )}
                 </div>
 
-                {/* 固定フッター */}
-                <div className="p-4 border-t border-gray-800 space-y-2">
-                    {/* 現セッションに反映（既存セッションで未反映変更があるときのみ表示） */}
-                    {(canApplyToSession || applyToSessionState === 'done') && onApplyToSession && (
-                        <button
-                            onClick={onApplyToSession}
-                            disabled={applyToSessionState === 'applying'}
-                            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-semibold tracking-wide transition-colors text-sm ${applyToSessionState === 'done'
-                                ? 'bg-emerald-700 text-white cursor-default'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60'}`}
-                            title={t(SSRP_I18N_KEYS.applyToSessionTitle)}
-                        >
-                            <RotateCcw size={16} className={applyToSessionState === 'applying' ? 'animate-spin' : ''} />
-                            {applyToSessionState === 'done'
-                                ? t(SSRP_I18N_KEYS.applyToSession) + ' ✓'
-                                : t(SSRP_I18N_KEYS.applyToSession)}
-                        </button>
+                {/* キャラ詳細（下のボタンの帯より上に重ねて出す） */}
+                {detailTarget && (
+                    <CharacterDetailPanel
+                        key={detailTarget}
+                        charPath={detailTarget}
+                        characterDirName={characterDirNameMap.get(detailTarget) || getCharacterNameFromPath(detailTarget)}
+                        label={characterLabelMap.get(detailTarget) || tempCharacters[detailTarget]?.name || detailTarget}
+                        isTemp={isTempCharacterPath(detailTarget)}
+                        detail={characterDetails[detailTarget]}
+                        parameterSchema={parameterSchema}
+                        uiCatalog={uiCatalog}
+                        backendUrl={backendUrl}
+                        ssrpParamPresets={ssrpParamPresets}
+                        userName={userName}
+                        relationshipOptions={relationshipOptions}
+                        personalityOptions={personalityOptionsCache[detailTarget] ?? EMPTY_OPTIONS}
+                        outfitOptions={outfitOptionsCache[detailTarget] ?? EMPTY_OPTIONS}
+                        backgroundOptions={backgroundOptionsCache[detailTarget] ?? EMPTY_OPTIONS}
+                        onUpdateDetail={updateDetail}
+                        onUserNameInput={handleUserNameInput}
+                        onUserNameSet={setUserName}
+                        onParamPresetsChange={setSSRPParamPresets}
+                        onFetchRelationshipOptions={fetchRelationshipOptions}
+                        onSelectRelation={handleSelectRelation}
+                        onOpenImageSettings={openImageSettingsForCharacter}
+                        imageGenSettingsVisible={imageGenSettingsVisible && !isTempCharacterPath(detailTarget)}
+                        linkedSettings={linkedSettingsByChar[detailTarget]}
+                        onOpenEditor={onOpenCharacterEditor
+                            ? charPath => onOpenCharacterEditor({
+                                dirName: characterDirNameMap.get(charPath) || getCharacterNameFromPath(charPath),
+                                fileName: getCharacterSettingNameFromPath(charPath),
+                            })
+                            : undefined}
+                        canUseTTS={ttsSettingsVisible && !isTempCharacterPath(detailTarget)}
+                        onOpenTTSSettings={ttsSettingsVisible && !isTempCharacterPath(detailTarget) ? openTTSSettingsForCharacter : undefined}
+                        presetVoiceDesign={voiceDesignByCharacter[detailTarget]}
+                        onPresetVoiceDesignChange={ttsSettingsVisible && !isTempCharacterPath(detailTarget) ? updateVoiceDesignForCharacter : undefined}
+                        onUpdateCorrelation={updateCorrelation}
+                        onUpdateParamGroup={updateCharacterParamGroup}
+                        onUpdateParamValue={updateCharacterParamValue}
+                        onClose={() => setDetailCharPath(null)}
+                        onReplace={() => setCharDropdownOpenIdx(selectedCharacters.indexOf(detailTarget))}
+                        onRemove={() => removeCharacter(detailTarget)}
+                        onEditTemp={isTempCharacterPath(detailTarget) ? () => setTempEditorPath(detailTarget) : undefined}
+                        onRegisterTemp={isTempCharacterPath(detailTarget) && !tempCharacters[detailTarget]?.registeredPath && sessionId
+                            ? () => setTempRegisterPath(detailTarget)
+                            : undefined}
+                    />
+                )}
+                </div>
+
+                {/* 下のボタン。会話が無い：会話開始／会話中：変更があれば反映、いつでもこの設定で新しく始める。
+                    会話中に話す相手を替えたときは、同じ会話へ反映するより新しく始める方が基本の使い方なので、そちらを主ボタンにする */}
+                <div className="p-4 border-t border-line space-y-2 min-w-0 lg:min-w-[24rem]">
+                    {!sessionId ? (
+                        <Button block variant="primary" className="h-11" onClick={handleStart}>
+                            <Check size={17} /> {t(SSRP_I18N_KEYS.startConversation)}
+                        </Button>
+                    ) : (
+                        <>
+                            {charactersChangedFromSession && (
+                                <Button block variant="primary" className="h-11" onClick={handleStart}>
+                                    <Check size={17} />
+                                    <span className="truncate">
+                                        {formatText(t(PREPARE_PANEL_I18N_KEYS.startNewWithCharacters), {
+                                            names: joinNames(uiCatalog, selectedCharacterList.map(p => characterLabelMap.get(p) || tempCharacters[p]?.name || p)),
+                                        })}
+                                    </span>
+                                </Button>
+                            )}
+                            {(canApplyToSession || applyToSessionState === 'done') && onApplyToSession && (
+                                <Button
+                                    block
+                                    variant={charactersChangedFromSession ? 'secondary' : 'primary'}
+                                    className={charactersChangedFromSession ? undefined : 'h-11'}
+                                    onClick={onApplyToSession}
+                                    disabled={applyToSessionState !== 'idle'}
+                                    title={t(SSRP_I18N_KEYS.applyToSessionTitle)}
+                                >
+                                    {applyToSessionState === 'done' ? <Check size={16} /> : <RotateCcw size={16} className={applyToSessionState === 'applying' ? 'animate-spin' : ''} />}
+                                    {applyToSessionState === 'done' ? t(PREPARE_PANEL_I18N_KEYS.applied) : t(PREPARE_PANEL_I18N_KEYS.applyChanges)}
+                                </Button>
+                            )}
+                            {!charactersChangedFromSession && (
+                                <Button block variant="ghost" onClick={handleStart}>
+                                    {t(PREPARE_PANEL_I18N_KEYS.startNewWithSettings)}
+                                </Button>
+                            )}
+                        </>
                     )}
-                    <button
-                        onClick={handleStart}
-                        className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-lg font-semibold tracking-wide transition-colors text-sm"
-                    >
-                        <Check size={18} /> {t(SSRP_I18N_KEYS.startConversation)}
-                    </button>
                 </div>
             </div>
 
-            {/* キャラクター選択モーダル（プリセットより横広・列少なめ。スマホ幅では1列） */}
+            {/* キャラクター選択モーダル（作品・タグの絞り込みは窓の中。スマホ幅では1列） */}
             <GridSelectionModal
                 isOpen={charDropdownOpenIdx !== null}
                 onClose={() => setCharDropdownOpenIdx(null)}
@@ -2617,17 +2579,59 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 noMatchTemplate={t(SSRP_I18N_KEYS.noMatch)}
                 searchable
                 wide
-                selectedValue={charDropdownOpenIdx !== null ? (selectedCharacters[charDropdownOpenIdx] || undefined) : undefined}
-                options={charDropdownOpenIdx !== null
-                    ? getFilteredCharacterOptions(charDropdownOpenIdx).filter(opt =>
-                        // 他スロットで選択済みのキャラは候補から除外（自スロットの選択中は残す）
-                        !(selectedCharacters.includes(opt.value) && selectedCharacters[charDropdownOpenIdx] !== opt.value))
-                    : []}
+                selectedValue={charDropdownOpenIdx !== null && charDropdownOpenIdx !== ADD_CHARACTER_SLOT
+                    ? (selectedCharacters[charDropdownOpenIdx] || undefined)
+                    : undefined}
+                options={charDropdownOpenIdx !== null ? getPickerCharacterOptions(charDropdownOpenIdx) : []}
+                filters={(
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-fg-muted whitespace-nowrap">{t(SSRP_I18N_KEYS.characterWorkFilter)}</span>
+                            <select
+                                value={charPickerWork}
+                                onChange={(e) => setCharPickerWork(e.target.value)}
+                                className={cn(PANEL_FIELD_CLASS, 'flex-1 py-1.5 text-xs')}
+                            >
+                                <option value="">ALL</option>
+                                <option value="__unclassified__">{t(SSRP_I18N_KEYS.characterUnclassified)}</option>
+                                {filterWorks.map(w => (
+                                    <option key={w} value={w}>{w}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {filterTags.length > 0 && (
+                            <div className="flex items-start gap-2">
+                                <span className="text-xs text-fg-muted whitespace-nowrap pt-0.5">{t(SSRP_I18N_KEYS.characterTagFilter)}</span>
+                                <div className="flex flex-wrap gap-1">
+                                    {filterTags.map(tag => {
+                                        const isActive = charPickerTags.includes(tag);
+                                        return (
+                                            <Chip
+                                                key={tag}
+                                                selected={isActive}
+                                                onClick={() => setCharPickerTags(prev => (isActive ? prev.filter(x => x !== tag) : [...prev, tag]))}
+                                            >
+                                                {tag}
+                                            </Chip>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
                 onSelect={(val) => {
                     if (charDropdownOpenIdx !== null && val) {
                         // 明示的な選択（新規・差し替えとも）だけが設定紐づけの投入対象
                         pendingLinkedApplyRef.current.add(val);
-                        setSelectedCharacters(prev => listWithChange(charDropdownOpenIdx, val, prev));
+                        if (charDropdownOpenIdx === ADD_CHARACTER_SLOT) {
+                            setSelectedCharacters(prev => [...prev.filter(Boolean), val]);
+                        } else {
+                            const replaced = selectedCharacters[charDropdownOpenIdx];
+                            setSelectedCharacters(prev => prev.map((v, i) => (i === charDropdownOpenIdx ? val : v)));
+                            // 詳細を開いたまま差し替えたときは、新しいキャラの詳細へ移る
+                            if (replaced && detailCharPath === replaced) setDetailCharPath(val);
+                        }
                     }
                     setCharDropdownOpenIdx(null);
                 }}
@@ -2672,36 +2676,6 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 }}
             />
 
-            <ComfyUICharacterSettingsModal
-                isOpen={isCharacterImageSettingsOpen}
-                onClose={() => setIsCharacterImageSettingsOpen(false)}
-                backendUrl={backendUrl}
-                initialSelectedCharacter={imageSettingsTargetCharacter}
-            />
-
-            <ComfyUIIntegratedSettingsModal
-                isOpen={isIntegratedImageSettingsOpen}
-                onClose={() => setIsIntegratedImageSettingsOpen(false)}
-                backendUrl={backendUrl}
-                initialSelectedCharacter={imageSettingsTargetCharacter}
-            />
-
-            <TTSCharacterSettingsModal
-                isOpen={isCharacterTTSSettingsOpen}
-                onClose={() => setIsCharacterTTSSettingsOpen(false)}
-                backendUrl={backendUrl}
-                initialSelectedCharacter={ttsSettingsTargetCharacter}
-                uiCatalog={uiCatalog}
-            />
-
-            <TTSIntegratedSettingsModal
-                isOpen={isIntegratedTTSSettingsOpen}
-                onClose={() => setIsIntegratedTTSSettingsOpen(false)}
-                backendUrl={backendUrl}
-                initialSelectedCharacter={ttsSettingsTargetCharacter}
-                uiCatalog={uiCatalog}
-            />
-
             {/* セッションからの一時キャラクター取り込み */}
             {tempImport && (
                 <TempCharacterImportModal
@@ -2736,8 +2710,20 @@ export const RolePlaySettings = React.forwardRef<RolePlaySettingsHandlers, RoleP
                 onCancel={() => setTempRegisterPath(null)}
                 uiCatalog={uiCatalog}
             />
+            {/* 欄は狭い画面で transform を持ち、内側の fixed が欄の幅に閉じ込められるため外に置く */}
+            <ParameterSchemaEditorModal
+                isOpen={isSchemaEditorOpen}
+                onClose={() => {
+                    setIsSchemaEditorOpen(false);
+                    // 選んでいる項目設定の中身とキャラごとの値はそのままにし、選択肢の一覧だけを取り直す
+                    getParameterSchemas()
+                        .then(schemas => setSchemaList(schemas.map(s => ({ id: s.id, name: s.name }))))
+                        .catch(error => console.warn('[RolePlaySettings] Failed to reload parameter schema list:', error));
+                }}
+                uiCatalog={uiCatalog}
+            />
             {tempToast && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] bg-gray-800 border border-orange-600/70 text-sm text-gray-100 px-4 py-2 rounded shadow-lg">
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] bg-surface border border-accent/70 text-sm text-fg px-4 py-2 rounded shadow-lg">
                     {tempToast}
                 </div>
             )}

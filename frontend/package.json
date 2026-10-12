@@ -16,6 +16,7 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.9",
+    "@fontsource/shippori-mincho": "^5.3.0",
     "axios": "^1.13.2",
     "firebase": "^12.7.0",
     "lucide-react": "^0.562.0",

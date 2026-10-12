@@ -1,143 +1,177 @@
-# 01 Setup and Installation
+# 01 Installation and Startup
 
 [Back to Contents](index.md)
 
-This chapter walks you through installing AlSlime, from getting the app to seeing the first screen.
+Next chapter: [02 Understanding the Screen](02-screen.md)
+
+This chapter explains how to install and start AlSlime, how to make the initial settings, and how to quit the app.
 
 ## What This Chapter Covers
 
-1. Check the system requirements
-2. Get AlSlime
-3. Start it and open the screen in your browser
-4. Agree to the Terms of Use
-5. Check and configure the AI CLI connection
+1. System requirements
+2. Getting AlSlime
+3. Starting AlSlime and opening the screen
+4. Agreeing to the Terms of Use
+5. The first screen
+6. Importing the official samples
+7. Specifying where the CLIs are
+8. Changing the startup settings
+9. Quitting AlSlime
+
+Supplement: If AlSlime quits right after starting
 
 ## 1. System Requirements
 
 - **OS**: Windows / Linux
-- **Browser**: Any common modern browser (Chrome, Edge, Firefox, etc.)
-- **AI CLI**: At least one of the following must be installed and authenticated (see the next section)
-  - Antigravity CLI
-  - Gemini CLI
-  - Claude Code
+- **Browser**: A common browser such as Chrome, Edge, or Firefox
+- **AI**: One of the following
+  - An AI CLI (Antigravity CLI, Gemini CLI, or Claude Code)
+  - An AI service that provides an OpenAI-compatible API
 
-### Preparing an AI CLI (one is enough)
+### Preparing an AI
 
-AlSlime is a front end for AI CLIs. Depending on which AI you want to use, **subscribe with the provider, install the CLI, and sign in (authenticate)** yourself before you start using AlSlime.
+AlSlime uses one of the following AI services for conversations. Prepare a subscription to the service and the matching CLI or API key, then start AlSlime.
 
-| AI you want to use | Required subscription | CLI to install | Where to get it |
-| --- | --- | --- | --- |
-| Gemini (Google), personal use | Google AI Pro / Ultra subscription (no extra charge for the CLI) | **Antigravity CLI** (command `agy`) | [Antigravity official site](https://antigravity.google/) |
-| Gemini (Google), business use | Business Gemini Code Assist (Standard, etc.) subscription | **Gemini CLI** (command `gemini`) | [Gemini CLI official repository](https://github.com/google-gemini/gemini-cli) |
-| Claude (Anthropic) | An eligible paid Claude plan (Max, etc.) | **Claude Code** (command `claude`) | [Claude Code official site](https://claude.com/claude-code) |
+| AI to use | Subscription | What to prepare |
+| --- | --- | --- |
+| Gemini (Google), personal | Google AI Pro / Ultra subscription | **Antigravity CLI** (command `agy`) |
+| Gemini (Google), business | Gemini Code Assist for businesses (Standard, etc.) | **Gemini CLI** (command `gemini`) |
+| Claude (Anthropic) | An eligible paid Claude plan (Max, etc.) | **Claude Code** (command `claude`) |
+| An AI service provided through an API | An API subscription with OpenRouter, OpenAI, DeepSeek, OpenCode Go, etc. | The API key of each service |
 
-- **Eligible plans and pricing are subject to change. Always check the provider's latest guidance before subscribing.**
-- After installing, **run the CLI once in a terminal and complete the sign-in (authentication)** (running `agy` / `gemini` / `claude` prompts you to sign in via your browser). AlSlime uses this authenticated CLI.
-- Note: The personal authentication paths for Gemini CLI (Google AI Pro / Ultra and Gemini Code Assist for individuals) ended on June 18, 2026. For personal use of Google's AI, use its successor, Antigravity CLI (business Gemini Code Assist subscriptions can continue to use Gemini CLI).
+- After installing a CLI, start it once in a terminal and complete the sign-in before using it. ~~The steps from getting a CLI to signing in are explained on the AlSlime website.~~ (currently in preparation)
+- To use an API, register the connection after starting AlSlime ([08 Settings](08-settings.md)). API usage fees are charged under your contract with each service.
+- Eligible plans and prices may be revised at the provider's discretion.
+- The personal sign-in methods of Gemini CLI (Google AI Pro / Ultra and Gemini Code Assist for individuals) ended on June 18, 2026. To use Google's AI with a personal subscription, use its successor, Antigravity CLI.
 
 ## 2. Getting AlSlime
 
-### Distribution builds (GitHub Releases)
+Download the file for your OS from GitHub Releases and extract it.
 
-Download the file for your OS from GitHub Releases and extract it. **The distribution build is the full-featured edition.**
+- **Windows**: Extract `alslime-X.Y.Z-windows-amd64.zip`. It contains the app itself, `alslime.exe`, and `start-alslime.bat` for starting it.
+- **Linux**: Extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`). The execute permission is already set, so you can start it right after extracting.
 
-- **Windows**: extract `alslime-X.Y.Z-windows-amd64.zip` (it contains the executable `alslime.exe` and the launcher `start-alslime.bat`)
-- **Linux**: extract `alslime-X.Y.Z-linux-amd64.tar.gz` (`tar xzf alslime-X.Y.Z-linux-amd64.tar.gz`). The binary is already executable, so you can run it as-is
+Both files include the Terms of Use, the license, and README files (in Japanese and English). The modules for supporters are downloaded separately after starting AlSlime ([09 Supporter Features](09-sponsor.md)).
 
-### Building from source
+## 3. Starting AlSlime and Opening the Screen
 
-A source build does not include the implementation of the core features such as AI conversation execution (those features return a "not implemented" error). For the full feature set, use the distribution build.
+### Where to start AlSlime
 
-With Go 1.26 or later, you can clone the repository and build it yourself. The prebuilt front end is bundled, so Go alone is enough.
+AlSlime saves conversation records and settings in its data folder. How to check where they are saved is explained in [13 Data Location and Backups](13-data.md). We recommend placing the extracted files in a dedicated folder.
 
-```sh
-go build -tags purepublic -o alslime ./cmd/app
-```
+### Steps to start
 
-## 3. Starting AlSlime
+When you start AlSlime, the app runs only inside your own PC and gets ready to show its screen in your browser.
 
-### Mind where you start it
+- **Windows**: Double-click `start-alslime.bat`. The app starts, and after about 3 seconds the screen appears in your browser.
+- **Linux**: Run `./alslime`. In a desktop environment, the browser opens automatically and shows the screen.
 
-AlSlime creates conversation data and settings (such as the `roleplay` folder) **inside the folder it is started from**. Place the executable in a dedicated folder and start it from there.
+While the app is running, the console shows the address of the screen.
 
-### Startup and the first screen
-
-On startup, a local server that runs only on your own PC starts up.
-
-- **Windows**: double-click `start-alslime.bat`. It starts the executable (`alslime.exe`), and after a few seconds **the screen opens automatically in your usual browser**. If you run `alslime.exe` directly, the browser does not open automatically; open the address shown in the console in your browser instead.
-- **Linux**: run `./alslime`. In a session with a GUI, **the screen opens automatically in your usual browser**.
-
-![Terms of Use consent screen shown at first startup](../images/ja/01-01-eula-gate.png)
-
-On first startup, the Terms of Use consent screen appears here (see the next section).
-
-> **If the browser does not open automatically**
+> **If the screen does not appear**
 >
-> - Open the address shown in the console (usually `http://127.0.0.1:3000`) directly in your browser.
-> - AlSlime cannot start if another application is already using port 3000. In that case, change the port as described in "6. Advanced Startup Settings" in this chapter, or close the other application.
-> - On Windows, if you change the port, also update the port number in the address inside `start-alslime.bat`.
-> - For other problems, see [11 Troubleshooting](11-troubleshooting.md).
+> - If a connection error page appears, the browser may have opened before the app finished starting. Wait a moment and reload the page to show the screen.
+> - If the browser does not open, enter the address shown in the console (usually `http://127.0.0.1:3000`) directly in your browser to show the screen.
+> - On Windows, starting `alslime.exe` directly does not open the browser automatically. In this case too, enter the address directly to show the screen.
+> - If these steps do not solve the problem, see [14 Troubleshooting](14-troubleshooting.md).
 
 ## 4. Agreeing to the Terms of Use
 
-The "Agree to the Terms of Use" screen appears at first startup.
+The first time you start AlSlime, the "Agree to the Terms of Use" screen appears.
 
-1. The dropdown at the top of the screen switches the display language (Japanese / English).
-2. Read the three confirmation items and check each one if you agree with it.
+![The Agree to the Terms of Use screen](../images/ja/01-01-eula-gate.png)
+
+1. In the field below the heading, you can switch the display language (日本語 / English).
+2. Read the following three items, and if you agree, select each check box.
    - I am 18 years of age or older.
    - I understand that all output is generated by the external AI services I connect, and the developer is not involved in its content.
    - I understand that this software is provided AS IS without warranty and is not intended for medical or counseling use.
-3. Press "Read the full Terms of Use" to view the full text on the spot.
+3. Select "Read the full Terms of Use" to show the full text right there. When the display language is not Japanese, a note stating that the Japanese version is the authoritative text is also shown.
 
-   ![Full text of the Terms expanded](../images/ja/01-02-eula-fulltext.png)
+   ![The full text of the Terms of Use shown](../images/ja/01-02-eula-fulltext.png)
 
-4. Once all three items are checked, the "Agree and start" button becomes available.
+4. When all three check boxes are selected, "Agree and start" becomes available. Select "Agree and start".
 
-After you agree, the main screen appears. The consent record is stored only on your own PC.
+The consent screen appears again when the Terms of Use are revised or when the folder where data is saved changes.
 
-![Main screen shown after agreeing](../images/ja/01-03-main-first-view.png)
+## 5. The First Screen
 
-## 5. Checking and Configuring the AI CLI Connection
+When you have agreed, the conversation screen appears. The first time, the "Setup" panel, where you prepare a conversation, is shown on the right.
 
-### Just try sending a message first
+![The first screen shown after agreeing](../images/ja/01-03-first-view.png)
 
-If your AI CLI can be run directly as a command (`gemini`, `claude`, etc. — in other words, it is on your PATH), **no configuration is needed**. AlSlime finds the executable automatically.
+The layout of the screen is explained in [02 Understanding the Screen](02-screen.md), and how to start a conversation in [03 Your First Conversation](03-first-chat.md).
 
-Move on to [02 Your First Chat](02-first-chat.md) and try sending a message. Only if you get an error, specify the executable location with the steps below.
+## 6. Importing the Official Samples
 
-### Specifying the executable location
+The official samples contain a set of characters, templates, and presets. Once imported, you are ready to start a conversation without creating any settings files.
 
-1. Press the gear icon (Settings) at the top right of the main screen to open the settings menu.
+1. Select "Settings" on the left edge of the screen (when the screen is narrow, "Settings" is in the tabs at the bottom of the screen).
+2. Select "Official samples".
+3. Under "Sample settings", select "Run" for "Download and import".
 
-   ![Settings menu](../images/ja/01-04-settings-menu.png)
+   ![Importing the official samples](../images/ja/01-04-official-samples.png)
 
-2. Press "Startup settings".
-3. Open the "CLI executable paths" section.
+   ![Importing the official samples](../images/ja/01-04-official-samples.png)
 
-   ![CLI executable paths in Startup settings](../images/ja/01-05-server-settings.png)
+The samples are downloaded from GitHub and imported. Existing files are not changed. The templates for setting generation can also be imported on the same screen. Details are explained in [08 Settings](08-settings.md).
 
-4. Enter the full path to the executable in the field for the CLI you use (Gemini CLI / Claude Code / Antigravity CLI). Any CLI left blank is still searched for automatically on the PATH, as before.
-5. Press "Apply" to save.
+## 7. Specifying Where the CLIs Are
 
-## 6. Advanced Startup Settings (only if needed)
+AlSlime normally detects the AI CLIs automatically. If an error appears when you send a message, or if you installed a CLI in a location other than the default, specify the location of the executable file.
 
-"Startup settings" in the settings menu also lets you change startup conditions such as the port. **These changes take effect at the next startup.**
+1. In "Settings", go to "Startup & system".
+2. Under "CLI executable paths", enter the location of the executable file in the field for the CLI you use. CLIs whose fields are left empty continue to be detected automatically.
+3. Select "Test" next to the field to check whether the CLI starts from the entered location. The result is shown below the CLI name. You can check the entered value even before saving it.
 
-- **Port**: The port number of the address the screen opens at (default: 3000)
-- **Bind address**: The address the server listens on (default: 127.0.0.1 = reachable only from your own PC)
-- **LAN access**: Makes AlSlime reachable from other devices on the same network. Do not enable this on anything but a trusted network.
+   ![The Startup & system screen (startup settings and CLI executable paths)](../images/ja/01-05-startup-system.png)
 
-You can also use environment variables (they take precedence over the settings file).
+   | Message | Meaning |
+   | --- | --- |
+   | Started successfully | The CLI was confirmed to start. The CLI name and version are also shown |
+   | Not found in the default install locations or PATH. | The CLI does not exist in the locations checked by automatic detection |
+   | No executable file exists at the specified path. | There is no executable file at the entered location |
+   | Failed to start. | The executable file exists, but it stopped while starting |
+   | No response within the time limit. | The CLI did not respond in time |
 
-| Environment variable | Description |
-| --- | --- |
-| `PORT` | Listening port number |
-| `HOST` | Listening address |
-| `WORKSPACE_ROOT` | Folder where data is stored (defaults to the startup folder if unset) |
-| `ALSLIME_NO_BROWSER` | Set to any value to disable opening the browser automatically at startup (Linux only; on Windows the browser is opened by `start-alslime.bat`, so this variable has no effect) |
+4. Select "Save" at the bottom of the screen. The saved values take effect the next time an AI is called. You do not need to restart the app.
+
+## 8. Changing the Startup Settings
+
+In "Startup settings" under "Startup & system" in "Settings" (the upper part of the screen in the previous section), you can change the address used to show the screen and other settings. **Changes take effect the next time AlSlime starts.**
+
+- **Port**: The port number of the address used to show the screen. The default is 3000.
+- **Bind address**: By default, only connections from this PC are allowed.
+- **LAN access**: Allows connections from other devices on the same network, such as smartphones.
+
+> **Before turning on LAN access**
+>
+> AlSlime is designed to be used on your own PC, so it shows its screen without a sign-in. When LAN access is turned on, anyone connected to the same network can view your conversation records and settings and use the AI. LAN access is intended for use on a trusted network, such as your home network.
+
+- If you change the port on Windows, also change the address in `start-alslime.bat` to the same port number. Otherwise, the browser opens the old address.
+- ~~More detailed startup settings, such as running on Linux without a display, are explained on the AlSlime website.~~ (currently in preparation)
+
+## 9. Quitting AlSlime
+
+The AlSlime app keeps running even after you close the browser. To quit, do the following.
+
+- **Windows**: Close the console window, or press Ctrl + C in the console.
+- **Linux**: Press Ctrl + C in the terminal where you started it.
+
+If there is work in progress, the app waits briefly for it to finish before quitting.
+
+## If AlSlime Quits Right After Starting
+
+If AlSlime quits immediately after starting, the following causes are possible.
+
+- Another application is using the same port
+- The startup settings are corrupted
+- Writing to the folder where AlSlime was started is not allowed
+
+On Windows, the console window may close immediately, making it hard to read what was shown. How to check the cause is explained in [14 Troubleshooting](14-troubleshooting.md).
 
 ---
 
-Next: [02 Your First Chat](02-first-chat.md)
+Next chapter: [02 Understanding the Screen](02-screen.md)
 
 [Back to Contents](index.md)

@@ -22,20 +22,20 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
-        <div className="border border-gray-700 rounded-lg overflow-hidden">
+        <div className="border border-line-strong rounded-lg overflow-hidden">
             <button
                 type="button"
                 onClick={() => setIsOpen(prev => !prev)}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-sm font-medium text-gray-300 transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-surface hover:bg-surface-2 text-sm font-medium text-fg-muted transition-colors"
             >
                 <span className="flex items-center gap-2">{title}</span>
                 <ChevronDown
                     size={16}
-                    className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    className={`text-fg-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
                 />
             </button>
             {isOpen && (
-                <div className="p-3 space-y-4 border-t border-gray-700">
+                <div className="p-3 space-y-4 border-t border-line-strong">
                     {children}
                 </div>
             )}

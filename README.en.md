@@ -8,7 +8,7 @@ AlSlime is an AI CLI frontend for conversations with characters you create. Beyo
 
 It brings Gemini CLI, Claude Code, and Antigravity—installed and authenticated by you—into a browser-based conversation screen. Conversation history and settings are stored on your own PC.
 
-![A conversation using a generated scene as its background](docs/manual/images/ja/09-03-chat-pocket-watch.png)
+![A conversation using a generated scene as its background](docs/manual/images/ja/10-08-background.png)
 
 *This screen uses a generated image as the conversation background. Image generation is part of the supporter-only ComfyUI integration.*
 
@@ -20,7 +20,7 @@ Define a character's personality, appearance, outfit, speech style, and backgrou
 
 During a conversation, you can review character states and relationships. You can also set the date and time within the conversation, keep it fixed, or advance it as messages are sent.
 
-![Character and conversation settings](docs/manual/images/ja/03-01-conversation-settings.png)
+![Character and conversation settings](docs/manual/images/ja/04-01-characters-tab.png)
 
 ### Choose the AI You Want to Talk To
 
@@ -38,13 +38,13 @@ Settings can be exported as packs for backup or transfer to another PC. Conversa
 
 The supporter-only ComfyUI integration lets an AI read the conversation and generate an image suited to the character and scene. The completed image can remain attached to a message or become the background of the conversation screen.
 
-This feature requires a separate ComfyUI installation, an image-generation model, and suitable GPU hardware. See the [ComfyUI integration manual](docs/manual/en/09-comfyui.md) for details.
+This feature requires a separate ComfyUI installation, an image-generation model, and suitable GPU hardware. See the [ComfyUI integration manual](docs/manual/en/10-image-generation.md) for details.
 
 ### Listen to Conversations in Voice
 
 The supporter-only Irodori-TTS integration has an AI speech synthesizer read your characters' replies aloud. Voices created from reference audio or designed in words can be assigned per character, and emotional expression via emojis is supported.
 
-This feature requires building Irodori-TTS-Server separately and suitable GPU hardware. Only Japanese text can be read aloud. See the [text-to-speech manual](docs/manual/en/10-tts.md) for details.
+This feature requires building Irodori-TTS-Server separately and suitable GPU hardware. Only Japanese text can be read aloud. See the [text-to-speech manual](docs/manual/en/11-tts.md) for details.
 
 ## Main Features
 
@@ -117,13 +117,13 @@ The manual can be opened from the AlSlime settings screen and is also available 
 - [Japanese Manual](docs/manual/index.md)
 - [English Manual](docs/manual/en/index.md)
 
-It covers installation, your first conversation, character creation, roleplay settings, settings packs, supporter features, ComfyUI integration, text-to-speech, and troubleshooting.
+It covers installation and startup, understanding the screen, your first conversation, setup, continuing a conversation, materials, settings, supporter features, image generation, text-to-speech, settings packs and updates, data location and backups, and troubleshooting.
 
 ## GitHub Sponsors
 
 AlSlime is free to use. You can support its continued development through [GitHub Sponsors](https://github.com/sponsors/Yaki-Mikan).
 
-Supporter features and their setup are described in the [Supporter Features manual](docs/manual/en/08-sponsor.md).
+Supporter features and their setup are described in the [Supporter Features manual](docs/manual/en/09-sponsor.md).
 
 ## Data and Privacy
 

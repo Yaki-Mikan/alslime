@@ -53,8 +53,8 @@ interface Props {
     labelClassName?: string;
 }
 
-const DEFAULT_INPUT_CLS = 'w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 disabled:opacity-50';
-const DEFAULT_LABEL_CLS = 'block text-xs text-gray-400 mb-1';
+const DEFAULT_INPUT_CLS = 'w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg disabled:opacity-50';
+const DEFAULT_LABEL_CLS = 'block text-xs text-fg-muted mb-1';
 
 export const ModelSelector: React.FC<Props> = ({
     providers = ALL_MODEL_PROVIDERS,

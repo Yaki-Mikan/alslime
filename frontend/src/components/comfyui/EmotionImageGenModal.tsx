@@ -100,7 +100,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [danbooruTagFormat, setDanbooruTagFormat] = useState<DanbooruTagFormat>('underscore');
     // 表情画像生成として保持しているワークフロー（emotion_prompts.json の workflow）。
-    // 画像生成統合設定の既定（defaultTemplateId）は、こちらが未設定のときの初期値にだけ使う。
+    // 会話の画像の既定（defaultTemplateId）は、こちらが未設定のときの初期値にだけ使う。
     const preferredWorkflowRef = useRef('');
     // 画像生成バックエンド（全画面共用の選択）。API サービスではワークフローの代わりに
     // 生成プリセット（emotion_prompts.json の apiPreset）を選ぶ。
@@ -147,7 +147,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
     const [prompts, setPrompts] = useState<EmotionPrompts>(createEmptyEmotionPrompts());
     const [expressionText, setExpressionText] = useState('');
 
-    // ワークフロー選択を表情画像生成の設定として保存する（統合設定の既定には書かない）
+    // ワークフロー選択を表情画像生成の設定として保存する（会話の画像の既定には書かない）
     const persistWorkflow = useCallback(async (name: string) => {
         preferredWorkflowRef.current = name;
         try {
@@ -333,9 +333,9 @@ export const EmotionImageGenModal: React.FC<Props> = ({
         <button
             type="button"
             onClick={onToggle}
-            className="w-full flex items-center justify-between p-3 bg-gray-800/80 hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center justify-between p-3 bg-surface hover:bg-surface transition-colors"
         >
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-200">
+            <div className="flex items-center gap-2 text-sm font-medium text-fg">
                 {icon}
                 {label}
                 {extra}
@@ -346,14 +346,14 @@ export const EmotionImageGenModal: React.FC<Props> = ({
 
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="bg-gray-900 rounded-xl shadow-2xl border border-purple-800 overflow-hidden flex flex-col" style={{ width: '90vw', height: '90vh' }}>
+            <div className="bg-surface-solid rounded-xl shadow-2xl border border-line-strong overflow-hidden flex flex-col" style={{ width: '90vw', height: '90vh' }}>
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-6 py-3 border-b border-purple-900 bg-purple-950/60 shrink-0">
-                    <h2 className="text-base font-semibold text-purple-100 flex items-center gap-2">
+                <div className="flex items-center justify-between px-6 py-3 border-b border-line-strong bg-accent-soft shrink-0">
+                    <h2 className="text-base font-semibold text-fg flex items-center gap-2">
                         <Smile size={18} />
                         {t(EMOTION_IMAGE_GEN_I18N_KEYS.title)}
                     </h2>
-                    <button onClick={onClose} className="text-purple-300 hover:text-white transition-colors">
+                    <button onClick={onClose} className="text-accent hover:text-fg transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -361,34 +361,34 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                 {/* ボディ */}
                 <div className={isWideScreen ? 'flex flex-1 min-h-0' : 'flex flex-col flex-1 overflow-y-auto'}>
                     {/* 左：設定 */}
-                    <div className={`${isWideScreen ? 'flex-1 min-w-0 border-r border-gray-700 overflow-y-auto' : 'shrink-0'} p-4 space-y-4 custom-scrollbar`} style={{ scrollbarGutter: 'stable' }}>
+                    <div className={`${isWideScreen ? 'flex-1 min-w-0 border-r border-line-strong overflow-y-auto' : 'shrink-0'} p-4 space-y-4 custom-scrollbar`} style={{ scrollbarGutter: 'stable' }}>
                         <IntegratedDanbooruSearch backendUrl={backendUrl} danbooruTagFormat={danbooruTagFormat} uiCatalog={uiCatalog} />
 
                         {/* キャラクター選択 */}
                         <div>
-                            <label className="flex items-center gap-2 text-sm font-medium text-gray-400 mb-1">
-                                <Users size={16} className="text-pink-400" />
+                            <label className="flex items-center gap-2 text-sm font-medium text-fg-muted mb-1">
+                                <Users size={16} className="text-accent" />
                                 {t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionCharacter)}
                             </label>
                             <div
                                 onClick={() => setIsCharacterPickerOpen(true)}
-                                className="w-full bg-gray-800 border border-pink-700 rounded-lg px-3 py-2 text-sm text-gray-200 cursor-pointer hover:border-pink-400 transition-colors flex items-center justify-between"
+                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg cursor-pointer hover:border-accent transition-colors flex items-center justify-between"
                             >
                                 <span className="truncate">{selectedCharacterLabel || t(SSRP_I18N_KEYS.characterSelect)}</span>
-                                <Search size={14} className="text-gray-500 shrink-0 ml-1" />
+                                <Search size={14} className="text-fg-muted shrink-0 ml-1" />
                             </div>
                         </div>
 
                         {/* キャラクター画像生成設定（既定閉） */}
-                        <div className="border border-gray-700 rounded-lg overflow-hidden">
+                        <div className="border border-line-strong rounded-lg overflow-hidden">
                             {sectionHeader(
-                                <Palette size={16} className="text-pink-300" />,
+                                <Palette size={16} className="text-accent" />,
                                 t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionCharacterConfig),
                                 isCharConfigOpen,
                                 () => setIsCharConfigOpen(v => !v),
-                                editor.isDirty ? <span className="text-yellow-300 text-xs" title={t(CONFIG_EDITOR_I18N_KEYS.characterUnsaved)}>●</span> : undefined,
+                                editor.isDirty ? <span className="text-warn text-xs" title={t(CONFIG_EDITOR_I18N_KEYS.characterUnsaved)}>●</span> : undefined,
                             )}
-                            <div className={isCharConfigOpen ? 'p-4 bg-gray-900' : 'hidden'}>
+                            <div className={isCharConfigOpen ? 'p-4 bg-surface' : 'hidden'}>
                                 <IntegratedCharacterSection
                                     hideCharacterSelector
                                     selectedCharacter={selectedDirName}
@@ -413,14 +413,14 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                         </div>
 
                         {/* 表情設定（既定開） */}
-                        <div className="border border-gray-700 rounded-lg overflow-hidden">
+                        <div className="border border-line-strong rounded-lg overflow-hidden">
                             {sectionHeader(
-                                <Smile size={16} className="text-purple-300" />,
+                                <Smile size={16} className="text-accent" />,
                                 t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionEmotion),
                                 isEmotionOpen,
                                 () => setIsEmotionOpen(v => !v),
                             )}
-                            <div className={isEmotionOpen ? 'p-4 bg-gray-900' : 'hidden'}>
+                            <div className={isEmotionOpen ? 'p-4 bg-surface' : 'hidden'}>
                                 <EmotionPromptSection
                                     backendUrl={backendUrl}
                                     emotions={emotions}
@@ -441,14 +441,14 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                     <div className={`${isWideScreen ? 'flex-1 min-w-0 overflow-y-auto' : 'shrink-0'} p-4 space-y-4 custom-scrollbar`} style={{ scrollbarGutter: 'stable' }}>
                         {isApi ? (
                             <div className="space-y-2">
-                                <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                                    <Palette size={16} className="text-green-400" />
+                                <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                                    <Palette size={16} className="text-accent" />
                                     {t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionPreset)}
                                 </label>
                                 <select
                                     value={selectedPreset}
                                     onChange={e => handlePresetChange(e.target.value)}
-                                    className="w-full bg-gray-800 border border-green-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:border-green-400 outline-none"
+                                    className="w-full bg-surface border border-accent rounded-lg px-3 py-2 text-sm text-fg focus:border-accent outline-none"
                                 >
                                     {selectedPreset && !apiPresets.some(p => p.name === selectedPreset) && (
                                         <option value={selectedPreset}>{selectedPreset}</option>
@@ -472,7 +472,7 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                         )}
 
                         <div>
-                            <div className="text-sm font-medium text-gray-400 mb-2">{t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionResults)}</div>
+                            <div className="text-sm font-medium text-fg-muted mb-2">{t(EMOTION_IMAGE_GEN_I18N_KEYS.sectionResults)}</div>
                             <GeneratedImageGrid
                                 results={results}
                                 selectedId={selectedResultId}
@@ -484,8 +484,8 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                         </div>
 
                         {/* 生成数・実行 */}
-                        <div className="flex flex-wrap items-center gap-3 border-t border-gray-700/60 pt-3">
-                            <label className="flex items-center gap-2 text-sm text-gray-300">
+                        <div className="flex flex-wrap items-center gap-3 border-t border-line-strong pt-3">
+                            <label className="flex items-center gap-2 text-sm text-fg-muted">
                                 {t(EMOTION_IMAGE_GEN_I18N_KEYS.count)}
                                 <input
                                     type="number"
@@ -493,21 +493,21 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                                     max={MAX_COUNT}
                                     value={count}
                                     onChange={e => setCount(Math.min(MAX_COUNT, Math.max(1, Number(e.target.value) || 1)))}
-                                    className="w-16 bg-gray-800 border border-gray-700 text-gray-200 rounded px-2 py-1 text-sm outline-none focus:border-purple-500"
+                                    className="w-16 bg-surface border border-line-strong text-fg rounded px-2 py-1 text-sm outline-none focus:border-accent"
                                 />
                             </label>
                             <button
                                 type="button"
                                 onClick={handleRun}
                                 disabled={!canRun}
-                                className="px-4 py-2 text-sm text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
+                                className="px-4 py-2 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
                             >
                                 {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                                 {isGenerating
                                     ? formatText(t(EMOTION_IMAGE_GEN_I18N_KEYS.running), { done: progress.done, total: progress.total })
                                     : t(EMOTION_IMAGE_GEN_I18N_KEYS.run)}
                             </button>
-                            {editor.isDirty && <span className="text-xs text-yellow-300">{t(EMOTION_IMAGE_GEN_I18N_KEYS.saveFirst)}</span>}
+                            {editor.isDirty && <span className="text-xs text-warn">{t(EMOTION_IMAGE_GEN_I18N_KEYS.saveFirst)}</span>}
                         </div>
 
                         {/* 表情画像に設定 */}
@@ -516,12 +516,12 @@ export const EmotionImageGenModal: React.FC<Props> = ({
                                 type="button"
                                 onClick={handleApply}
                                 disabled={!selectedResult || isGenerating || isApplying}
-                                className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
+                                className="px-4 py-2 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg transition-colors flex items-center gap-1.5"
                             >
                                 {isApplying ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                                 {t(EMOTION_IMAGE_GEN_I18N_KEYS.apply)}
                             </button>
-                            {notice && <span className={`text-xs ${notice.ok ? 'text-green-400' : 'text-red-400'}`}>{notice.text}</span>}
+                            {notice && <span className={`text-xs ${notice.ok ? 'text-ok' : 'text-danger'}`}>{notice.text}</span>}
                         </div>
                     </div>
                 </div>

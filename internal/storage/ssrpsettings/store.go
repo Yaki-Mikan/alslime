@@ -103,17 +103,14 @@ func (s *Store) saveJSON(logical string, v any) error {
 	return jsonstore.WriteJSON(path, v)
 }
 
-// LoadRelationships は関係性オプションを返す。未存在なら既定配列。
-func (s *Store) LoadRelationships() ([]any, error) {
-	var out []any
-	found, err := s.loadJSONOrDefault(config.RelationOptionsFile, &out)
+// LoadRelationships は関係性オプションを返す。found はファイルがあったか
+// （無いときの初期の選択肢は表示言語で決まるため、service 層が組み立てる）。
+func (s *Store) LoadRelationships() (out []any, found bool, err error) {
+	found, err = s.loadJSONOrDefault(config.RelationOptionsFile, &out)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	if !found {
-		return defaultRelationships(), nil
-	}
-	return out, nil
+	return out, found, nil
 }
 
 // LoadReplacementConfig は置換設定を返す。未存在なら既定値。

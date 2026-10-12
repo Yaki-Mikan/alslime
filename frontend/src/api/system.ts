@@ -56,10 +56,13 @@ export type AuthStatus = 'ok' | 'missing' | 'unknown';
 export interface CLIStatusItem {
     id: string;
     label: string;
+    // あれば表示言語の名前を引く文言キー（label はキーが引けないときの予備）
+    labelKey?: string;
     status: CheckStatus;
     messageKey: string;
     command: string;
-    authStatus: AuthStatus;
+    // 認証の段階を持たない行（API）には無い
+    authStatus?: AuthStatus;
     authMessageKey?: string;
     details?: Record<string, unknown>;
 }

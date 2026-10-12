@@ -3,7 +3,7 @@
  *
  * 「変換元 → 変換先 (+ AIへの説明)」の行を編集する。末尾に常に空行を1つ表示し、
  * 入力されると行が実体化して次の空行が現れる。既存行はゴミ箱ボタンで削除できる。
- * プレースホルダ設定モーダル（説明列あり）と統合設定のインライン直接指定
+ * プレースホルダ設定モーダル（説明列あり）と、試しに生成のインライン直接指定
  * （説明列なし）の両方で使う。
  */
 
@@ -58,12 +58,12 @@ export const PlaceholderEntriesEditor: React.FC<Props> = ({
     };
 
     const inputClass =
-        'flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors';
+        'flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors';
 
     return (
         <div className="space-y-1">
             {/* ヘッダー行 */}
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+            <div className="flex items-center gap-1.5 text-xs text-fg-muted">
                 <span className="flex-1">{PLACEHOLDER_PRESET.LABELS.FROM}</span>
                 <span className="flex-1">{PLACEHOLDER_PRESET.LABELS.TO}</span>
                 {showDescription && <span className="flex-1">{PLACEHOLDER_PRESET.LABELS.DESCRIPTION}</span>}
@@ -108,12 +108,12 @@ export const PlaceholderEntriesEditor: React.FC<Props> = ({
                                 <span className="w-14 shrink-0 flex justify-center">
                                     <input type="checkbox" checked={targets.comfyui} disabled={isGhost}
                                         onChange={e => setTarget(index, 'comfyui', e.target.checked)}
-                                        className="accent-purple-500 cursor-pointer disabled:opacity-0" title={TAG_MAPPING.LABELS.TARGET_COMFYUI} />
+                                        className="accent-accent cursor-pointer disabled:opacity-0" title={TAG_MAPPING.LABELS.TARGET_COMFYUI} />
                                 </span>
                                 <span className="w-10 shrink-0 flex justify-center">
                                     <input type="checkbox" checked={targets.api} disabled={isGhost}
                                         onChange={e => setTarget(index, 'api', e.target.checked)}
-                                        className="accent-purple-500 cursor-pointer disabled:opacity-0" title={TAG_MAPPING.LABELS.TARGET_API} />
+                                        className="accent-accent cursor-pointer disabled:opacity-0" title={TAG_MAPPING.LABELS.TARGET_API} />
                                 </span>
                             </>
                         )}
@@ -121,7 +121,7 @@ export const PlaceholderEntriesEditor: React.FC<Props> = ({
                             type="button"
                             onClick={() => removeRow(index)}
                             disabled={isGhost}
-                            className="w-7 shrink-0 p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-gray-700 disabled:opacity-0 disabled:pointer-events-none transition-colors"
+                            className="w-7 shrink-0 p-1.5 rounded text-fg-muted hover:text-danger hover:bg-surface-2 disabled:opacity-0 disabled:pointer-events-none transition-colors"
                         >
                             <Trash2 size={14} />
                         </button>

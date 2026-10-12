@@ -149,12 +149,14 @@ func TestBuiltInReturnsCopy(t *testing.T) {
 
 func TestBuiltInContainsCurrentClaudeModels(t *testing.T) {
 	want := map[string]bool{
+		"claude-opus-5-5":            false,
 		"claude-fable-5":             false,
 		"claude-opus-5":              false,
 		"claude-opus-4-8":            false,
 		"claude-opus-4-7":            false,
 		"claude-opus-4-6":            false,
 		"claude-opus-4-5-20251101":   false,
+		"claude-sonnet-5-5":          false,
 		"claude-sonnet-5":            false,
 		"claude-sonnet-4-6":          false,
 		"claude-sonnet-4-5-20250929": false,

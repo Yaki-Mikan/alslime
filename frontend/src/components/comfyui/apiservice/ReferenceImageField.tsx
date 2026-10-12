@@ -103,7 +103,7 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
 
     return (
         <div className={`space-y-2 ${disabled ? 'opacity-60' : ''}`}>
-            {note && <p className="text-xs text-amber-300">{note}</p>}
+            {note && <p className="text-xs text-warn">{note}</p>}
             <div
                 onDragOver={(e) => { e.preventDefault(); if (canAdd) setIsDragOver(true); }}
                 onDragLeave={() => setIsDragOver(false)}
@@ -111,11 +111,11 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
                 onClick={() => { if (canAdd) inputRef.current?.click(); }}
                 className={`border-2 border-dashed rounded-lg p-3 text-center text-xs transition-colors ${
                     canAdd ? 'cursor-pointer' : 'cursor-not-allowed'
-                } ${isDragOver ? 'border-green-400 bg-green-900/20' : 'border-gray-600 hover:border-green-500'}`}
+                } ${isDragOver ? 'border-accent bg-ok/10' : 'border-line-strong hover:border-accent'}`}
             >
-                {busy ? <Loader2 size={16} className="mx-auto animate-spin text-gray-500" /> : <ImagePlus size={16} className="mx-auto text-gray-500" />}
-                <p className="text-gray-400 mt-1">{REFERENCE_IMAGE.MESSAGES.DROP_TEXT}</p>
-                <p className="text-gray-600">{formatComfyText(REFERENCE_IMAGE.MESSAGES.LIMIT, { max: MAX_REFERENCE_IMAGES })}</p>
+                {busy ? <Loader2 size={16} className="mx-auto animate-spin text-fg-muted" /> : <ImagePlus size={16} className="mx-auto text-fg-muted" />}
+                <p className="text-fg-muted mt-1">{REFERENCE_IMAGE.MESSAGES.DROP_TEXT}</p>
+                <p className="text-fg-muted">{formatComfyText(REFERENCE_IMAGE.MESSAGES.LIMIT, { max: MAX_REFERENCE_IMAGES })}</p>
                 <input
                     ref={inputRef}
                     type="file"
@@ -125,7 +125,7 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
                 />
             </div>
             {error && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-red-900/30 border border-red-700/50 text-red-300">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-danger/10 border border-danger/40 text-danger">
                     <AlertCircle size={12} />
                     {error}
                 </div>
@@ -133,20 +133,20 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
             {images.length > 0 && (
                 <div className="space-y-2">
                     {images.map((ref) => (
-                        <div key={ref.id} className="flex items-start gap-3 bg-gray-800/60 border border-gray-700 rounded-lg p-2">
-                            <div className="w-16 h-20 shrink-0 bg-gray-900 rounded overflow-hidden flex items-center justify-center">
+                        <div key={ref.id} className="flex items-start gap-3 bg-surface border border-line-strong rounded-lg p-2">
+                            <div className="w-16 h-20 shrink-0 bg-surface rounded overflow-hidden flex items-center justify-center">
                                 {thumbs[ref.id]
                                     ? <img src={thumbs[ref.id]} alt="" className="w-full h-full object-cover" />
-                                    : <ImagePlus size={14} className="text-gray-600" />}
+                                    : <ImagePlus size={14} className="text-fg-muted" />}
                             </div>
                             <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
                                 <label className="space-y-0.5 col-span-3">
-                                    <span className="text-[11px] text-gray-500">{REFERENCE_IMAGE.LABELS.KIND}</span>
+                                    <span className="text-xs text-fg-muted">{REFERENCE_IMAGE.LABELS.KIND}</span>
                                     <select
                                         value={ref.kind}
                                         disabled={disabled}
                                         onChange={(e) => onUpdate(ref.id, { kind: e.target.value as ReferenceImageKind })}
-                                        className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 outline-none focus:border-green-500 disabled:opacity-50"
+                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-xs text-fg outline-none focus:border-accent disabled:opacity-50"
                                     >
                                         {KIND_OPTIONS.map((k) => (
                                             <option key={k} value={k}>{kindLabel(k)}</option>
@@ -154,19 +154,19 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
                                     </select>
                                 </label>
                                 <label className="space-y-0.5 col-span-3 sm:col-span-1">
-                                    <span className="text-[11px] text-gray-500">{REFERENCE_IMAGE.LABELS.STRENGTH}: {ref.strength.toFixed(2)}</span>
-                                    <input type="range" min={0} max={1} step={0.05} value={ref.strength} disabled={disabled} onChange={(e) => onUpdate(ref.id, { strength: Number(e.target.value) })} className="w-full accent-green-500" />
+                                    <span className="text-xs text-fg-muted">{REFERENCE_IMAGE.LABELS.STRENGTH}: {ref.strength.toFixed(2)}</span>
+                                    <input type="range" min={0} max={1} step={0.05} value={ref.strength} disabled={disabled} onChange={(e) => onUpdate(ref.id, { strength: Number(e.target.value) })} className="w-full accent-accent" />
                                 </label>
                                 <label className="space-y-0.5 col-span-3 sm:col-span-1">
-                                    <span className="text-[11px] text-gray-500">{REFERENCE_IMAGE.LABELS.FIDELITY}: {ref.fidelity.toFixed(2)}</span>
-                                    <input type="range" min={0} max={1} step={0.05} value={ref.fidelity} disabled={disabled} onChange={(e) => onUpdate(ref.id, { fidelity: Number(e.target.value) })} className="w-full accent-green-500" />
+                                    <span className="text-xs text-fg-muted">{REFERENCE_IMAGE.LABELS.FIDELITY}: {ref.fidelity.toFixed(2)}</span>
+                                    <input type="range" min={0} max={1} step={0.05} value={ref.fidelity} disabled={disabled} onChange={(e) => onUpdate(ref.id, { fidelity: Number(e.target.value) })} className="w-full accent-accent" />
                                 </label>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => void handleRemove(ref.id)}
                                 disabled={busy}
-                                className="p-1 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40"
+                                className="p-1 text-fg-muted hover:text-danger transition-colors disabled:opacity-40"
                             >
                                 <Trash2 size={14} />
                             </button>
@@ -174,7 +174,7 @@ export const ReferenceImageField: React.FC<ReferenceImageFieldProps> = ({
                     ))}
                 </div>
             )}
-            <p className="text-xs text-gray-600">{REFERENCE_IMAGE.MESSAGES.COST_NOTE}</p>
+            <p className="text-xs text-fg-muted">{REFERENCE_IMAGE.MESSAGES.COST_NOTE}</p>
         </div>
     );
 };

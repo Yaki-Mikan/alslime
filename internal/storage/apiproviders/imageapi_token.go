@@ -102,7 +102,7 @@ func (s *ImageAPITokenStore) load() error {
 
 // save は現在の内容を 0600 で原子的に書き込み、書いたファイルの印を覚える（mu 保持前提）。
 func (s *ImageAPITokenStore) save() error {
-	path, err := resolveSecretFileForWrite(s.resolver, config.ImageAPISecretsFile)
+	path, err := s.resolver.ResolveForCreateMkdirAll(config.ImageAPISecretsFile, config.SecretDirPerm)
 	if err != nil {
 		return err
 	}

@@ -36,8 +36,7 @@ describe('左メニューのキャラクター状態欄', () => {
             />,
         );
 
-        await user.click(screen.getByRole('button', { name: 'キャラクター状態' }));
-        await user.click(screen.getByRole('button', { name: '雪の状態' }));
+        // 状態欄に埋め込んだときは、欄もキャラの行も最初から開いている
         await user.click(screen.getByTitle('編集'));
         await user.click(screen.getByRole('button', { name: '保存' }));
 
@@ -65,8 +64,7 @@ describe('左メニューのキャラクター状態欄', () => {
             />,
         );
 
-        await user.click(screen.getByRole('button', { name: 'キャラクター状態' }));
-        await user.click(screen.getByRole('button', { name: '雪の状態' }));
+        // 状態欄に埋め込んだときは、欄もキャラの行も最初から開いている
         await user.click(screen.getByTitle('編集'));
         await user.click(screen.getByRole('button', { name: '保存' }));
 

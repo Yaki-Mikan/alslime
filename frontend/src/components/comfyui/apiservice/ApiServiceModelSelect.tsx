@@ -30,7 +30,7 @@ interface ApiServiceModelSelectProps {
     onSavingChange?: (saving: boolean) => void;
 }
 
-const inputClass = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors disabled:opacity-50';
+const inputClass = 'w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent transition-colors disabled:opacity-50';
 
 export const ApiServiceModelSelect: React.FC<ApiServiceModelSelectProps> = ({
     backendUrl,
@@ -97,10 +97,10 @@ export const ApiServiceModelSelect: React.FC<ApiServiceModelSelectProps> = ({
 
     return (
         <div className="space-y-1">
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-400">
-                <Cpu size={16} className="text-green-400" />
+            <label className="flex items-center gap-2 text-sm font-medium text-fg-muted">
+                <Cpu size={16} className="text-accent" />
                 {NOVELAI.LABELS.MODEL}
-                {pendingId !== null && <Loader2 size={12} className="animate-spin text-gray-500" />}
+                {pendingId !== null && <Loader2 size={12} className="animate-spin text-fg-muted" />}
             </label>
             <select
                 value={shown}
@@ -113,11 +113,11 @@ export const ApiServiceModelSelect: React.FC<ApiServiceModelSelectProps> = ({
                     <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
             </select>
-            <p className="text-xs text-gray-500">{NOVELAI.HELP.MODEL_SELECTED_ELSEWHERE}</p>
-            {model && !model.supportsJapanese && <p className="text-xs text-amber-300">{NOVELAI.HELP.JAPANESE_V45}</p>}
-            {model && !model.supportsReference && <p className="text-xs text-gray-500">{NOVELAI.HELP.REFERENCE_V45_ONLY}</p>}
+            <p className="text-xs text-fg-muted">{NOVELAI.HELP.MODEL_SELECTED_ELSEWHERE}</p>
+            {model && !model.supportsJapanese && <p className="text-xs text-warn">{NOVELAI.HELP.JAPANESE_V45}</p>}
+            {model && !model.supportsReference && <p className="text-xs text-fg-muted">{NOVELAI.HELP.REFERENCE_V45_ONLY}</p>}
             {failed && (
-                <p className="flex items-center gap-1 text-xs text-red-300">
+                <p className="flex items-center gap-1 text-xs text-danger">
                     <AlertCircle size={12} />
                     {NOVELAI.MESSAGES.MODEL_SAVE_FAILED}
                 </p>

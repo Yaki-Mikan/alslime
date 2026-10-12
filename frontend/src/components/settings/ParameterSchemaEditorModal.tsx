@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { ToggleSwitch } from '../common/ToggleSwitch';
 import { BACKEND_URL } from '../../api/base-url';
 import { resolveMessage, type I18NCatalog } from '../../api/i18n';
+import { getLocalizedText, parameterLangOf } from '../../types/Parameter';
 import {
     PARAMETER_SCHEMA_EDITOR_I18N_KEYS,
     PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_EN,
@@ -109,6 +110,9 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 }) => {
     const fallback = uiCatalog?.lang?.startsWith('en') ? PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_EN : PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_JA;
     const t = (key: string) => resolveMessage(uiCatalog, key, fallback[key] || PARAMETER_SCHEMA_EDITOR_TEXT_FALLBACK_JA[key] || key);
+    // 項目設定の名前は表示言語で選ぶ（en の名前が無ければ ja の名前）
+    const paramLang = parameterLangOf(uiCatalog?.lang);
+    const localized = (text: LocalizedString) => getLocalizedText(text, paramLang);
     const formatText = (template: string, values: Record<string, string | number>) =>
         Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{{${key}}}`, String(value)), template);
     // スキーマ一覧
@@ -249,7 +253,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
             const duplicateElementIds = elementIds.filter((id, i) => elementIds.indexOf(id) !== i);
             if (duplicateElementIds.length > 0) {
                 errors.push(formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.duplicateElementIds), {
-                    group: group.displayName.ja || group.id,
+                    group: localized(group.displayName) || group.id,
                     ids: [...new Set(duplicateElementIds)].join(', '),
                 }));
             }
@@ -258,7 +262,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
             group.elements.forEach((element, elemIdx) => {
                 if (!element.displayName.ja || element.displayName.ja.trim() === '') {
                     errors.push(formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elementDisplayNameRequired), {
-                        group: group.displayName.ja || group.id,
+                        group: localized(group.displayName) || group.id,
                         index: elemIdx + 1,
                     }));
                 }
@@ -279,16 +283,16 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                     const parentExists = group.elements.some(e => e.id === element.parentId);
                     if (!parentExists) {
                         errors.push(formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parentElementMissing), {
-                            group: group.displayName.ja || group.id,
-                            element: element.displayName.ja || element.id,
+                            group: localized(group.displayName) || group.id,
+                            element: localized(element.displayName) || element.id,
                             parent: element.parentId,
                         }));
                     }
                     // 循環参照チェック
                     if (checkCircularReference(element.id)) {
                         errors.push(formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.circularReference), {
-                            group: group.displayName.ja || group.id,
-                            element: element.displayName.ja || element.id,
+                            group: localized(group.displayName) || group.id,
+                            element: localized(element.displayName) || element.id,
                         }));
                     }
                 }
@@ -770,19 +774,19 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
             <div
                 className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             >
-                <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] border border-gray-700 overflow-hidden flex flex-col">
+                <div className="bg-surface-solid rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] border border-line-strong overflow-hidden flex flex-col">
                     {/* ヘッダー */}
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 bg-gray-800 shrink-0">
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-line-strong bg-surface shrink-0">
                         <div className="flex items-center gap-2">
-                            <FileText size={20} className="text-purple-400" />
-                            <h3 className="font-semibold text-gray-100 text-lg">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.title)}</h3>
+                            <FileText size={20} className="text-accent" />
+                            <h3 className="font-semibold text-fg text-lg">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.title)}</h3>
                             {isDirty() && (
-                                <span className="text-xs text-amber-400 ml-2">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.dirty)}</span>
+                                <span className="text-xs text-warn ml-2">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.dirty)}</span>
                             )}
                         </div>
                         <button
                             onClick={handleClose}
-                            className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                            className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                         >
                             <X size={20} />
                         </button>
@@ -790,33 +794,33 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                     {/* エラーメッセージ */}
                     {errorMessage && (
-                        <div className="mx-5 mt-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-red-300 shrink-0">
+                        <div className="mx-5 mt-4 p-3 bg-danger/10 border border-danger/40 rounded-lg flex items-center gap-2 text-danger shrink-0">
                             <AlertCircle size={18} />
                             <span>{errorMessage}</span>
                         </div>
                     )}
 
                     {/* 項目設定選択部 */}
-                    <div className="px-5 py-4 border-b border-gray-700 bg-gray-800/50 shrink-0">
+                    <div className="px-5 py-4 border-b border-line-strong bg-surface shrink-0">
                         <div className="flex flex-wrap items-center gap-3">
-                            <label className="text-sm text-gray-400 whitespace-nowrap">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fileLabel)}</label>
+                            <label className="text-sm text-fg-muted whitespace-nowrap">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fileLabel)}</label>
                             <select
                                 value={selectedSchemaId || ''}
                                 onChange={(e) => e.target.value && handleSchemaChange(e.target.value)}
                                 disabled={isLoading}
-                                className="flex-1 min-w-0 basis-full lg:basis-0 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
+                                className="flex-1 min-w-0 basis-full lg:basis-0 bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors"
                             >
                                 <option value="">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.selectPrompt)}</option>
                                 {schemaList.map(schema => (
                                     <option key={schema.id} value={schema.id}>
-                                        {schema.name.ja} ({schema.id})
+                                        {localized(schema.name)} ({schema.id})
                                     </option>
                                 ))}
                             </select>
                             <button
                                 onClick={handleCreateNew}
                                 disabled={isLoading}
-                                className="flex items-center gap-1 px-3 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+                                className="flex items-center gap-1 px-3 py-2 bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg text-sm text-on-accent transition-colors"
                             >
                                 <Plus size={16} />
                                 {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.createNew)}
@@ -824,7 +828,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                             <button
                                 onClick={() => setShowDeleteConfirm(true)}
                                 disabled={isLoading || !selectedSchemaId || selectedSchemaId === 'default'}
-                                className="flex items-center gap-1 px-3 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-white transition-colors"
+                                className="flex items-center gap-1 px-3 py-2 bg-danger hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-on-accent transition-colors"
                                 title={selectedSchemaId === 'default' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fixedGroupDeleteDisabled) : t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.delete)}
                             >
                                 <Trash2 size={16} />
@@ -834,7 +838,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                             <button
                                 onClick={handleCopySchema}
                                 disabled={isLoading || !selectedSchemaId}
-                                className="flex items-center gap-1 px-3 py-2 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-white transition-colors"
+                                className="flex items-center gap-1 px-3 py-2 bg-accent hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-on-accent transition-colors"
                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.copy)}
                             >
                                 <Copy size={16} />
@@ -844,13 +848,13 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                             <button
                                 onClick={exportSchema}
                                 disabled={!editingSchema}
-                                className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-gray-300 transition-colors"
+                                className="flex items-center gap-1 px-3 py-2 bg-surface-2 hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm text-fg-muted transition-colors"
                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.exportJson)}
                             >
                                 <Download size={16} />
                             </button>
                             <label
-                                className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition-colors cursor-pointer"
+                                className="flex items-center gap-1 px-3 py-2 bg-surface-2 hover:bg-surface-2 rounded-lg text-sm text-fg-muted transition-colors cursor-pointer"
                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.importJson)}
                             >
                                 <Upload size={16} />
@@ -868,20 +872,20 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                     <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                         {isLoading ? (
                             <div className="flex items-center justify-center py-10">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-400"></div>
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                             </div>
                         ) : editingSchema ? (
                             <>
                                 {/* 基本情報 */}
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
-                                        <h4 className="text-sm font-medium text-gray-400">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.basicInfo)}</h4>
+                                        <h4 className="text-sm font-medium text-fg-muted">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.basicInfo)}</h4>
                                         <div className="flex items-center gap-2">
-                                            <label className="text-xs text-gray-500">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.editLanguage)}</label>
+                                            <label className="text-xs text-fg-muted">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.editLanguage)}</label>
                                             <select
                                                 value={editingLanguage}
                                                 onChange={(e) => setEditingLanguage(e.target.value as 'ja' | 'en')}
-                                                className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-gray-200 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                className="bg-surface border border-line-strong rounded px-2 py-1 text-fg text-xs outline-none focus:border-accent transition-colors"
                                             >
                                                 <option value="ja">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja)}</option>
                                                 <option value="en">English</option>
@@ -890,23 +894,23 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
-                                            <label className="block text-xs text-gray-500 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaId)}</label>
+                                            <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaId)}</label>
                                             <input
                                                 type="text"
                                                 value={editingSchema.schemaId}
                                                 onChange={(e) => setEditingSchema({ ...editingSchema, schemaId: e.target.value })}
                                                 disabled={originalSchema !== null} // 既存スキーマはID変更不可
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                 placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaIdExample)}
                                             />
                                             {originalSchema !== null && (
-                                                <p className="text-xs text-gray-500 mt-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaIdLocked)}</p>
+                                                <p className="text-xs text-fg-muted mt-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaIdLocked)}</p>
                                             )}
                                         </div>
                                         <div>
-                                            <label className="block text-xs text-gray-500 mb-1">
+                                            <label className="block text-xs text-fg-muted mb-1">
                                                 {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaName)}
-                                                <span className="ml-1 text-purple-400">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
+                                                <span className="ml-1 text-accent">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
                                             </label>
                                             <input
                                                 type="text"
@@ -918,7 +922,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                         [editingLanguage]: e.target.value
                                                     }
                                                 })}
-                                                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-200 text-sm outline-none focus:border-purple-500 transition-colors"
+                                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-fg text-sm outline-none focus:border-accent transition-colors"
                                                 placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.schemaNameExample)}
                                             />
                                         </div>
@@ -928,10 +932,10 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                 {/* グループ一覧 */}
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
-                                        <h4 className="text-sm font-medium text-gray-400">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groups)}</h4>
+                                        <h4 className="text-sm font-medium text-fg-muted">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groups)}</h4>
                                         <button
                                             onClick={addGroup}
-                                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300 transition-colors"
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-surface-2 hover:bg-surface-2 rounded-lg text-xs text-fg-muted transition-colors"
                                         >
                                             <Plus size={14} />
                                             {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.addGroup)}
@@ -939,42 +943,42 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                     </div>
 
                                     {editingSchema.groups.length === 0 ? (
-                                        <div className="text-center py-8 text-gray-500 text-sm border border-dashed border-gray-700 rounded-lg">
+                                        <div className="text-center py-8 text-fg-muted text-sm border border-dashed border-line-strong rounded-lg">
                                             {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.emptyGroups)}
                                         </div>
                                     ) : (
                                         <div className="space-y-3">
                                             {editingSchema.groups.map((group, groupIndex) => (
-                                                <div key={group.id} className="border border-gray-700 rounded-lg overflow-hidden">
+                                                <div key={group.id} className="border border-line-strong rounded-lg overflow-hidden">
                                                     {/* グループヘッダー */}
                                                     <div
-                                                        className="flex items-center gap-2 px-4 py-3 bg-gray-800/80 cursor-pointer hover:bg-gray-800 transition-colors"
+                                                        className="flex items-center gap-2 px-4 py-3 bg-surface cursor-pointer hover:bg-surface transition-colors"
                                                         onClick={() => toggleGroup(group.id)}
                                                     >
                                                         {expandedGroups.has(group.id) ? (
-                                                            <ChevronDown size={16} className="text-gray-400" />
+                                                            <ChevronDown size={16} className="text-fg-muted" />
                                                         ) : (
-                                                            <ChevronRight size={16} className="text-gray-400" />
+                                                            <ChevronRight size={16} className="text-fg-muted" />
                                                         )}
-                                                        <span className="flex-1 text-gray-200 font-medium">
-                                                            {group.displayName.ja || formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupFallback), { id: group.id })}
+                                                        <span className="flex-1 text-fg font-medium">
+                                                            {localized(group.displayName) || formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupFallback), { id: group.id })}
                                                         </span>
                                                         {group.elements.length === 0 && (
                                                             <span
-                                                                className="text-amber-400"
+                                                                className="text-warn"
                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupEmptyTitle)}
                                                             >
                                                                 <AlertTriangle size={14} />
                                                             </span>
                                                         )}
-                                                        <span className="text-xs text-gray-500">
+                                                        <span className="text-xs text-fg-muted">
                                                             {formatText(t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elementCount), { count: group.elements.length })}
                                                         </span>
                                                         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                                                             <button
                                                                 onClick={() => moveGroupUp(groupIndex)}
                                                                 disabled={groupIndex === 0}
-                                                                className="p-1 text-gray-500 hover:text-gray-300 disabled:opacity-30"
+                                                                className="p-1 text-fg-muted hover:text-fg-muted disabled:opacity-30"
                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.moveUp)}
                                                             >
                                                                 <ArrowUp size={14} />
@@ -982,14 +986,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                             <button
                                                                 onClick={() => moveGroupDown(groupIndex)}
                                                                 disabled={groupIndex === editingSchema.groups.length - 1}
-                                                                className="p-1 text-gray-500 hover:text-gray-300 disabled:opacity-30"
+                                                                className="p-1 text-fg-muted hover:text-fg-muted disabled:opacity-30"
                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.moveDown)}
                                                             >
                                                                 <ArrowDown size={14} />
                                                             </button>
                                                             <button
                                                                 onClick={() => copyGroup(group.id)}
-                                                                className="p-1 text-gray-500 hover:text-purple-400"
+                                                                className="p-1 text-fg-muted hover:text-accent"
                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.copyGroup)}
                                                             >
                                                                 <Copy size={14} />
@@ -997,7 +1001,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                             <button
                                                                 onClick={() => handleRemoveGroup(group.id)}
                                                                 disabled={group.isFixed}
-                                                                className="p-1 text-gray-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                                                                className="p-1 text-fg-muted hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed"
                                                                 title={group.isFixed ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fixedGroupDeleteDisabled) : t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.delete)}
                                                             >
                                                                 <Trash2 size={14} />
@@ -1007,22 +1011,22 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                                                     {/* グループ内容 */}
                                                     {expandedGroups.has(group.id) && (
-                                                        <div className="p-4 space-y-4 bg-gray-900">
+                                                        <div className="p-4 space-y-4 bg-surface">
                                                             {/* グループ基本情報 */}
                                                             <div className="grid grid-cols-2 gap-3">
                                                                 <div>
-                                                                    <label className="block text-xs text-gray-500 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupId)}</label>
+                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupId)}</label>
                                                                     <input
                                                                         type="text"
                                                                         value={group.id}
                                                                         disabled
-                                                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-gray-400 text-xs disabled:opacity-50"
+                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-fg-muted text-xs disabled:opacity-50"
                                                                     />
                                                                 </div>
                                                                 <div>
-                                                                    <label className="block text-xs text-gray-500 mb-1">
+                                                                    <label className="block text-xs text-fg-muted mb-1">
                                                                         {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.displayName)}
-                                                                        <span className="ml-1 text-purple-400">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
+                                                                        <span className="ml-1 text-accent">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
                                                                     </label>
                                                                     <input
                                                                         type="text"
@@ -1030,7 +1034,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                         onChange={(e) => updateGroup(group.id, {
                                                                             displayName: { ...group.displayName, [editingLanguage]: e.target.value }
                                                                         })}
-                                                                        className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-gray-200 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1.5 text-fg text-xs outline-none focus:border-accent transition-colors"
                                                                         placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.groupNamePlaceholder)}
                                                                     />
                                                                 </div>
@@ -1041,7 +1045,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                     onChange={(on) => updateGroup(group.id, { isFixed: on })}
                                                                     label={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.fixedGroup)}
                                                                     labelPosition="right"
-                                                                    labelClassName="text-xs text-gray-400"
+                                                                    labelClassName="text-xs text-fg-muted"
                                                                     accent="purple"
                                                                     size="sm"
                                                                 />
@@ -1050,7 +1054,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                     onChange={(on) => updateGroup(group.id, { defaultOpen: on })}
                                                                     label={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.defaultOpen)}
                                                                     labelPosition="right"
-                                                                    labelClassName="text-xs text-gray-400"
+                                                                    labelClassName="text-xs text-fg-muted"
                                                                     accent="purple"
                                                                     size="sm"
                                                                 />
@@ -1059,7 +1063,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                     onChange={(on) => updateGroup(group.id, { defaultEnabled: on })}
                                                                     label={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.defaultEnabled)}
                                                                     labelPosition="right"
-                                                                    labelClassName="text-xs text-gray-400"
+                                                                    labelClassName="text-xs text-fg-muted"
                                                                     accent="purple"
                                                                     size="sm"
                                                                 />
@@ -1068,10 +1072,10 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                             {/* 要素一覧 */}
                                                             <div className="mt-4">
                                                                 <div className="flex items-center justify-between mb-2">
-                                                                    <h5 className="text-xs font-medium text-gray-500">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elements)}</h5>
+                                                                    <h5 className="text-xs font-medium text-fg-muted">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elements)}</h5>
                                                                     <button
                                                                         onClick={() => addElement(group.id)}
-                                                                        className="flex items-center gap-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300 transition-colors"
+                                                                        className="flex items-center gap-1 px-2 py-1 bg-surface-2 hover:bg-surface-2 rounded text-xs text-fg-muted transition-colors"
                                                                     >
                                                                         <Plus size={12} />
                                                                         {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.addElement)}
@@ -1079,7 +1083,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                 </div>
 
                                                                 {group.elements.length === 0 ? (
-                                                                    <div className="text-center py-4 text-gray-600 text-xs border border-dashed border-gray-700 rounded">
+                                                                    <div className="text-center py-4 text-fg-muted text-xs border border-dashed border-line-strong rounded">
                                                                         {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.emptyElements)}
                                                                     </div>
                                                                 ) : (
@@ -1090,48 +1094,48 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                             const isDetailsExpanded = expandedElementDetails.has(elementKey);
 
                                                                             return (
-                                                                                <div key={element.id} className="border border-gray-700 rounded overflow-hidden">
+                                                                                <div key={element.id} className="border border-line-strong rounded overflow-hidden">
                                                                                     {/* 要素ヘッダー */}
                                                                                     <div
-                                                                                        className="flex items-center gap-2 px-3 py-2 bg-gray-800/50 cursor-pointer hover:bg-gray-800"
+                                                                                        className="flex items-center gap-2 px-3 py-2 bg-surface cursor-pointer hover:bg-surface"
                                                                                         onClick={() => toggleElement(elementKey)}
                                                                                     >
                                                                                         {isExpanded ? (
-                                                                                            <ChevronDown size={14} className="text-gray-500" />
+                                                                                            <ChevronDown size={14} className="text-fg-muted" />
                                                                                         ) : (
-                                                                                            <ChevronRight size={14} className="text-gray-500" />
+                                                                                            <ChevronRight size={14} className="text-fg-muted" />
                                                                                         )}
-                                                                                        <span className="flex-1 text-gray-300 text-sm">
-                                                                                            {element.displayName.ja || element.id}
+                                                                                        <span className="flex-1 text-fg-muted text-sm">
+                                                                                            {localized(element.displayName) || element.id}
                                                                                         </span>
-                                                                                        <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-700 rounded">
+                                                                                        <span className="text-xs text-fg-muted px-2 py-0.5 bg-surface-2 rounded">
                                                                                             {element.type}
                                                                                         </span>
                                                                                         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                                                                                             <button
                                                                                                 onClick={() => moveElementUp(group.id, elemIndex)}
                                                                                                 disabled={elemIndex === 0}
-                                                                                                className="p-0.5 text-gray-600 hover:text-gray-400 disabled:opacity-30 text-xs"
+                                                                                                className="p-0.5 text-fg-muted hover:text-fg-muted disabled:opacity-30 text-xs"
                                                                                             >
                                                                                                 <ArrowUp size={12} />
                                                                                             </button>
                                                                                             <button
                                                                                                 onClick={() => moveElementDown(group.id, elemIndex)}
                                                                                                 disabled={elemIndex === group.elements.length - 1}
-                                                                                                className="p-0.5 text-gray-600 hover:text-gray-400 disabled:opacity-30 text-xs"
+                                                                                                className="p-0.5 text-fg-muted hover:text-fg-muted disabled:opacity-30 text-xs"
                                                                                             >
                                                                                                 <ArrowDown size={12} />
                                                                                             </button>
                                                                                             <button
                                                                                                 onClick={() => copyElement(group.id, element.id)}
-                                                                                                className="p-0.5 text-gray-600 hover:text-purple-400"
+                                                                                                className="p-0.5 text-fg-muted hover:text-accent"
                                                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.copyElement)}
                                                                                             >
                                                                                                 <Copy size={12} />
                                                                                             </button>
                                                                                             <button
                                                                                                 onClick={() => removeElement(group.id, element.id)}
-                                                                                                className="p-0.5 text-gray-600 hover:text-red-400"
+                                                                                                className="p-0.5 text-fg-muted hover:text-danger"
                                                                                             >
                                                                                                 <Trash2 size={12} />
                                                                                             </button>
@@ -1140,24 +1144,24 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                                                                                     {/* 要素内容 */}
                                                                                     {isExpanded && (
-                                                                                        <div className="p-3 space-y-3 bg-gray-900/50">
+                                                                                        <div className="p-3 space-y-3 bg-panel/50">
                                                                                             {/* 基本情報（常に表示） */}
                                                                                             <div className="grid grid-cols-3 gap-2">
                                                                                                 <div>
-                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elementId)}</label>
+                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.elementId)}</label>
                                                                                                     <input
                                                                                                         type="text"
                                                                                                         value={element.id}
                                                                                                         disabled
-                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-500 text-xs disabled:opacity-50"
+                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs disabled:opacity-50"
                                                                                                     />
                                                                                                 </div>
                                                                                                 <div>
-                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.type)}</label>
+                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.type)}</label>
                                                                                                     <select
                                                                                                         value={element.type}
                                                                                                         onChange={(e) => handleElementTypeChange(group.id, element.id, e.target.value as ParameterElement['type'])}
-                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                     >
                                                                                                         <option value="slider">slider</option>
                                                                                                         <option value="dropdown">dropdown</option>
@@ -1168,9 +1172,9 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                     </select>
                                                                                                 </div>
                                                                                                 <div>
-                                                                                                    <label className="block text-xs text-gray-600 mb-1">
+                                                                                                    <label className="block text-xs text-fg-muted mb-1">
                                                                                                         {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.displayName)}
-                                                                                                        <span className="ml-1 text-purple-400">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
+                                                                                                        <span className="ml-1 text-accent">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
                                                                                                     </label>
                                                                                                     <input
                                                                                                         type="text"
@@ -1178,17 +1182,17 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                             displayName: { ...element.displayName, [editingLanguage]: e.target.value }
                                                                                                         })}
-                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                         placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterNamePlaceholder)}
                                                                                                     />
                                                                                                 </div>
                                                                                             </div>
 
                                                                                             {/* 詳細設定（折りたたみ可能） */}
-                                                                                            <div className="border-t border-gray-700 pt-2">
+                                                                                            <div className="border-t border-line-strong pt-2">
                                                                                                 <button
                                                                                                     onClick={() => toggleElementDetails(elementKey)}
-                                                                                                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-400"
+                                                                                                    className="flex items-center gap-1 text-xs text-fg-muted hover:text-fg-muted"
                                                                                                 >
                                                                                                     {isDetailsExpanded ? (
                                                                                                         <ChevronDown size={12} />
@@ -1202,9 +1206,9 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                     <div className="mt-2 space-y-2">
                                                                                                         {/* 説明 */}
                                                                                                         <div>
-                                                                                                            <label className="block text-xs text-gray-600 mb-1">
+                                                                                                            <label className="block text-xs text-fg-muted mb-1">
                                                                                                                 {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.description)}
-                                                                                                                <span className="ml-1 text-purple-400">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
+                                                                                                                <span className="ml-1 text-accent">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
                                                                                                             </label>
                                                                                                             <textarea
                                                                                                                 value={editingLanguage === 'ja' ? element.description.ja : (element.description.en || '')}
@@ -1212,14 +1216,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     description: { ...element.description, [editingLanguage]: e.target.value }
                                                                                                                 })}
                                                                                                                 rows={2}
-                                                                                                                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors resize-none"
+                                                                                                                className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors resize-none"
                                                                                                                 placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parameterDescriptionPlaceholder)}
                                                                                                             />
                                                                                                         </div>
                                                                                                         <div>
-                                                                                                            <label className="block text-xs text-gray-600 mb-1">
+                                                                                                            <label className="block text-xs text-fg-muted mb-1">
                                                                                                                 {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.promptDescription)}
-                                                                                                                <span className="ml-1 text-purple-400">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
+                                                                                                                <span className="ml-1 text-accent">({editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.ja) : 'English'})</span>
                                                                                                             </label>
                                                                                                             <textarea
                                                                                                                 value={editingLanguage === 'ja' ? (element.promptDescription?.ja || '') : (element.promptDescription?.en || '')}
@@ -1227,14 +1231,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     promptDescription: { ja: element.promptDescription?.ja || '', en: element.promptDescription?.en || '', [editingLanguage]: e.target.value }
                                                                                                                 })}
                                                                                                                 rows={2}
-                                                                                                                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors resize-none"
+                                                                                                                className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors resize-none"
                                                                                                                 placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.promptDescriptionPlaceholder)}
                                                                                                             />
                                                                                                         </div>
 
                                                                                                         {/* デフォルト値設定 */}
-                                                                                                        <div className="border-t border-gray-700 pt-2">
-                                                                                                            <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.defaultValue)}</label>
+                                                                                                        <div className="border-t border-line-strong pt-2">
+                                                                                                            <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.defaultValue)}</label>
                                                                                                             {(element.type === 'slider') && (
                                                                                                                 <input
                                                                                                                     type="number"
@@ -1242,7 +1246,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                         defaultValue: parseInt(e.target.value) || 0
                                                                                                                     })}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                 />
                                                                                                             )}
                                                                                                             {(element.type === 'text' || element.type === 'textarea') && (
@@ -1252,7 +1256,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                         defaultValue: e.target.value
                                                                                                                     })}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.defaultTextPlaceholder)}
                                                                                                                 />
                                                                                                             )}
@@ -1262,7 +1266,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                         defaultValue: e.target.value === 'true'
                                                                                                                     })}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                 >
                                                                                                                     <option value="false">OFF</option>
                                                                                                                     <option value="true">ON</option>
@@ -1274,12 +1278,12 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                         defaultValue: e.target.value || null
                                                                                                                     })}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                 >
                                                                                                                     <option value="">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.unset)}</option>
                                                                                                                     {(element.config?.options || []).map((opt: { value: unknown; label: { ja: string } }, i: number) => (
                                                                                                                         <option key={i} value={String(opt.value)}>
-                                                                                                                            {opt.label.ja} ({String(opt.value)})
+                                                                                                                            {localized(opt.label)} ({String(opt.value)})
                                                                                                                         </option>
                                                                                                                     ))}
                                                                                                                 </select>
@@ -1287,7 +1291,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                             {element.type === 'composite' && (
                                                                                                                 <div className="grid grid-cols-3 gap-1">
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.year)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.year)}</label>
                                                                                                                         <input
                                                                                                                             type="number"
                                                                                                                             value={(element.defaultValue as { years?: number })?.years ?? 0}
@@ -1297,11 +1301,11 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                     years: parseInt(e.target.value) || 0
                                                                                                                                 }
                                                                                                                             })}
-                                                                                                                            className="w-full bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                            className="w-full bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                         />
                                                                                                                     </div>
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.month)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.month)}</label>
                                                                                                                         <input
                                                                                                                             type="number"
                                                                                                                             value={(element.defaultValue as { months?: number })?.months ?? 0}
@@ -1311,11 +1315,11 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                     months: parseInt(e.target.value) || 0
                                                                                                                                 }
                                                                                                                             })}
-                                                                                                                            className="w-full bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                            className="w-full bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                         />
                                                                                                                     </div>
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.day)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-0.5">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.day)}</label>
                                                                                                                         <input
                                                                                                                             type="number"
                                                                                                                             value={(element.defaultValue as { days?: number })?.days ?? 0}
@@ -1325,7 +1329,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                     days: parseInt(e.target.value) || 0
                                                                                                                                 }
                                                                                                                             })}
-                                                                                                                            className="w-full bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                            className="w-full bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                         />
                                                                                                                     </div>
                                                                                                                 </div>
@@ -1336,36 +1340,36 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         {element.type === 'slider' && (
                                                                                                             <div className="grid grid-cols-3 gap-2">
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.min)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.min)}</label>
                                                                                                                     <input
                                                                                                                         type="number"
                                                                                                                         value={element.config?.min ?? 0}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, min: parseInt(e.target.value) || 0 }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     />
                                                                                                                 </div>
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.max)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.max)}</label>
                                                                                                                     <input
                                                                                                                         type="number"
                                                                                                                         value={element.config?.max ?? 100}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, max: parseInt(e.target.value) || 100 }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     />
                                                                                                                 </div>
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.step)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.step)}</label>
                                                                                                                     <input
                                                                                                                         type="number"
                                                                                                                         value={element.config?.step ?? 1}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, step: parseInt(e.target.value) || 1 }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     />
                                                                                                                 </div>
                                                                                                             </div>
@@ -1374,26 +1378,26 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         {element.type === 'text' && (
                                                                                                             <div className="grid grid-cols-2 gap-2">
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.separator)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.separator)}</label>
                                                                                                                     <input
                                                                                                                         type="text"
                                                                                                                         value={element.config?.separator || ''}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, separator: e.target.value }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                         placeholder=","
                                                                                                                     />
                                                                                                                 </div>
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.placeholder)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.placeholder)}</label>
                                                                                                                     <input
                                                                                                                         type="text"
                                                                                                                         value={element.config?.placeholder?.ja || ''}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, placeholder: { ja: e.target.value } }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     />
                                                                                                                 </div>
                                                                                                             </div>
@@ -1401,7 +1405,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                                                                                                         {element.type === 'textarea' && (
                                                                                                             <div>
-                                                                                                                <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.rows)}</label>
+                                                                                                                <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.rows)}</label>
                                                                                                                 <input
                                                                                                                     type="number"
                                                                                                                     value={element.config?.rows ?? 3}
@@ -1410,7 +1414,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     })}
                                                                                                                     min={1}
                                                                                                                     max={20}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                 />
                                                                                                             </div>
                                                                                                         )}
@@ -1418,7 +1422,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         {element.type === 'dropdown' && (
                                                                                                             <div className="space-y-2">
                                                                                                                 <div className="flex items-center justify-between">
-                                                                                                                    <label className="block text-xs text-gray-600">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.options)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.options)}</label>
                                                                                                                     <button
                                                                                                                         onClick={() => {
                                                                                                                             const currentOptions = element.config?.options || [];
@@ -1440,14 +1444,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                 }
                                                                                                                             });
                                                                                                                         }}
-                                                                                                                        className="text-xs text-purple-400 hover:text-purple-300"
+                                                                                                                        className="text-xs text-accent hover:text-accent"
                                                                                                                     >
                                                                                                                         {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.addOption)}
                                                                                                                     </button>
                                                                                                                 </div>
                                                                                                                 <div className="space-y-1 max-h-32 overflow-y-auto">
                                                                                                                     {(element.config?.options || []).map((opt: { value: unknown; label: { ja: string; en?: string } }, optIndex: number) => (
-                                                                                                                        <div key={optIndex} className="flex items-center gap-1 bg-gray-800 rounded p-1">
+                                                                                                                        <div key={optIndex} className="flex items-center gap-1 bg-surface rounded p-1">
                                                                                                                             <input
                                                                                                                                 type="text"
                                                                                                                                 value={String(opt.value)}
@@ -1458,7 +1462,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         config: { ...element.config, options: newOptions }
                                                                                                                                     });
                                                                                                                                 }}
-                                                                                                                                className="flex-1 bg-gray-700 border-none rounded px-1 py-0.5 text-gray-300 text-xs focus:outline-none"
+                                                                                                                                className="flex-1 bg-surface-2 border-none rounded px-1 py-0.5 text-fg-muted text-xs focus:outline-none"
                                                                                                                                 placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.value)}
                                                                                                                                 title={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.value)}
                                                                                                                             />
@@ -1475,7 +1479,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         config: { ...element.config, options: newOptions }
                                                                                                                                     });
                                                                                                                                 }}
-                                                                                                                                className="flex-1 bg-gray-700 border-none rounded px-1 py-0.5 text-gray-300 text-xs focus:outline-none"
+                                                                                                                                className="flex-1 bg-surface-2 border-none rounded px-1 py-0.5 text-fg-muted text-xs focus:outline-none"
                                                                                                                                 placeholder={editingText(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.optionLabel)}
                                                                                                                                 title={editingLanguage === 'ja' ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.optionLabelJaTitle) : 'Label (English)'}
                                                                                                                             />
@@ -1486,14 +1490,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         config: { ...element.config, options: newOptions }
                                                                                                                                     });
                                                                                                                                 }}
-                                                                                                                                className="text-gray-500 hover:text-red-400 p-0.5"
+                                                                                                                                className="text-fg-muted hover:text-danger p-0.5"
                                                                                                                             >
                                                                                                                                 <Trash2 size={10} />
                                                                                                                             </button>
                                                                                                                         </div>
                                                                                                                     ))}
                                                                                                                     {(element.config?.options || []).length === 0 && (
-                                                                                                                        <p className="text-xs text-gray-600 italic">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.noOptions)}</p>
+                                                                                                                        <p className="text-xs text-fg-muted italic">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.noOptions)}</p>
                                                                                                                     )}
                                                                                                                 </div>
                                                                                                             </div>
@@ -1502,20 +1506,20 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         {element.type === 'composite' && (
                                                                                                             <div className="space-y-2">
                                                                                                                 <div>
-                                                                                                                    <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.compositeType)}</label>
+                                                                                                                    <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.compositeType)}</label>
                                                                                                                     <select
                                                                                                                         value={element.config?.compositeType || 'yearMonthDay'}
                                                                                                                         onChange={(e) => updateElement(group.id, element.id, {
                                                                                                                             config: { ...element.config, compositeType: e.target.value as 'yearMonthDay' }
                                                                                                                         })}
-                                                                                                                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                        className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                     >
                                                                                                                         <option value="yearMonthDay">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.yearMonthDay)}</option>
                                                                                                                     </select>
                                                                                                                 </div>
                                                                                                                 <div className="grid grid-cols-3 gap-2">
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.yearRange)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.yearRange)}</label>
                                                                                                                         <div className="flex gap-1">
                                                                                                                             <input
                                                                                                                                 type="number"
@@ -1526,7 +1530,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         yearRange: [parseInt(e.target.value) || 0, element.config?.yearRange?.[1] ?? 100]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                                 placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.minPlaceholder)}
                                                                                                                             />
                                                                                                                             <input
@@ -1538,13 +1542,13 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         yearRange: [element.config?.yearRange?.[0] ?? 0, parseInt(e.target.value) || 100]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                                 placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.maxPlaceholder)}
                                                                                                                             />
                                                                                                                         </div>
                                                                                                                     </div>
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.monthRange)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.monthRange)}</label>
                                                                                                                         <div className="flex gap-1">
                                                                                                                             <input
                                                                                                                                 type="number"
@@ -1555,7 +1559,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         monthRange: [parseInt(e.target.value) || 0, element.config?.monthRange?.[1] ?? 11]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                             />
                                                                                                                             <input
                                                                                                                                 type="number"
@@ -1566,12 +1570,12 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         monthRange: [element.config?.monthRange?.[0] ?? 0, parseInt(e.target.value) || 11]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                             />
                                                                                                                         </div>
                                                                                                                     </div>
                                                                                                                     <div>
-                                                                                                                        <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.dayRange)}</label>
+                                                                                                                        <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.dayRange)}</label>
                                                                                                                         <div className="flex gap-1">
                                                                                                                             <input
                                                                                                                                 type="number"
@@ -1582,7 +1586,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         dayRange: [parseInt(e.target.value) || 0, element.config?.dayRange?.[1] ?? 30]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                             />
                                                                                                                             <input
                                                                                                                                 type="number"
@@ -1593,7 +1597,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         dayRange: [element.config?.dayRange?.[0] ?? 0, parseInt(e.target.value) || 30]
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-1/2 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 text-xs"
+                                                                                                                                className="w-1/2 bg-surface border border-line-strong rounded px-1 py-0.5 text-fg-muted text-xs"
                                                                                                                             />
                                                                                                                         </div>
                                                                                                                     </div>
@@ -1602,12 +1606,12 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                         )}
 
                                                                                                         {/* 親子関係設定 */}
-                                                                                                        <div className="border-t border-gray-700 pt-2 mt-2">
-                                                                                                            <label className="block text-xs text-gray-500 mb-2 font-medium">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parentSettings)}</label>
+                                                                                                        <div className="border-t border-line-strong pt-2 mt-2">
+                                                                                                            <label className="block text-xs text-fg-muted mb-2 font-medium">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parentSettings)}</label>
 
                                                                                                             {/* 親要素選択 */}
                                                                                                             <div className="mb-2">
-                                                                                                                <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parentElement)}</label>
+                                                                                                                <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.parentElement)}</label>
                                                                                                                 <select
                                                                                                                     value={element.parentId || ''}
                                                                                                                     onChange={(e) => {
@@ -1628,14 +1632,14 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                             });
                                                                                                                         }
                                                                                                                     }}
-                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                 >
                                                                                                                     <option value="">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.none)}</option>
                                                                                                                     {group.elements
                                                                                                                         .filter(e => e.id !== element.id)
                                                                                                                         .map(e => (
                                                                                                                             <option key={e.id} value={e.id}>
-                                                                                                                                {e.displayName.ja || e.id}
+                                                                                                                                {localized(e.displayName) || e.id}
                                                                                                                             </option>
                                                                                                                         ))
                                                                                                                     }
@@ -1644,10 +1648,10 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
 
                                                                                                             {/* 表示条件設定（親要素が選択されている場合のみ表示） */}
                                                                                                             {element.parentId && (
-                                                                                                                <div className="space-y-2 pl-2 border-l-2 border-purple-500/30">
+                                                                                                                <div className="space-y-2 pl-2 border-l-2 border-line-strong">
                                                                                                                     <div className="grid grid-cols-2 gap-2">
                                                                                                                         <div>
-                                                                                                                            <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.operator)}</label>
+                                                                                                                            <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.operator)}</label>
                                                                                                                             <select
                                                                                                                                 value={element.showCondition?.operator || '==='}
                                                                                                                                 onChange={(e) => updateElement(group.id, element.id, {
@@ -1657,7 +1661,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                         operator: e.target.value as '===' | '!==' | '>' | '<' | '>=' | '<=' | 'range'
                                                                                                                                     }
                                                                                                                                 })}
-                                                                                                                                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                                className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                             >
                                                                                                                                 <option value="===">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.opEq)}</option>
                                                                                                                                 <option value="!==">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.opNe)}</option>
@@ -1672,7 +1676,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                         {/* 単一値入力（range以外） */}
                                                                                                                         {element.showCondition?.operator !== 'range' && (
                                                                                                                             <div>
-                                                                                                                                <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.value)}</label>
+                                                                                                                                <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.value)}</label>
                                                                                                                                 <input
                                                                                                                                     type="text"
                                                                                                                                     value={element.showCondition?.value ?? ''}
@@ -1684,7 +1688,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                             value: e.target.value
                                                                                                                                         }
                                                                                                                                     })}
-                                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                                     placeholder={t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.comparisonValuePlaceholder)}
                                                                                                                                 />
                                                                                                                             </div>
@@ -1695,7 +1699,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                     {element.showCondition?.operator === 'range' && (
                                                                                                                         <div className="grid grid-cols-2 gap-2">
                                                                                                                             <div>
-                                                                                                                                <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.min)}</label>
+                                                                                                                                <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.min)}</label>
                                                                                                                                 <input
                                                                                                                                     type="number"
                                                                                                                                     value={element.showCondition?.min ?? ''}
@@ -1707,11 +1711,11 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                             min: e.target.value ? parseInt(e.target.value) : undefined
                                                                                                                                         }
                                                                                                                                     })}
-                                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                                 />
                                                                                                                             </div>
                                                                                                                             <div>
-                                                                                                                                <label className="block text-xs text-gray-600 mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.max)}</label>
+                                                                                                                                <label className="block text-xs text-fg-muted mb-1">{t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.max)}</label>
                                                                                                                                 <input
                                                                                                                                     type="number"
                                                                                                                                     value={element.showCondition?.max ?? ''}
@@ -1723,7 +1727,7 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                                                                                                                             max: e.target.value ? parseInt(e.target.value) : undefined
                                                                                                                                         }
                                                                                                                                     })}
-                                                                                                                                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs outline-none focus:border-purple-500 transition-colors"
+                                                                                                                                    className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-fg-muted text-xs outline-none focus:border-accent transition-colors"
                                                                                                                                 />
                                                                                                                             </div>
                                                                                                                         </div>
@@ -1751,24 +1755,24 @@ export const ParameterSchemaEditorModal: React.FC<ParameterSchemaEditorModalProp
                                 </div>
                             </>
                         ) : (
-                            <div className="text-center py-10 text-gray-500">
+                            <div className="text-center py-10 text-fg-muted">
                                 {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.selectOrCreate)}
                             </div>
                         )}
                     </div>
 
                     {/* フッター */}
-                    <div className="flex justify-end gap-3 px-5 py-4 border-t border-gray-700 bg-gray-800/50 shrink-0">
+                    <div className="flex justify-end gap-3 px-5 py-4 border-t border-line-strong bg-surface shrink-0">
                         <button
                             onClick={handleClose}
-                            className="px-5 py-2 text-sm text-gray-300 hover:text-gray-100 hover:bg-gray-700 rounded-lg transition-colors"
+                            className="px-5 py-2 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded-lg transition-colors"
                         >
                             {t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.close)}
                         </button>
                         <button
                             onClick={saveSchema}
                             disabled={isSaving || !editingSchema}
-                            className="flex items-center gap-2 px-5 py-2 text-sm text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg transition-colors"
+                            className="flex items-center gap-2 px-5 py-2 text-sm text-on-accent bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg transition-colors"
                         >
                             <Save size={16} />
                             {isSaving ? t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.saving) : t(PARAMETER_SCHEMA_EDITOR_I18N_KEYS.save)}

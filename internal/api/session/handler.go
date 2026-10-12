@@ -323,12 +323,12 @@ func handleHistoryUpdate(deps Deps) http.HandlerFunc {
 
 func parseModelType(value string) sessiondom.ModelType {
 	switch value {
+	case string(sessiondom.ModelGemini):
+		return sessiondom.ModelGemini
 	case string(sessiondom.ModelClaude):
 		return sessiondom.ModelClaude
-	case string(sessiondom.ModelAntigravity):
-		return sessiondom.ModelAntigravity
 	default:
-		return sessiondom.ModelGemini
+		return sessiondom.ModelAntigravity
 	}
 }
 

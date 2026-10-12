@@ -392,6 +392,16 @@ func (s *ImageService) StaticImage(characterName, rest string) (ServedImage, err
 		return ServedImage{}, ErrInvalidImagePath
 	}
 	rel := config.CharacterListDir + "/" + characterName + "/" + rest
+	// ResolveExisting は存在しない対象も境界外として拒否するため、先に字句上の
+	// 位置で有無を見て、無ければ not found として返す（画像未登録の表情アイコンを
+	// 画面が問い合わせるのは通常の動作で、内部エラーにしない）。
+	lexical, err := s.resolver.ResolveLexical(rel)
+	if err != nil {
+		return ServedImage{}, err
+	}
+	if _, err := os.Lstat(lexical); errors.Is(err, fs.ErrNotExist) {
+		return ServedImage{}, fs.ErrNotExist
+	}
 	abs, err := s.resolver.ResolveExisting(rel)
 	if err != nil {
 		return ServedImage{}, err

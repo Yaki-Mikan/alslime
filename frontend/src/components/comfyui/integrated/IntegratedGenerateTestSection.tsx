@@ -1,5 +1,5 @@
 /**
- * IntegratedGenerateTestSection.tsx - 統合設定画面用テスト生成セクション
+ * IntegratedGenerateTestSection.tsx - テスト生成（素材づくりのキャラ画像の「試しに生成」で使う）
  *
  * キャラクター・タグを選択して画像生成テストを行う。
  * 使用ワークフローは独立したワークフロー選択セクション（親から props で受領）に従う。
@@ -32,7 +32,7 @@ import type {
 } from '../../../api/comfyui';
 import type { CharacterTagInfo } from '../../../api/files';
 import { createComfyUIText, formatComfyText } from '../i18n';
-import { resolveBackendError, type I18NCatalog } from '../../../api/i18n';
+import { resolveBackendError, resolveMessage, type I18NCatalog } from '../../../api/i18n';
 import { normalizeApiService, normalizeImageBackend } from '../apiservice/services';
 import { ApiGenerateResultDetails } from '../apiservice/ApiGenerateResultDetails';
 import { ToggleSwitch } from '../../common/ToggleSwitch';
@@ -332,19 +332,19 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
 
     return (
         <div className="space-y-4">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-purple-300">
-                <Palette size={16} className="text-purple-400" />
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-accent">
+                <Palette size={16} className="text-accent" />
                 {SECTION_NAMES.GENERATE_TEST}
             </h3>
 
             {/* 生成プリセット（API サービスで、親がプリセットを持たないときだけこのセクション内で選ぶ） */}
             {isApi && selectedPreset === undefined && (
                 <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.PRESET}</label>
+                    <label className="text-sm font-medium text-fg-muted">{GENERATE_TEST.LABELS.PRESET}</label>
                     <select
                         value={ownPreset}
                         onChange={e => setOwnPreset(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
+                        className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                     >
                         <option value="">{GENERATE_TEST.MESSAGES.COMMON_PRESET_OPTION}</option>
                         {apiPresets.map(p => (
@@ -355,18 +355,18 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             )}
 
             {/* キャラクター連動トグル */}
-            <div className="flex items-center gap-3 p-2 bg-gray-800/50 border border-purple-600/30 rounded-lg">
+            <div className="flex items-center gap-3 p-2 bg-surface border border-line-strong rounded-lg">
                 <ToggleSwitch
                     checked={useLeftCharacter}
                     onChange={onToggleUseLeftCharacter}
                     label={INTEGRATED.USE_LEFT_CHARACTER_TOGGLE}
                     labelPosition="right"
-                    labelClassName="text-sm text-purple-300"
+                    labelClassName="text-sm text-accent"
                     accent="purple"
                     size="sm"
                 />
                 {useLeftCharacter && leftCharacterName && (
-                    <span className="text-xs text-gray-400">({leftCharacterName})</span>
+                    <span className="text-xs text-fg-muted">({leftCharacterName})</span>
                 )}
             </div>
 
@@ -374,12 +374,12 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             {!useLeftCharacter && (
                 <div className="space-y-1" ref={charDropdownRef}>
                     <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.CHARACTER}</label>
+                        <label className="text-sm font-medium text-fg-muted">{GENERATE_TEST.LABELS.CHARACTER}</label>
                         <ToggleSwitch
                             checked={charDirectMode}
                             onChange={setCharDirectMode}
                             label={GENERATE_TEST.LABELS.DIRECT_TEXT}
-                            labelClassName="text-xs text-gray-500"
+                            labelClassName="text-xs text-fg-muted"
                             accent="purple"
                             size="sm"
                         />
@@ -389,37 +389,37 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                             value={charDirectText}
                             onChange={e => setCharDirectText(e.target.value)}
                             placeholder={GENERATE_TEST.PLACEHOLDERS.DIRECT_TEXT_CHARACTER}
-                            className="w-full bg-gray-800 border border-purple-600/50 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y transition-colors"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent resize-y transition-colors"
                             rows={3}
                         />
                     ) : (
                         <>
                             <div
                                 onClick={() => { setIsCharDropdownOpen(!isCharDropdownOpen); setCharSearchQuery(''); }}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm cursor-pointer hover:border-purple-500 transition-colors flex items-center justify-between"
+                                className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm cursor-pointer hover:border-accent transition-colors flex items-center justify-between"
                             >
-                                <span className={selectedCharacter ? 'text-gray-200' : 'text-gray-500'}>
+                                <span className={selectedCharacter ? 'text-fg' : 'text-fg-muted'}>
                                     {selectedCharacter || CHARACTER.PLACEHOLDERS.SELECT_CHARACTER}
                                 </span>
-                                <Search size={14} className="text-gray-500" />
+                                <Search size={14} className="text-fg-muted" />
                             </div>
                             {isCharDropdownOpen && (
-                                <div className="bg-gray-800 border border-gray-600 rounded-lg overflow-hidden">
-                                    <div className="p-2 border-b border-gray-700">
+                                <div className="bg-surface border border-line-strong rounded-lg overflow-hidden">
+                                    <div className="p-2 border-b border-line-strong">
                                         <input
                                             type="text"
                                             value={charSearchQuery}
                                             onChange={e => setCharSearchQuery(e.target.value)}
                                             placeholder={CHARACTER.PLACEHOLDERS.SEARCH_CHARACTER}
-                                            className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 outline-none focus:border-purple-500"
+                                            className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-sm text-fg outline-none focus:border-accent"
                                             autoFocus
                                         />
                                     </div>
                                     <div className="max-h-48 overflow-y-auto custom-scrollbar">
                                         <button
                                             onClick={() => { setSelectedCharacter(''); setIsCharDropdownOpen(false); }}
-                                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 transition-colors ${
-                                                !selectedCharacter ? 'bg-purple-600/30 text-purple-200' : 'text-gray-500'
+                                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
+                                                !selectedCharacter ? 'bg-accent-soft text-fg' : 'text-fg-muted'
                                             }`}
                                         >
                                             {GENERATE_TEST.PLACEHOLDERS.NOT_SELECTED}
@@ -427,14 +427,14 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                         {filteredCharacters.map(c => (
                                             <button key={c.path}
                                                 onClick={() => { setSelectedCharacter(c.name); setIsCharDropdownOpen(false); }}
-                                                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 transition-colors ${
-                                                    selectedCharacter === c.name ? 'bg-purple-600/30 text-purple-200' : 'text-gray-300'
+                                                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 transition-colors ${
+                                                    selectedCharacter === c.name ? 'bg-accent-soft text-fg' : 'text-fg-muted'
                                                 }`}>
                                                 {c.name}
                                             </button>
                                         ))}
                                         {filteredCharacters.length === 0 && (
-                                            <p className="text-xs text-gray-600 text-center py-3">{GENERATE_TEST.MESSAGES.NO_CHARACTER_FOUND}</p>
+                                            <p className="text-xs text-fg-muted text-center py-3">{GENERATE_TEST.MESSAGES.NO_CHARACTER_FOUND}</p>
                                         )}
                                     </div>
                                 </div>
@@ -446,22 +446,24 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
 
             {/* タグ選択 */}
             <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-400">{GENERATE_TEST.LABELS.TAG_SELECTION}</label>
-                <div className="border border-gray-700 rounded-lg p-3 space-y-2">
+                <label className="text-sm font-medium text-fg-muted">{GENERATE_TEST.LABELS.TAG_SELECTION}</label>
+                <div className="border border-line-strong rounded-lg p-3 space-y-2">
                     {categories.map(cat => {
                         const mapping = tagMappings[cat.id];
                         const hasTags = mapping && mapping.tags.length > 0;
                         const isDirect = tagDirectMode[cat.id] || false;
+                        // 分類名は表示言語の訳を引く（利用者が足した分類は訳が無いので保存された名前を出す）
+                        const categoryLabel = resolveMessage(uiCatalog, `comfyui.tagCategory.${cat.id}`, cat.label);
                         return (
                             <div key={cat.id} className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-sm text-gray-400 w-24 shrink-0">{cat.label}</span>
+                                    <span className="text-sm text-fg-muted w-24 shrink-0">{categoryLabel}</span>
                                     {isDirect ? (
                                         <textarea
                                             value={tagDirectTexts[cat.id] || ''}
                                             onChange={e => setTagDirectTexts(prev => ({ ...prev, [cat.id]: e.target.value }))}
-                                            placeholder={GENERATE_TEST.PLACEHOLDERS.DIRECT_TAG_PROMPT.replace('{{label}}', cat.label)}
-                                            className="flex-1 min-w-0 bg-gray-800 border border-purple-600/50 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y transition-colors"
+                                            placeholder={GENERATE_TEST.PLACEHOLDERS.DIRECT_TAG_PROMPT.replace('{{label}}', categoryLabel)}
+                                            className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent resize-y transition-colors"
                                             rows={2}
                                         />
                                     ) : (
@@ -469,7 +471,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                             value={tagSelections[cat.id] || ''}
                                             onChange={e => updateTagSelection(cat.id, e.target.value)}
                                             disabled={!hasTags}
-                                            className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500 disabled:opacity-40"
+                                            className="flex-1 min-w-0 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent disabled:opacity-40"
                                         >
                                             <option value="">{GENERATE_TEST.PLACEHOLDERS.NONE}</option>
                                             {hasTags && mapping.tags.map(tag => (
@@ -482,7 +484,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                                         onChange={(on) => setTagDirectMode(prev => ({ ...prev, [cat.id]: on }))}
                                         label={GENERATE_TEST.LABELS.DIRECT_SHORT}
                                         labelPosition="right"
-                                        labelClassName="text-[10px] text-gray-500"
+                                        labelClassName="text-xs text-fg-muted"
                                         accent="purple"
                                         size="sm"
                                         className="shrink-0"
@@ -493,7 +495,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                         );
                     })}
                     {categories.length === 0 && (
-                        <p className="text-xs text-gray-600 text-center">{GENERATE_TEST.MESSAGES.NO_CATEGORY}</p>
+                        <p className="text-xs text-fg-muted text-center">{GENERATE_TEST.MESSAGES.NO_CATEGORY}</p>
                     )}
                 </div>
             </div>
@@ -502,10 +504,10 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             <div className="space-y-1">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                        <label className="text-sm font-medium text-gray-400">{PLACEHOLDER_PRESET.LABELS.SECTION}</label>
+                        <label className="text-sm font-medium text-fg-muted">{PLACEHOLDER_PRESET.LABELS.SECTION}</label>
                         <span
                             title={PLACEHOLDER_PRESET.MESSAGES.SECTION_INFO}
-                            className="text-gray-500 hover:text-cyan-400 cursor-help"
+                            className="text-fg-muted hover:text-accent cursor-help"
                         >
                             <Info size={13} />
                         </span>
@@ -515,7 +517,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                             checked={placeholderDirectMode}
                             onChange={setPlaceholderDirectMode}
                             label={PLACEHOLDER_PRESET.LABELS.DIRECT_MODE}
-                            labelClassName="text-xs text-gray-500"
+                            labelClassName="text-xs text-fg-muted"
                             accent="purple"
                             size="sm"
                         />
@@ -523,7 +525,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                             type="button"
                             onClick={() => setIsPlaceholderModalOpen(true)}
                             title={PLACEHOLDER_PRESET.MESSAGES.OPEN_SETTINGS_TOOLTIP}
-                            className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700 transition-colors"
+                            className="p-1.5 rounded text-fg-muted hover:text-fg hover:bg-surface-2 transition-colors"
                         >
                             <Settings2 size={14} />
                         </button>
@@ -539,7 +541,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                     <select
                         value={selectedPresetName}
                         onChange={e => handlePresetChange(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500"
+                        className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                     >
                         <option value="">{PLACEHOLDER_PRESET.PLACEHOLDERS.NO_PRESET}</option>
                         {placeholderPresets.map(p => (
@@ -552,15 +554,15 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             {/* 追加プロンプト（自由入力。API サービス用のテスト生成のみ） */}
             {isApi && (
                 <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-400" htmlFor="integrated-extra-prompt">{GENERATE_TEST.LABELS.EXTRA_PROMPT}</label>
+                    <label className="text-sm font-medium text-fg-muted" htmlFor="integrated-extra-prompt">{GENERATE_TEST.LABELS.EXTRA_PROMPT}</label>
                     <textarea
                         id="integrated-extra-prompt"
                         rows={3}
                         value={extraPrompt}
                         onChange={e => setExtraPrompt(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-purple-500 resize-y"
+                        className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent resize-y"
                     />
-                    <p className="text-xs text-gray-500">{GENERATE_TEST.MESSAGES.EXTRA_PROMPT_DESC}</p>
+                    <p className="text-xs text-fg-muted">{GENERATE_TEST.MESSAGES.EXTRA_PROMPT_DESC}</p>
                 </div>
             )}
 
@@ -569,7 +571,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                 <button
                     onClick={handleGenerate}
                     disabled={isGenerating || generateDisabled || (!isApi && !selectedTemplate)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg text-sm text-on-accent transition-colors"
                 >
                     {isGenerating ? (
                         <>
@@ -589,7 +591,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                     <button
                         onClick={handleRegenerate}
                         disabled={isGenerating || generateDisabled}
-                        className="flex items-center gap-1 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg text-sm text-gray-300 transition-colors"
+                        className="flex items-center gap-1 px-3 py-2.5 bg-surface-2 hover:bg-surface-2 disabled:opacity-50 rounded-lg text-sm text-fg-muted transition-colors"
                         title={GENERATE_TEST.MESSAGES.RESEED_TOOLTIP}
                     >
                         <RefreshCw size={14} />
@@ -600,7 +602,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
 
             {/* エラー表示 */}
             {result && !result.success && (
-                <div className="bg-red-900/30 border border-red-700 rounded-lg px-3 py-2 text-sm text-red-300">
+                <div className="bg-danger/10 border border-danger/40 rounded-lg px-3 py-2 text-sm text-danger">
                     {resolveBackendError(uiCatalog, result.error)}
                 </div>
             )}
@@ -608,8 +610,8 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             {/* 生成結果画像 */}
             {generatedImage && (
                 <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-400">{SECTION_NAMES.GENERATE_RESULT}</label>
-                    <div className="border border-gray-700 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center">
+                    <label className="text-sm font-medium text-fg-muted">{SECTION_NAMES.GENERATE_RESULT}</label>
+                    <div className="border border-line-strong rounded-lg overflow-hidden bg-surface flex items-center justify-center">
                         <img
                             src={generatedImage}
                             alt={SECTION_NAMES.GENERATE_RESULT}
@@ -637,7 +639,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                     <button
                         type="button"
                         onClick={() => setIsImagePreviewOpen(false)}
-                        className="absolute right-5 top-5 p-2 rounded-lg bg-gray-900/90 border border-gray-700 text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+                        className="absolute right-5 top-5 p-2 rounded-lg bg-panel/90 border border-line-strong text-fg-muted hover:text-fg hover:bg-surface transition-colors"
                         title={COMMON.BUTTONS.CLOSE}
                     >
                         <X size={20} />
@@ -648,7 +650,7 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                             e.stopPropagation();
                             handleDownloadImage();
                         }}
-                        className="absolute right-16 top-5 p-2 rounded-lg bg-gray-900/90 border border-gray-700 text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+                        className="absolute right-16 top-5 p-2 rounded-lg bg-panel/90 border border-line-strong text-fg-muted hover:text-fg hover:bg-surface transition-colors"
                         title={COMMON.MESSAGES.DOWNLOAD}
                     >
                         <Download size={20} />
@@ -665,29 +667,29 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
             {/* 解決済みプロンプト */}
             {result?.success && result.resolvedPrompt && (
                 <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-400">{SECTION_NAMES.RESOLVED_PROMPT}</label>
-                    <div className="border border-gray-700 rounded-lg overflow-hidden text-xs">
+                    <label className="text-sm font-medium text-fg-muted">{SECTION_NAMES.RESOLVED_PROMPT}</label>
+                    <div className="border border-line-strong rounded-lg overflow-hidden text-xs">
                         <button
                             onClick={() => setShowPositive(!showPositive)}
-                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors border-b border-gray-700"
+                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-surface hover:bg-surface text-fg-muted transition-colors border-b border-line-strong"
                         >
                             {showPositive ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                             {GENERATE_TEST.LABELS.POSITIVE_PROMPT}
                         </button>
                         {showPositive && (
-                            <div className="px-3 py-2 text-gray-300 bg-gray-800/30 border-b border-gray-700 break-all">
+                            <div className="px-3 py-2 text-fg-muted bg-surface border-b border-line-strong break-all">
                                 {result.resolvedPrompt.positive || GENERATE_TEST.PLACEHOLDERS.NONE}
                             </div>
                         )}
                         <button
                             onClick={() => setShowNegative(!showNegative)}
-                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors border-b border-gray-700"
+                            className="w-full flex items-center gap-1 px-3 py-1.5 bg-surface hover:bg-surface text-fg-muted transition-colors border-b border-line-strong"
                         >
                             {showNegative ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                             {GENERATE_TEST.LABELS.NEGATIVE_PROMPT}
                         </button>
                         {showNegative && (
-                            <div className="px-3 py-2 text-gray-300 bg-gray-800/30 border-b border-gray-700 break-all">
+                            <div className="px-3 py-2 text-fg-muted bg-surface border-b border-line-strong break-all">
                                 {result.resolvedPrompt.negative || GENERATE_TEST.PLACEHOLDERS.NONE}
                             </div>
                         )}
@@ -695,13 +697,13 @@ export const IntegratedGenerateTestSection: React.FC<Props> = ({
                             <>
                                 <button
                                     onClick={() => setShowLoras(!showLoras)}
-                                    className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
+                                    className="w-full flex items-center gap-1 px-3 py-1.5 bg-surface hover:bg-surface text-fg-muted transition-colors"
                                 >
                                     {showLoras ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                                     {GENERATE_TEST.MESSAGES.APPLIED_LORA} ({result.resolvedPrompt.lorasApplied.length}{COMMON.MESSAGES.COUNT_SUFFIX})
                                 </button>
                                 {showLoras && (
-                                    <div className="px-3 py-2 text-gray-300 bg-gray-800/30 break-all">
+                                    <div className="px-3 py-2 text-fg-muted bg-surface break-all">
                                         {result.resolvedPrompt.lorasApplied.length > 0
                                             ? result.resolvedPrompt.lorasApplied.join(', ')
                                             : GENERATE_TEST.PLACEHOLDERS.NONE}

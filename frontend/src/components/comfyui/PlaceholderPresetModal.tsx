@@ -2,7 +2,7 @@
  * PlaceholderPresetModal.tsx - プレースホルダプリセット設定モーダル
  *
  * 「変換元 → 変換先 + AIへの説明」の組をプリセットとして保存・削除する。
- * 画像生成統合設定のプレースホルダ変換欄の遷移ボタンから開く。
+ * 素材づくりの画像生成のタブの「置き換えを編集」と、試しに生成のプレースホルダ変換欄から開く。
  * 編集中の内容の JSON エクスポートと、ドラッグ&ドロップでのインポートに対応する
  * （インポートは編集領域へ読み込むだけで、保存ボタンを押すまで確定しない）。
  */
@@ -206,13 +206,13 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col w-[640px] max-w-[92vw] max-h-[85vh]">
+            <div className="bg-surface-solid rounded-xl shadow-2xl border border-line-strong flex flex-col w-[640px] max-w-[92vw] max-h-[85vh]">
                 {/* ヘッダー */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-700 bg-gray-800 rounded-t-xl shrink-0">
-                    <h3 className="text-base font-semibold text-gray-100">{PLACEHOLDER_PRESET.TITLE}</h3>
+                <div className="flex items-center justify-between px-5 py-3 border-b border-line-strong bg-surface rounded-t-xl shrink-0">
+                    <h3 className="text-base font-semibold text-fg">{PLACEHOLDER_PRESET.TITLE}</h3>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+                        className="p-1.5 hover:bg-surface-2 rounded text-fg-muted hover:text-fg transition-colors"
                     >
                         <X size={18} />
                     </button>
@@ -221,18 +221,18 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                 {/* 本体 */}
                 <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar">
                     {/* 説明 */}
-                    <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2">
-                        <Info size={14} className="shrink-0 mt-0.5 text-cyan-400" />
+                    <div className="flex items-start gap-2 text-xs text-fg-muted bg-surface border border-line-strong rounded-lg px-3 py-2">
+                        <Info size={14} className="shrink-0 mt-0.5 text-accent" />
                         <span>{PLACEHOLDER_PRESET.MESSAGES.DESCRIPTION_HELP}</span>
                     </div>
 
                     {/* プリセット選択 + 削除 */}
                     <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-400 w-24 shrink-0">{PLACEHOLDER_PRESET.LABELS.PRESET}</label>
+                        <label className="text-sm text-fg-muted w-24 shrink-0">{PLACEHOLDER_PRESET.LABELS.PRESET}</label>
                         <select
                             value={selected}
                             onChange={e => selectPreset(e.target.value, presets)}
-                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500"
+                            className="flex-1 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
                         >
                             <option value={NEW_PRESET}>{PLACEHOLDER_PRESET.PLACEHOLDERS.NEW_PRESET}</option>
                             {presets.map(p => (
@@ -244,7 +244,7 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                             onClick={handleDelete}
                             disabled={selected === NEW_PRESET}
                             title={PLACEHOLDER_PRESET.MESSAGES.DELETE_PRESET_TOOLTIP}
-                            className="p-2 rounded text-gray-500 hover:text-red-400 hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                            className="p-2 rounded text-fg-muted hover:text-danger hover:bg-surface-2 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                         >
                             <Trash2 size={16} />
                         </button>
@@ -253,7 +253,7 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                             onClick={handleExport}
                             disabled={!entries.some(e => e.from.trim() && e.to.trim())}
                             title={PLACEHOLDER_PRESET.MESSAGES.EXPORT_TOOLTIP}
-                            className="p-2 rounded text-gray-500 hover:text-cyan-400 hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                            className="p-2 rounded text-fg-muted hover:text-accent hover:bg-surface-2 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                         >
                             <Download size={16} />
                         </button>
@@ -261,13 +261,13 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
 
                     {/* プリセット名 */}
                     <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-400 w-24 shrink-0">{PLACEHOLDER_PRESET.LABELS.NAME}</label>
+                        <label className="text-sm text-fg-muted w-24 shrink-0">{PLACEHOLDER_PRESET.LABELS.NAME}</label>
                         <input
                             type="text"
                             value={nameInput}
                             onChange={e => setNameInput(e.target.value)}
                             placeholder={PLACEHOLDER_PRESET.PLACEHOLDERS.NAME}
-                            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 outline-none focus:border-purple-500"
+                            className="flex-1 bg-surface border border-line-strong rounded px-2 py-1.5 text-sm text-fg outline-none focus:border-accent"
                         />
                     </div>
 
@@ -284,7 +284,7 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                     <CollapsibleSection
                         title={
                             <>
-                                <Upload size={16} className="text-cyan-400" />
+                                <Upload size={16} className="text-accent" />
                                 {PLACEHOLDER_PRESET.MESSAGES.IMPORT_SECTION}
                             </>
                         }
@@ -295,17 +295,17 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                             onDrop={handleDrop}
                             onClick={() => fileInputRef.current?.click()}
                             className={`relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${isDragOver
-                                ? 'border-cyan-400 bg-cyan-900/20'
-                                : 'border-gray-600 hover:border-cyan-500 hover:bg-gray-800/50'
+                                ? 'border-accent bg-accent-soft'
+                                : 'border-line-strong hover:border-accent hover:bg-surface'
                                 }`}
                         >
                             <div className="space-y-2">
-                                <Upload size={24} className="mx-auto text-gray-500" />
-                                <p className="text-sm text-gray-400">
+                                <Upload size={24} className="mx-auto text-fg-muted" />
+                                <p className="text-sm text-fg-muted">
                                     {PLACEHOLDER_PRESET.MESSAGES.DROP_TEXT}<br />
                                     {PLACEHOLDER_PRESET.MESSAGES.DROP_ACTION}
                                 </p>
-                                <p className="text-xs text-gray-600">
+                                <p className="text-xs text-fg-muted">
                                     {PLACEHOLDER_PRESET.MESSAGES.DROP_HINT}
                                 </p>
                             </div>
@@ -321,15 +321,15 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                 </div>
 
                 {/* フッター */}
-                <div className="flex items-center justify-between px-5 py-3 border-t border-gray-700 bg-gray-800/60 rounded-b-xl shrink-0">
-                    <span className={`text-xs ${message?.isError ? 'text-red-400' : 'text-green-400'}`}>
+                <div className="flex items-center justify-between px-5 py-3 border-t border-line-strong bg-surface rounded-b-xl shrink-0">
+                    <span className={`text-xs ${message?.isError ? 'text-danger' : 'text-ok'}`}>
                         {message?.text || ''}
                     </span>
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-1.5 rounded-lg text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+                            className="px-4 py-1.5 rounded-lg text-sm text-fg-muted hover:bg-surface-2 transition-colors"
                         >
                             {COMMON.BUTTONS.CLOSE}
                         </button>
@@ -337,7 +337,7 @@ export const PlaceholderPresetModal: React.FC<Props> = ({
                             type="button"
                             onClick={handleSave}
                             disabled={isSaving}
-                            className="flex items-center gap-1.5 px-4 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+                            className="flex items-center gap-1.5 px-4 py-1.5 bg-accent hover:brightness-110 disabled:opacity-50 rounded-lg text-sm text-on-accent transition-colors"
                         >
                             <Save size={14} />
                             {isSaving ? COMMON.BUTTONS.SAVING : COMMON.BUTTONS.SAVE}

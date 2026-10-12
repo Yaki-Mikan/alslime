@@ -36,7 +36,7 @@ import { generateFromChat, getAllImageAttachments, resolveAuthedImageUrl, delete
 import type { ApiServiceId } from '../../api/comfyui';
 import type { ImageAttachment } from '../../api/comfyui';
 import { SoundEffectsSummary } from '../comfyui/apiservice/SoundEffectsSummary';
-import { FEATURE_ACTION_CHOICE, FEATURE_COMFYUI, isFeatureEnabled } from '../../constants/features';
+import { FEATURE_ACTION_CHOICE, isFeatureEnabled } from '../../constants/features';
 import { Toast, useToast } from '../common/Toast';
 import { resolveBackendError, resolveMessage, type I18NCatalog } from '../../api/i18n';
 import {
@@ -98,6 +98,8 @@ interface MessageListProps {
     actionChoices?: string[] | null;
     selectedChoice?: string | null;
     onSelectChoice?: (choice: string | null) => void;
+    // 画像生成（支援者向け）。Tier充足かつ ComfyUI 実体連携済みのときのみ true（Chat が判定）。
+    imageGenEnabled?: boolean;
     // TTS 読み上げ（支援者向け）。Tier充足かつ TTS 実体連携済みのときのみ true（Chat が判定）。
     ttsEnabled?: boolean;
     // 読み上げ開始時に同梱する会話設定側VoiceDesign（キーはキャラクター名。Chat が現セッション設定から供給）。
@@ -131,7 +133,7 @@ const AuthImg: React.FC<{
         return () => { canceled = true; };
     }, [backendUrl, sessionId, filename]);
     if (!src) {
-        return <div className={`${className || ''} bg-gray-800/60 animate-pulse`} role="img" aria-label={alt} />;
+        return <div className={`${className || ''} bg-surface animate-pulse`} role="img" aria-label={alt} />;
     }
     return <img src={src} alt={alt} className={className} onClick={onClick} />;
 };
@@ -202,14 +204,14 @@ const CharacterIconWithFallback: React.FC<{
     // サイズに応じたスタイル
     const isSmall = size <= 40;
     const baseStyles = isSmall
-        ? 'rounded-full border-2 border-indigo-500/50 bg-gray-800'
-        : 'rounded-lg border-2 border-indigo-500/50 bg-gray-800';
+        ? 'rounded-full border-2 border-line-strong bg-surface'
+        : 'rounded-lg border-2 border-line-strong bg-surface';
 
     // バッジスタイル（サイズに応じて調整）。アイコンの右隣に置くため位置指定は持たせない。
     const getBadgeStyles = () => {
-        if (size <= 100) return 'text-[10px] bg-gray-900/90 px-1 py-0.5 rounded text-gray-300 border border-gray-600';
-        if (size <= 200) return 'text-xs bg-gray-900/90 px-1.5 py-0.5 rounded text-gray-300 border border-gray-600';
-        return 'text-sm bg-gray-900/90 px-2 py-1 rounded text-gray-200 border border-gray-600';
+        if (size <= 100) return 'text-xs bg-panel/90 px-1 py-0.5 rounded text-fg-muted border border-line-strong';
+        if (size <= 200) return 'text-xs bg-panel/90 px-1.5 py-0.5 rounded text-fg-muted border border-line-strong';
+        return 'text-sm bg-panel/90 px-2 py-1 rounded text-fg border border-line-strong';
     };
 
     // 心情バッジはアイコンの右隣、下端に揃えて出す。
@@ -413,7 +415,7 @@ interface MessageItemProps {
 
 /** 別モデル再生成の簡易選択で先頭に置く「詳細...」の値。モデルIDと衝突しない値にする */
 const ALT_MODEL_DETAIL_VALUE = '__regenerate_detail__';
-const ALT_MODEL_SELECT_CLASS = 'bg-gray-800 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1 outline-none focus:border-blue-500 cursor-pointer hover:bg-gray-700 transition-colors max-w-[260px]';
+const ALT_MODEL_SELECT_CLASS = 'bg-surface border border-line-strong text-fg text-xs rounded px-2 py-1 outline-none focus:border-accent cursor-pointer hover:bg-surface-2 transition-colors max-w-[260px]';
 
 /**
  * メッセージ1件の表示コンポーネント
@@ -590,15 +592,15 @@ const MessageItem = React.memo<MessageItemProps>(({
             {files.length > 0 && (
                 <div className={`flex flex-col gap-2 mb-2 w-full max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     {files.map((file, idx) => (
-                        <div key={idx} className="bg-gray-900/50 border border-gray-700 rounded-lg overflow-hidden w-fit max-w-full shadow-sm">
+                        <div key={idx} className="bg-panel/50 border border-line-strong rounded-lg overflow-hidden w-fit max-w-full shadow-sm">
                             <details className="group">
-                                <summary className="px-3 py-2 text-xs text-gray-400 cursor-pointer hover:bg-gray-800 flex items-center gap-2 select-none">
-                                    <FileText size={14} className="text-blue-400 shrink-0" />
-                                    <span className="font-medium text-gray-300 group-open:text-white">{file.fileName}</span>
-                                    <span className="text-gray-600 ml-auto text-[10px] truncate max-w-[200px]">{file.filePath}</span>
+                                <summary className="px-3 py-2 text-xs text-fg-muted cursor-pointer hover:bg-surface flex items-center gap-2 select-none">
+                                    <FileText size={14} className="text-accent shrink-0" />
+                                    <span className="font-medium text-fg-muted group-open:text-fg">{file.fileName}</span>
+                                    <span className="text-fg-muted ml-auto text-xs truncate max-w-[200px]">{file.filePath}</span>
                                 </summary>
-                                <div className="p-3 bg-gray-950/80 border-t border-gray-700/50 overflow-x-auto">
-                                    <div className="text-xs font-mono text-gray-300 leading-normal w-full flex flex-col">
+                                <div className="p-3 bg-bg/80 border-t border-line-strong overflow-x-auto">
+                                    <div className="text-xs font-mono text-fg-muted leading-normal w-full flex flex-col">
                                         {file.content.split(/\r?\n/).map((line, lineIdx) => (
                                             <div
                                                 key={lineIdx}
@@ -636,10 +638,10 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             data-msg-id={msg.id}
                                             data-turn-id={turn.turnId ?? undefined}
                                             data-turn-index={turn.index}
-                                            className="w-full max-w-[85%] bg-gray-800 p-3 rounded-lg border border-blue-500/50"
+                                            className="w-full max-w-[85%] bg-surface p-3 rounded-lg border border-accent/50"
                                         >
                                             <textarea
-                                                className="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-blue-500 outline-none resize-none font-sans text-sm leading-relaxed"
+                                                className="w-full bg-surface text-fg p-3 rounded-ui border border-line-strong focus:border-accent outline-none resize-none font-read text-sm leading-relaxed"
                                                 value={editingState.content}
                                                 onChange={(e) => onEditChange(e.target.value)}
                                                 rows={Math.max(3, editingState.content.split('\n').length)}
@@ -648,13 +650,13 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             <div className="flex justify-end gap-2 mt-2">
                                                 <button
                                                     onClick={onEditCancel}
-                                                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                                                    className="px-3 py-1.5 text-xs text-fg-muted hover:text-fg transition-colors"
                                                 >
                                                     {t(COMMON_I18N_KEYS.cancel)}
                                                 </button>
                                                 <button
                                                     onClick={onEditSave}
-                                                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors flex items-center gap-1"
+                                                    className="px-3 py-1.5 text-xs bg-accent hover:brightness-110 text-on-accent rounded transition-colors flex items-center gap-1"
                                                 >
                                                     {t(COMMON_I18N_KEYS.save)}
                                                 </button>
@@ -672,7 +674,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 const iconOnBubbleLeft = !!settings.characterIconOnBubbleLeft && iconSize >= 100;
 
                                 const timeLabel = turnTime ? (
-                                    <div className="flex items-center gap-1.5 text-sm text-blue-400/80 mb-1 ml-1 font-mono">
+                                    <div className="flex items-center gap-1.5 text-sm text-fg-muted mb-1 ml-1 font-mono">
                                         <Clock size={14} />
                                         {turnTime.year}/{String(turnTime.month).padStart(2, '0')}/{String(turnTime.day).padStart(2, '0')} {String(turnTime.hour).padStart(2, '0')}:{String(turnTime.minute).padStart(2, '0')}:{String(turnTime.second || 0).padStart(2, '0')}
                                     </div>
@@ -692,7 +694,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 sessionId={sessionId!}
                                                 filename={att.filename}
                                                 alt={t(MESSAGE_LIST_I18N_KEYS.generatedImageAlt)}
-                                                className="w-24 h-24 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
+                                                className="w-24 h-24 object-cover rounded-lg border border-line-strong cursor-pointer hover:border-accent transition-colors"
                                                 onClick={() => onOpenImage(att, msg.id, turnKey)}
                                             />
                                         ))}
@@ -720,7 +722,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 })() : null;
 
                                 const characterNameLabel = characterName ? (
-                                    <div className="text-base font-bold text-indigo-300 tracking-wide">
+                                    <div className="text-base font-bold text-fg font-head tracking-wide">
                                         {characterName}
                                     </div>
                                 ) : null;
@@ -730,7 +732,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 const editButton = (
                                     <button
                                         onClick={() => onEditStart(msg.id!, turn.index, turn.content)}
-                                        className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                                        className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-surface-2 rounded text-fg-muted hover:text-fg"
                                         title={t(MESSAGE_LIST_I18N_KEYS.editThisMessage)}
                                     >
                                         <Edit2 size={12} />
@@ -740,20 +742,19 @@ const MessageItem = React.memo<MessageItemProps>(({
                                 const renderTextBubble = (bubbleLines: string[], showEditButton: boolean, key: number) => (
                                         <div
                                             key={key}
-                                            className={`group relative p-4 rounded-xl shadow-md border transition-all ${turn.character
-                                                ? 'border-indigo-600/40 text-gray-100'
-                                                : 'border-gray-700 text-gray-200'
-                                            }`}
+                                            className="app-bubble group relative p-4 rounded-xl shadow-md border border-line-strong text-fg transition-all"
                                             style={{
-                                                backgroundColor: turn.character
-                                                    ? `rgba(30, 27, 75, ${hasActiveBackground ? (settings.messageBubbleOpacity ?? 0.8) : 0.85})`
-                                                    : `rgba(31, 41, 55, ${hasActiveBackground ? (settings.messageBubbleOpacity ?? 0.8) : 0.85})`,
+                                                // 色はデザインの設計値。濃さは背景画像があれば設定値、無ければデザインの既定。
+                                                // 背景画像があるときの色を別に持つデザインでは、そちらを使う
+                                                backgroundColor: hasActiveBackground
+                                                    ? `rgb(var(${turn.character ? '--c-bubble-char-on-image, var(--c-bubble-char)' : '--c-bubble-narration-on-image, var(--c-bubble-narration)'}) / ${settings.messageBubbleOpacity ?? 0.8})`
+                                                    : `rgb(var(${turn.character ? '--c-bubble-char' : '--c-bubble-narration'}) / var(--bubble-alpha))`,
                                             }}
                                         >
                                             {showEditButton && editButton}
 
                                             <div
-                                                className="whitespace-pre-wrap leading-relaxed"
+                                                className="whitespace-pre-wrap leading-relaxed font-read"
                                                 style={{
                                                     fontSize: `${settings.fontSize}px`,
                                                     lineHeight: settings.lineHeight || 1.625
@@ -802,7 +803,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     <ExternalImage
                                                         url={seg.url}
                                                         alt={altLabel}
-                                                        className="max-w-full max-h-[60vh] object-contain rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
+                                                        className="max-w-full max-h-[60vh] object-contain rounded-lg border border-line-strong cursor-pointer hover:border-accent transition-colors"
                                                         onClick={() => onOpenExternalImage(seg.url, altLabel)}
                                                         onLoadFailed={() => markImageFailed(seg.url)}
                                                     />
@@ -828,8 +829,9 @@ const MessageItem = React.memo<MessageItemProps>(({
                                     return (
                                         <>
                                             {noticeHere && (
-                                                <span className="text-[11px] text-red-300">
+                                                <span className="text-xs text-danger">
                                                     {tt(`tts.skip.${ttsNotice.reason}`, tt('tts.skip.generic', '読み上げできませんでした'))}
+                                                    {ttsNotice.detail ? tt('tts.skip.detail', '（{{detail}}）').split('{{detail}}').join(ttsNotice.detail) : null}
                                                 </span>
                                             )}
                                             {hasAudio && (() => {
@@ -845,7 +847,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                         else onTTSPlayFinal(msg.id!, turn.turnId!);
                                                     }}
                                                     disabled={lockedBySequence}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-fg bg-media-btn border border-line-strong hover:brightness-110 rounded-full shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                                                     title={lockedBySequence
                                                         ? tt('tts.button.playLockedBySequence', '全体再生中は停止してから操作できます')
                                                         : showStop ? tt('tts.button.stop', '停止') : tt('tts.button.play', '再生')}
@@ -853,7 +855,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     {showStop ? <Square size={14} /> : <Play size={14} />}
                                                     <span>{showStop ? tt('tts.button.stop', '停止') : tt('tts.button.play', '再生')}</span>
                                                     {audioDuration && (
-                                                        <span className="text-orange-400/70">{audioDuration}</span>
+                                                        <span className="text-fg-muted">{audioDuration}</span>
                                                     )}
                                                 </button>
                                                 );
@@ -861,7 +863,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             <button
                                                 onClick={() => isTurnReading ? onTTSCancel(turnActiveKey) : onTTSStart(msg.id!, turn.turnId!)}
                                                 disabled={otherActive || (isTurnReading && isTurnCancelling)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white bg-orange-900/20 hover:bg-orange-800/50 border border-orange-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-fg bg-media-btn border border-line-strong hover:brightness-110 rounded-full shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title={isTurnReading
                                                     ? tt('tts.button.cancel', 'キャンセル')
                                                     : hasAudio ? tt('tts.button.recreate', '再作成') : tt('tts.button.read', '読み上げ')}
@@ -890,13 +892,13 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             <button
                                                 onClick={() => onGenerate(msg.id!, turn.turnId, turn.index)}
                                                 disabled={isTurnGenerating}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-300 hover:text-white bg-purple-900/20 hover:bg-purple-800/50 border border-purple-600/40 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-fg bg-media-btn border border-image-gen-edge hover:brightness-110 rounded-full shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title={t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}
                                             >
                                                 {isTurnGenerating ? (
-                                                    <Loader2 size={14} className="animate-spin" />
+                                                    <Loader2 size={14} className="animate-spin text-image-gen-icon" />
                                                 ) : (
-                                                    <Palette size={14} />
+                                                    <Palette size={14} className="text-image-gen-icon" />
                                                 )}
                                                 <span>{isTurnGenerating ? imageStageLabel(turnStage, t) : t(MESSAGE_LIST_I18N_KEYS.imageGenerate)}</span>
                                             </button>
@@ -975,7 +977,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                             sessionId={sessionId!}
                                             filename={att.filename}
                                             alt={t(MESSAGE_LIST_I18N_KEYS.generatedImageAlt)}
-                                            className="w-24 h-24 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors"
+                                            className="w-24 h-24 object-cover rounded-lg border border-line-strong cursor-pointer hover:border-accent transition-colors"
                                             onClick={() => onOpenImage(att, msg.id, lastTurnKey)}
                                         />
                                     ))}
@@ -985,7 +987,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                             {/* モデル名の下に再生成・別モデル再生成・1応答全体読み上げボタンを並べる (画像生成ボタンはTURN毎のバブル内へ移設) */}
                             <div className="flex flex-col items-start gap-1 ml-1 mt-[-4px]">
                                 {msg.model && (
-                                    <div className="text-[10px] text-gray-500">
+                                    <div className="text-xs text-fg-muted">
                                         Generated by {msg.model}
                                     </div>
                                 )}
@@ -993,7 +995,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                     {isLast && !isLoading && (
                                         <button
                                             onClick={onRegenerate}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-fg-muted hover:text-fg hover:bg-surface rounded-full transition-colors"
                                             title={t(MESSAGE_LIST_I18N_KEYS.regenerate)}
                                         >
                                             <RefreshCw size={12} />
@@ -1010,7 +1012,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 setAltDetailOpen(false);
                                                 setAltModelOpen(true);
                                             }}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-fg-muted hover:text-fg hover:bg-surface rounded-full transition-colors"
                                             title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModel)}
                                         >
                                             <RefreshCw size={12} />
@@ -1043,7 +1045,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                         title={t(MESSAGE_LIST_I18N_KEYS.regenerateWithModel)}
                                                     >
                                                         {altDetailChoices.map(m => (
-                                                            <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
+                                                            <option key={m.id} value={m.id}>{modelDisplayLabel(m, uiCatalog)}</option>
                                                         ))}
                                                     </select>
                                                     {altProvider === 'claude' && (
@@ -1088,7 +1090,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                 >
                                                     <option value={ALT_MODEL_DETAIL_VALUE}>{t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelDetail)}</option>
                                                     {altQuickChoices.map(m => (
-                                                        <option key={m.id} value={m.id}>{modelDisplayLabel(m)}</option>
+                                                        <option key={m.id} value={m.id}>{modelDisplayLabel(m, uiCatalog)}</option>
                                                     ))}
                                                 </select>
                                             )}
@@ -1107,14 +1109,14 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     }
                                                 }}
                                                 disabled={!altModelId}
-                                                className="flex items-center gap-1 px-3 py-1 text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-full transition-colors"
+                                                className="flex items-center gap-1 px-3 py-1 text-xs text-on-accent bg-accent hover:brightness-110 disabled:bg-surface-2 disabled:text-fg-muted rounded-full transition-colors"
                                             >
                                                 <RefreshCw size={12} />
                                                 <span>{t(MESSAGE_LIST_I18N_KEYS.regenerateWithModelRun)}</span>
                                             </button>
                                             <button
                                                 onClick={closeAltModel}
-                                                className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-colors"
+                                                className="px-2 py-1 text-xs text-fg-muted hover:text-fg hover:bg-surface rounded-full transition-colors"
                                                 title={t(MESSAGE_LIST_I18N_KEYS.close)}
                                             >
                                                 <X size={12} />
@@ -1133,14 +1135,15 @@ const MessageItem = React.memo<MessageItemProps>(({
                                         return (
                                             <>
                                                 {noticeHere && (
-                                                    <span className="text-[11px] text-red-300">
+                                                    <span className="text-xs text-danger">
                                                         {tt(`tts.skip.${ttsNotice.reason}`, tt('tts.skip.generic', '読み上げできませんでした'))}
+                                                        {ttsNotice.detail ? tt('tts.skip.detail', '（{{detail}}）').split('{{detail}}').join(ttsNotice.detail) : null}
                                                     </span>
                                                 )}
                                                 <button
                                                     onClick={() => isMessageReading ? onTTSCancel(messageKey) : onTTSStart(msg.id!)}
                                                     disabled={otherActive || (isMessageReading && isMessageCancelling)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-fg bg-media-btn border border-line-strong hover:brightness-110 rounded-full shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                                                     title={isMessageReading ? tt('tts.button.cancel', 'キャンセル') : tt('tts.button.readAll', '全体読み上げ')}
                                                 >
                                                     {isMessageReading ? (
@@ -1156,7 +1159,7 @@ const MessageItem = React.memo<MessageItemProps>(({
                                                     <button
                                                         onClick={() => onTTSDeleteAudio(msg.id!)}
                                                         disabled={ttsActiveMessageIds.has(msg.id)}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-orange-300 hover:text-white hover:bg-orange-900/30 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-fg bg-surface-solid hover:bg-surface-2 border border-line-strong rounded-full shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                                         title={tt('tts.button.deleteAudio', '音声を削除')}
                                                     >
                                                         <Trash2 size={12} />
@@ -1180,10 +1183,10 @@ const MessageItem = React.memo<MessageItemProps>(({
                         <div
                             data-turn-key={msg.id ? `${msg.id}::0` : undefined}
                             data-msg-id={msg.id}
-                            className="w-full max-w-[85%] bg-blue-800 p-3 rounded-lg border border-blue-500/50"
+                            className="w-full max-w-[85%] bg-surface p-3 rounded-lg border border-accent/50"
                         >
                             <textarea
-                                className="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-blue-500 outline-none resize-none font-sans text-sm leading-relaxed"
+                                className="w-full bg-surface text-fg p-3 rounded-ui border border-line-strong focus:border-accent outline-none resize-none font-read text-sm leading-relaxed"
                                 value={editingState.content}
                                 onChange={(e) => onEditChange(e.target.value)}
                                 rows={Math.max(3, editingState.content.split('\n').length)}
@@ -1192,13 +1195,13 @@ const MessageItem = React.memo<MessageItemProps>(({
                             <div className="flex justify-end gap-2 mt-2">
                                 <button
                                     onClick={onEditCancel}
-                                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                                    className="px-3 py-1.5 text-xs text-fg-muted hover:text-fg transition-colors"
                                 >
                                     {t(COMMON_I18N_KEYS.cancel)}
                                 </button>
                                 <button
                                     onClick={onEditSave}
-                                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors flex items-center gap-1"
+                                    className="px-3 py-1.5 text-xs bg-accent hover:brightness-110 text-on-accent rounded transition-colors flex items-center gap-1"
                                 >
                                     {t(COMMON_I18N_KEYS.save)}
                                 </button>
@@ -1211,21 +1214,23 @@ const MessageItem = React.memo<MessageItemProps>(({
                     <div
                         data-turn-key={msg.id ? `${msg.id}::0` : undefined}
                         data-msg-id={msg.id}
-                        className="group relative p-4 rounded-xl max-w-[85%] shadow-md border border-blue-500/40 text-gray-100"
+                        className="app-bubble group relative p-4 rounded-xl max-w-[85%] shadow-md border border-line-strong text-fg"
                         style={{
-                            backgroundColor: `rgba(30, 58, 138, ${hasActiveBackground ? (settings.messageBubbleOpacity ?? 0.8) : 0.7})`,
+                            backgroundColor: hasActiveBackground
+                                ? `rgb(var(--c-bubble-user-on-image, var(--c-bubble-user)) / ${settings.messageBubbleOpacity ?? 0.8})`
+                                : 'rgb(var(--c-bubble-user) / var(--bubble-alpha-user))',
                         }}
                     >
                         {/* ユーザーメッセージ編集ボタン（モバイル: 常時表示、デスクトップ: ホバー時表示） */}
                         <button
                             onClick={() => onEditStart(msg.id!, 0, text)}
-                            className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-white/20 rounded text-white/60 hover:text-white"
+                            className="absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 hover:bg-surface-2 rounded text-fg-muted hover:text-fg"
                             title={t(MESSAGE_LIST_I18N_KEYS.editThisMessage)}
                         >
                             <Edit2 size={12} />
                         </button>
                         <div
-                            className="whitespace-pre-wrap leading-relaxed"
+                            className="whitespace-pre-wrap leading-relaxed font-read"
                             style={{
                                 fontSize: `${settings.fontSize}px`,
                                 lineHeight: settings.lineHeight || 1.625
@@ -1265,6 +1270,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     enabledFeatures = null,
     actionChoices = null,
     selectedChoice = null,
+    imageGenEnabled = false,
     ttsEnabled = false,
     ttsEmojiList = [],
     getTTSPresetVoiceDesign,
@@ -1397,7 +1403,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         settings.enableBackgroundImage &&
         (settings.backgroundImageFit ?? 'cover') === 'cover' &&
         (settings.backgroundImageScope ?? 'history') === 'chat';
-    const canUseComfyUI = isFeatureEnabled(enabledFeatures, FEATURE_COMFYUI);
+    const canUseComfyUI = imageGenEnabled;
     const canUseActionChoice = isFeatureEnabled(enabledFeatures, FEATURE_ACTION_CHOICE);
     // TTS 読み上げの実行状態（開始・ポーリング・逐次再生・キャンセル・作成済み索引）。
     const buildTTSPlaylist = useStableCallback((): TTSPlaylistEntry[] =>
@@ -1463,8 +1469,18 @@ export const MessageList: React.FC<MessageListProps> = ({
     // 応答の受信後はID付与のための履歴再読み込みで messages が再度変わるため、
     // セッション・件数・本文のいずれかが変わったときだけ先頭へ動かし、読んでいる途中の引き戻しを防ぐ。
     const lastAgentScrollRef = useRef<{ sessionId: string | null | undefined; count: number; content: string } | null>(null);
+    // 直前のコミットまで編集中だったセッション。編集の保存による本文変化を見分けるために使う。
+    const editingSessionRef = useRef<{ sessionId: string | null | undefined } | null>(null);
     useEffect(() => {
         const last = messages[messages.length - 1];
+        // 編集の保存で本文が変わっただけなら、編集していたバブルの位置に留めるため動かさない。
+        const editing = editingSessionRef.current;
+        if (!editingState && editing && editing.sessionId === sessionId) {
+            if (last?.role === 'agent') {
+                lastAgentScrollRef.current = { sessionId, count: messages.length, content: last.content };
+            }
+            return;
+        }
         if (last?.role !== 'agent') {
             lastAgentScrollRef.current = null;
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1476,7 +1492,14 @@ export const MessageList: React.FC<MessageListProps> = ({
         containerRef.current
             ?.querySelector('[data-msg-last="true"]')
             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // 編集の開始・取り消しでは動かさないため、editingState は発火契機にしない。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messages, sessionId]);
+
+    // 上のスクロール処理より後に置き、保存と同じコミットでは更新前の値を読ませる。
+    useEffect(() => {
+        editingSessionRef.current = editingState ? { sessionId } : null;
+    }, [editingState, sessionId]);
 
     useEffect(() => {
         onActiveBackgroundChange?.(useChatAreaBackground ? activeBackgroundUrl : null);
@@ -2032,7 +2055,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 その行動を取ったとしてAIへ返る。「その他」は選択解除＝通常の自由入力。 */}
             {canUseActionChoice && !isLoading && actionChoices && actionChoices.length > 0 && (
                 <div className="relative z-[1] max-w-3xl mr-auto pl-11 space-y-2">
-                    <div className="text-xs text-gray-400">{t(MESSAGE_LIST_I18N_KEYS.actionChoiceTitle)}</div>
+                    <div className="text-xs text-fg-muted">{t(MESSAGE_LIST_I18N_KEYS.actionChoiceTitle)}</div>
                     <div className="flex flex-col gap-2">
                         {actionChoices.map((choice, i) => (
                             <button
@@ -2040,8 +2063,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 onClick={() => onSelectChoice?.(selectedChoice === choice ? null : choice)}
                                 className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
                                     selectedChoice === choice
-                                        ? 'bg-blue-600/30 border-blue-500 text-blue-100'
-                                        : 'bg-gray-900/60 border-gray-700 text-gray-200 hover:border-blue-500 hover:text-white'
+                                        ? 'bg-accent-soft border-accent text-fg'
+                                        : 'bg-panel/60 border-line-strong text-fg hover:border-accent hover:text-fg'
                                 }`}
                             >
                                 {choice}
@@ -2051,8 +2074,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                             onClick={() => onSelectChoice?.(null)}
                             className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
                                 selectedChoice === null
-                                    ? 'bg-gray-700/50 border-gray-500 text-gray-100'
-                                    : 'bg-gray-900/60 border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                                    ? 'bg-surface-2 border-line-strong text-fg'
+                                    : 'bg-panel/60 border-line-strong text-fg-muted hover:border-line-strong hover:text-fg'
                             }`}
                         >
                             {t(MESSAGE_LIST_I18N_KEYS.actionChoiceOther)}
@@ -2071,7 +2094,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 {ttsEnabled && stopButtonVisible && (tts.sequenceActive || tts.playingFinalKey !== null) && (
                     <button
                         onClick={() => tts.stopPlayback()}
-                        className="pointer-events-auto -translate-y-full flex items-center gap-1.5 px-4 py-2.5 text-sm bg-gray-900/90 border border-red-500/60 text-red-300 hover:bg-red-900/40 rounded-full shadow-lg transition-colors"
+                        className="pointer-events-auto -translate-y-full flex items-center gap-1.5 px-4 py-2.5 text-sm bg-panel/90 border border-danger text-danger hover:bg-danger/10 rounded-full shadow-lg transition-colors"
                         title={resolveMessage(uiCatalog, 'tts.button.stopPlayback', '再生を停止')}
                     >
                         <Square size={14} />
@@ -2112,7 +2135,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 e.stopPropagation();
                                 closeExternalImage();
                             }}
-                            className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-red-500 transition-colors"
+                            className="p-2 rounded-lg bg-bg/80 border border-line-strong text-fg hover:text-fg hover:border-danger transition-colors"
                             title={t(MESSAGE_LIST_I18N_KEYS.close)}
                         >
                             <X size={18} />
@@ -2153,7 +2176,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                                     setVisibleTurnKeys(prev => new Set(prev));
                                     closeExpandedImage();
                                 }}
-                                className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-blue-500 transition-colors"
+                                className="p-2 rounded-lg bg-bg/80 border border-line-strong text-fg hover:text-fg hover:border-accent transition-colors"
                                 title={t(MESSAGE_LIST_I18N_KEYS.setAsBackground)}
                             >
                                 <ImageIcon size={18} />
@@ -2164,7 +2187,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 e.stopPropagation();
                                 setShowExpandedPrompt(prev => !prev);
                             }}
-                            className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-purple-500 transition-colors"
+                            className="p-2 rounded-lg bg-bg/80 border border-line-strong text-fg hover:text-fg hover:border-accent transition-colors"
                             title={t(MESSAGE_LIST_I18N_KEYS.showPositivePrompt)}
                         >
                             <FileText size={18} />
@@ -2176,7 +2199,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                                     e.stopPropagation();
                                     setConfirmingDeleteImage(true);
                                 }}
-                                className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-red-500 transition-colors"
+                                className="p-2 rounded-lg bg-bg/80 border border-line-strong text-fg hover:text-fg hover:border-danger transition-colors"
                                 title={t(MESSAGE_LIST_I18N_KEYS.deleteImage)}
                             >
                                 <Trash2 size={18} />
@@ -2187,7 +2210,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 e.stopPropagation();
                                 closeExpandedImage();
                             }}
-                            className="p-2 rounded-lg bg-gray-950/80 border border-gray-700 text-gray-200 hover:text-white hover:border-red-500 transition-colors"
+                            className="p-2 rounded-lg bg-bg/80 border border-line-strong text-fg hover:text-fg hover:border-danger transition-colors"
                             title={t(MESSAGE_LIST_I18N_KEYS.close)}
                         >
                             <X size={18} />
@@ -2203,25 +2226,25 @@ export const MessageList: React.FC<MessageListProps> = ({
                     />
                     {showExpandedPrompt && (
                         <div
-                            className="absolute top-16 right-4 z-30 w-[min(560px,calc(100vw-2rem))] max-h-[70vh] overflow-auto rounded-lg border border-gray-700 bg-gray-950/95 shadow-2xl p-4 cursor-default"
+                            className="absolute top-16 right-4 z-30 w-[min(560px,calc(100vw-2rem))] max-h-[70vh] overflow-auto rounded-lg border border-line-strong bg-bg/95 shadow-2xl p-4 cursor-default"
                             onClick={e => e.stopPropagation()}
                         >
                             <div className="flex items-center justify-between gap-3 mb-3">
-                                <h3 className="text-sm font-semibold text-gray-100">{t(MESSAGE_LIST_I18N_KEYS.positivePrompt)}</h3>
+                                <h3 className="text-sm font-semibold text-fg">{t(MESSAGE_LIST_I18N_KEYS.positivePrompt)}</h3>
                                 <button
                                     onClick={() => setShowExpandedPrompt(false)}
-                                    className="p-1 text-gray-500 hover:text-white transition-colors"
+                                    className="p-1 text-fg-muted hover:text-fg transition-colors"
                                     title={t(MESSAGE_LIST_I18N_KEYS.close)}
                                 >
                                     <X size={16} />
                                 </button>
                             </div>
-                            <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-200 font-mono">
+                            <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-fg font-mono">
                                 {expandedAttachment.resolvedPrompt?.positive || t(MESSAGE_LIST_I18N_KEYS.noSavedPositivePrompt)}
                             </pre>
                             {/* API サービス生成の注意（無料枠超過・日本語・参照画像無視・人数超過など）と生成条件 */}
                             {expandedAttachment.warnings && expandedAttachment.warnings.length > 0 && (
-                                <div className="mt-3 rounded border border-amber-700/60 bg-amber-900/30 px-3 py-2 text-xs text-amber-200 space-y-0.5">
+                                <div className="mt-3 rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn space-y-0.5">
                                     <p className="font-medium">{t(MESSAGE_LIST_I18N_KEYS.imageWarnings)}</p>
                                     {expandedAttachment.warnings.map((key) => <p key={key}>{t(key)}</p>)}
                                 </div>
@@ -2234,12 +2257,12 @@ export const MessageList: React.FC<MessageListProps> = ({
                                 className="mt-3"
                             />
                             {expandedAttachment.backend === 'api' && (
-                                <div className="mt-3 text-xs text-gray-400 space-y-0.5">
-                                    <p className="font-medium text-gray-300">{t(MESSAGE_LIST_I18N_KEYS.imageGenerationInfo)}</p>
-                                    {expandedAttachment.model && <p>Model: <span className="text-gray-200">{expandedAttachment.model}</span></p>}
-                                    {expandedAttachment.presetName && <p>Preset: <span className="text-gray-200">{expandedAttachment.presetName}</span></p>}
-                                    {expandedAttachment.seed !== undefined && <p>Seed: <span className="text-gray-200">{expandedAttachment.seed}</span></p>}
-                                    {expandedAttachment.anlasEstimated !== undefined && <p>Anlas: <span className="text-gray-200">{expandedAttachment.anlasEstimated}</span></p>}
+                                <div className="mt-3 text-xs text-fg-muted space-y-0.5">
+                                    <p className="font-medium text-fg-muted">{t(MESSAGE_LIST_I18N_KEYS.imageGenerationInfo)}</p>
+                                    {expandedAttachment.model && <p>Model: <span className="text-fg">{expandedAttachment.model}</span></p>}
+                                    {expandedAttachment.presetName && <p>Preset: <span className="text-fg">{expandedAttachment.presetName}</span></p>}
+                                    {expandedAttachment.seed !== undefined && <p>Seed: <span className="text-fg">{expandedAttachment.seed}</span></p>}
+                                    {expandedAttachment.anlasEstimated !== undefined && <p>Anlas: <span className="text-fg">{expandedAttachment.anlasEstimated}</span></p>}
                                 </div>
                             )}
                         </div>
@@ -2254,22 +2277,22 @@ export const MessageList: React.FC<MessageListProps> = ({
                             }}
                         >
                             <div
-                                className="bg-gray-900 border border-gray-700 rounded-xl p-5 w-[min(90vw,360px)] shadow-2xl cursor-default"
+                                className="bg-surface-solid border border-line-strong rounded-xl p-5 w-[min(90vw,360px)] shadow-2xl cursor-default"
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                <div className="text-white font-bold mb-2">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmTitle)}</div>
-                                <div className="text-sm text-gray-300 mb-4">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmMessage)}</div>
+                                <div className="text-fg font-bold mb-2">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmTitle)}</div>
+                                <div className="text-sm text-fg-muted mb-4">{t(MESSAGE_LIST_I18N_KEYS.deleteImageConfirmMessage)}</div>
                                 <div className="flex justify-end gap-2">
                                     <button
                                         onClick={() => setConfirmingDeleteImage(false)}
-                                        className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                                        className="px-3 py-1.5 text-xs text-fg-muted hover:text-fg transition-colors"
                                     >
                                         {t(COMMON_I18N_KEYS.cancel)}
                                     </button>
                                     <button
                                         onClick={handleDeleteExpandedImage}
                                         disabled={deletingImage}
-                                        className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="px-3 py-1.5 text-xs bg-danger hover:brightness-110 text-on-accent rounded transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {deletingImage ? (
                                             <Loader2 size={12} className="animate-spin" />

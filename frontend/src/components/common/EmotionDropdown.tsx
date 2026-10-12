@@ -39,16 +39,16 @@ export const EmotionDropdown: React.FC<Props> = ({ emotions, value, onChange, di
                 type="button"
                 disabled={disabled}
                 onClick={() => setIsOpen(v => !v)}
-                className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg p-2 flex items-center justify-between text-left hover:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-surface border border-line-strong text-fg rounded-lg p-2 flex items-center justify-between text-left hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 <span className="truncate">
                     {selected ? (selected.label || selected.name) : value}
                     {selected && !selected.enabled ? disabledSuffix : ''}
                 </span>
-                <ChevronDown size={16} className="text-gray-500 shrink-0 ml-1" />
+                <ChevronDown size={16} className="text-fg-muted shrink-0 ml-1" />
             </button>
             {isOpen && (
-                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto custom-scrollbar bg-gray-800 border border-gray-600 rounded-lg shadow-xl">
+                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto custom-scrollbar bg-surface border border-line-strong rounded-lg shadow-xl">
                     {emotions.map(emotion => {
                         const isSelected = emotion.name === value;
                         return (
@@ -56,14 +56,14 @@ export const EmotionDropdown: React.FC<Props> = ({ emotions, value, onChange, di
                                 key={emotion.name}
                                 type="button"
                                 onClick={() => { onChange(emotion.name); setIsOpen(false); }}
-                                className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-blue-600/30 text-blue-200' : 'text-gray-200 hover:bg-gray-700'}`}
+                                className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-accent-soft text-fg' : 'text-fg hover:bg-surface-2'}`}
                             >
                                 <div className="text-sm font-medium">
                                     {emotion.label || emotion.name}
-                                    {emotion.enabled ? '' : <span className="text-amber-400">{disabledSuffix}</span>}
+                                    {emotion.enabled ? '' : <span className="text-warn">{disabledSuffix}</span>}
                                 </div>
                                 {emotion.description && (
-                                    <div className={`text-xs mt-0.5 ${isSelected ? 'text-blue-200/70' : 'text-gray-400'}`}>{emotion.description}</div>
+                                    <div className={`text-xs mt-0.5 ${isSelected ? 'text-fg/70' : 'text-fg-muted'}`}>{emotion.description}</div>
                                 )}
                             </button>
                         );

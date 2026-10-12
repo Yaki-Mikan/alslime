@@ -1,7 +1,7 @@
 /**
  * BackendTabs.tsx - 画像生成バックエンドの切替タブ（ComfyUI ／ API サービス）
  *
- * 画像生成設定・統合設定・左メニューの各画面の最上部に置く共通部品。
+ * 設定画面の画像生成と、準備・調整欄の画像生成の欄の最上部に置く共通部品。
  * 選択は全画面で共用する 1 つの値（imageBackend / apiService）で、変更は即時保存する
  * （GET → 差し替え → PUT。他画面の項目を落とさない）。API サービス側はタブ直下に
  * サービス選択のプルダウンを出す。
@@ -95,7 +95,7 @@ export const BackendTabs: React.FC<BackendTabsProps> = ({
 
     return (
         <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
-            <div className="flex rounded-lg border border-gray-700 bg-gray-800 p-1" role="tablist">
+            <div className="flex rounded-lg border border-line-strong bg-surface p-1" role="tablist">
                 {tabs.map((tab) => {
                     const selected = imageBackend === tab.value;
                     return (
@@ -110,7 +110,7 @@ export const BackendTabs: React.FC<BackendTabsProps> = ({
                                 void persist({ imageBackend: tab.value, apiService });
                             }}
                             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded transition-colors disabled:opacity-60 ${
-                                selected ? 'bg-green-700 text-white' : 'text-gray-300 hover:bg-gray-700'
+                                selected ? 'bg-accent text-on-accent' : 'text-fg-muted hover:bg-surface-2'
                             }`}
                         >
                             {isSaving && selected ? <Loader2 size={14} className="animate-spin" /> : tab.icon}
@@ -121,12 +121,12 @@ export const BackendTabs: React.FC<BackendTabsProps> = ({
             </div>
             {imageBackend === 'api' && (
                 <label className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 shrink-0">{BACKEND.LABELS.SERVICE}</span>
+                    <span className="text-xs text-fg-muted shrink-0">{BACKEND.LABELS.SERVICE}</span>
                     <select
                         value={apiService}
                         disabled={isSaving}
                         onChange={(e) => void persist({ imageBackend, apiService: normalizeApiService(e.target.value) })}
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-green-500 transition-colors disabled:opacity-60"
+                        className="flex-1 bg-surface border border-line-strong rounded-lg px-3 py-1.5 text-sm text-fg outline-none focus:border-accent transition-colors disabled:opacity-60"
                     >
                         {API_SERVICES.map((s) => (
                             <option key={s.id} value={s.id}>{s.label}</option>
@@ -135,7 +135,7 @@ export const BackendTabs: React.FC<BackendTabsProps> = ({
                 </label>
             )}
             {error && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-red-900/30 border border-red-700/50 text-red-300">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-danger/10 border border-danger/40 text-danger">
                     <AlertCircle size={12} />
                     {error}
                 </div>

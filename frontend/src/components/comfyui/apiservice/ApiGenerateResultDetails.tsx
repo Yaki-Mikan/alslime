@@ -26,7 +26,7 @@ export const ApiGenerateResultDetails: React.FC<Props> = ({ result, uiCatalog = 
     return (
         <div className="space-y-2">
             {warnings.length > 0 && (
-                <div className="bg-amber-900/30 border border-amber-700/60 rounded-lg px-3 py-2 text-xs text-amber-200 space-y-1">
+                <div className="bg-warn/10 border border-warn/40 rounded-lg px-3 py-2 text-xs text-warn space-y-1">
                     <div className="flex items-center gap-1 font-medium">
                         <AlertTriangle size={12} />
                         {GENERATE_TEST.LABELS.WARNINGS}
@@ -36,29 +36,29 @@ export const ApiGenerateResultDetails: React.FC<Props> = ({ result, uiCatalog = 
                     ))}
                 </div>
             )}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
                 {result.anlasEstimated !== undefined && (
-                    <span>{GENERATE_TEST.LABELS.ANLAS_ESTIMATE}: <span className="text-gray-200">{result.anlasEstimated}</span></span>
+                    <span>{GENERATE_TEST.LABELS.ANLAS_ESTIMATE}: <span className="text-fg">{result.anlasEstimated}</span></span>
                 )}
-                {result.model && <span>Model: <span className="text-gray-200">{result.model}</span></span>}
-                {result.seed !== undefined && <span>Seed: <span className="text-gray-200">{result.seed}</span></span>}
-                {result.presetName && <span>{GENERATE_TEST.LABELS.PRESET}: <span className="text-gray-200">{result.presetName}</span></span>}
+                {result.model && <span>Model: <span className="text-fg">{result.model}</span></span>}
+                {result.seed !== undefined && <span>Seed: <span className="text-fg">{result.seed}</span></span>}
+                {result.presetName && <span>{GENERATE_TEST.LABELS.PRESET}: <span className="text-fg">{result.presetName}</span></span>}
             </div>
             <SoundEffectsSummary soundEffects={result.soundEffects} status={result.soundEffectsStatus} uiCatalog={uiCatalog} />
             {persons.length > 0 && (
-                <div className="border border-gray-700 rounded-lg overflow-hidden text-xs">
+                <div className="border border-line-strong rounded-lg overflow-hidden text-xs">
                     <button
                         onClick={() => setShowPersons(!showPersons)}
-                        className="w-full flex items-center gap-1 px-3 py-1.5 bg-gray-800/70 hover:bg-gray-800 text-gray-400 transition-colors"
+                        className="w-full flex items-center gap-1 px-3 py-1.5 bg-surface hover:bg-surface text-fg-muted transition-colors"
                     >
                         {showPersons ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                         {GENERATE_TEST.LABELS.PERSON_PROMPTS} ({persons.length})
                     </button>
                     {showPersons && persons.map((person, idx) => (
-                        <div key={idx} className="px-3 py-2 bg-gray-800/30 border-t border-gray-700 space-y-0.5">
-                            {person.label && <p className="text-gray-400 font-medium">{person.label}</p>}
-                            <p className="text-gray-300 break-all">{person.positive || GENERATE_TEST.PLACEHOLDERS.NONE}</p>
-                            {person.negative && <p className="text-red-300/80 break-all">{person.negative}</p>}
+                        <div key={idx} className="px-3 py-2 bg-surface border-t border-line-strong space-y-0.5">
+                            {person.label && <p className="text-fg-muted font-medium">{person.label}</p>}
+                            <p className="text-fg-muted break-all">{person.positive || GENERATE_TEST.PLACEHOLDERS.NONE}</p>
+                            {person.negative && <p className="text-danger/80 break-all">{person.negative}</p>}
                         </div>
                     ))}
                 </div>

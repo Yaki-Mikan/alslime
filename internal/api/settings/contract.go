@@ -8,6 +8,7 @@ const (
 	routeSettingsGlobal    = "/settings/global"
 	routeSettings          = "/settings"
 	routeSettingsServer    = "/settings/server"
+	routeServerCLICheck    = "/settings/server/cli-check"
 	routeRelationships     = "/settings/relationships"
 	routeReplacementConfig = "/settings/replacement-config"
 	routeLanguage          = "/settings/language/{lang}"
@@ -22,4 +23,5 @@ const (
 	errKeyInvalidLang     = i18n.KeyErrorInvalidLang
 	errKeyInvalidPort     = i18n.KeyErrorInvalidServerPort
 	errKeyInvalidBind     = i18n.KeyErrorInvalidBindAddress
+	errKeyUnknownCLI      = i18n.KeyErrorUnknownCLI
 )

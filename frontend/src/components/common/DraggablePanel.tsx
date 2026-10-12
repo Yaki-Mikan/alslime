@@ -35,16 +35,16 @@ const readStoredPosition = (storageKey: string): Position | null => {
 
 const ACCENT_CLASSES: Record<DraggablePanelAccent, { border: string; bar: string; title: string; grip: string }> = {
     orange: {
-        border: 'border-orange-700/60',
-        bar: 'border-b border-orange-800/60 bg-orange-950/40',
-        title: 'text-orange-200',
-        grip: 'text-orange-400/70',
+        border: 'border-line-strong',
+        bar: 'border-b border-line-strong bg-accent-soft',
+        title: 'text-fg',
+        grip: 'text-accent/70',
     },
     pink: {
-        border: 'border-pink-700/60',
-        bar: 'border-b border-pink-800/60 bg-pink-950/40',
-        title: 'text-pink-200',
-        grip: 'text-pink-400/70',
+        border: 'border-line-strong',
+        bar: 'border-b border-line-strong bg-accent-soft',
+        title: 'text-fg',
+        grip: 'text-accent/70',
     },
 };
 
@@ -130,7 +130,7 @@ export const DraggablePanel: React.FC<Props> = ({
                     {isWide && <GripHorizontal size={14} className={`${colors.grip} shrink-0`} />}
                     <h2 className={`text-sm font-bold truncate ${colors.title}`}>{title}</h2>
                 </div>
-                <button onClick={onClose} onPointerDown={e => e.stopPropagation()} className="p-1 text-gray-400 hover:text-white rounded" title={closeTitle}>
+                <button onClick={onClose} onPointerDown={e => e.stopPropagation()} className="p-1 text-fg-muted hover:text-fg rounded" title={closeTitle}>
                     <X size={16} />
                 </button>
             </div>
@@ -140,7 +140,7 @@ export const DraggablePanel: React.FC<Props> = ({
             </div>
 
             {footer && (
-                <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-gray-800">
+                <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-line">
                     {footer}
                 </div>
             )}
@@ -150,7 +150,7 @@ export const DraggablePanel: React.FC<Props> = ({
     if (!isWide) {
         return (
             <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center bg-black/70 backdrop-blur-sm p-4`}>
-                <div className={`bg-gray-900 border ${colors.border} rounded-lg shadow-xl w-full h-full flex flex-col`}>
+                <div className={`bg-surface border ${colors.border} rounded-lg shadow-xl w-full h-full flex flex-col`}>
                     {body}
                 </div>
                 {extra}
@@ -163,7 +163,7 @@ export const DraggablePanel: React.FC<Props> = ({
             <div
                 ref={panelRef}
                 style={pos ? { left: pos.x, top: pos.y } : undefined}
-                className={`fixed ${zIndexClass} ${widthClass} max-w-[calc(100vw-2rem)] ${maxHeightClass} bg-gray-900 border ${colors.border} rounded-lg shadow-2xl flex flex-col ${pos ? '' : 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2'}`}
+                className={`fixed ${zIndexClass} ${widthClass} max-w-[calc(100vw-2rem)] ${maxHeightClass} bg-surface border ${colors.border} rounded-lg shadow-2xl flex flex-col ${pos ? '' : 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2'}`}
             >
                 {body}
             </div>

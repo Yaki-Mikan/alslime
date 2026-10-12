@@ -38,14 +38,14 @@ export const IdentityOutputPreview: React.FC<IdentityOutputPreviewProps> = ({
 
     return (
         <div className="space-y-0.5 text-xs" data-testid="identity-output-preview">
-            <p className="text-gray-600">{CHARACTER.HELP.IDENTITY_OUTPUT_DESC}</p>
-            <p className="text-gray-500">
+            <p className="text-fg-muted">{CHARACTER.HELP.IDENTITY_OUTPUT_DESC}</p>
+            <p className="text-fg-muted">
                 {CHARACTER.LABELS.OUTPUT_COMFYUI}:{' '}
-                <code className="text-green-300 break-all">{comfyOutput || CHARACTER.LABELS.OUTPUT_EMPTY}</code>
+                <code className="text-ok break-all">{comfyOutput || CHARACTER.LABELS.OUTPUT_EMPTY}</code>
             </p>
-            <p className="text-gray-500">
+            <p className="text-fg-muted">
                 {CHARACTER.LABELS.OUTPUT_API}:{' '}
-                <code className="text-pink-300 break-all">{apiOutput || CHARACTER.LABELS.OUTPUT_EMPTY}</code>
+                <code className="text-accent break-all">{apiOutput || CHARACTER.LABELS.OUTPUT_EMPTY}</code>
             </p>
         </div>
     );

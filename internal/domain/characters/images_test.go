@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,6 +60,23 @@ func TestImageServiceUploadListDelete(t *testing.T) {
 	}
 	if images.Images["喜び"].HasOriginal {
 		t.Fatalf("original should be deleted: %#v", images.Images["喜び"])
+	}
+}
+
+func TestImageServiceStaticImageMissingIsNotExist(t *testing.T) {
+	root := t.TempDir()
+	svc := NewImageService(paths.NewResolver(root))
+	// 画像フォルダごと無いキャラ（画像未登録）の表情アイコンを問い合わせても、
+	// 境界外の拒否ではなく not found として返ること。
+	if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(config.CharacterListDir), "Alice"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if _, err := svc.StaticImage("Alice", "images/icons/default.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected fs.ErrNotExist, got %v", err)
+	}
+	// キャラのフォルダ自体が無い場合も同じ扱いになること。
+	if _, err := svc.StaticImage("Bob", "images/icons/default.png"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected fs.ErrNotExist for missing character, got %v", err)
 	}
 }
 

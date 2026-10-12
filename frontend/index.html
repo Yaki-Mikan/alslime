@@ -1,12 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja" data-design="minimal" data-mode="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/icons/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" href="/icons/favicon-32.png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/icons/app-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#08090a" />
     <title>AlSlime</title>
+    <script>
+      // 設定を API から読み終えるまでの見た目のちらつきを防ぐため、前回のデザインと明るさを先に当てる。
+      // 正本は API 側の設定。読めない・壊れているときは既定（ミニマル・ダーク）のまま。
+      (function () {
+        var design = 'minimal';
+        var theme = 'dark';
+        try {
+          var saved = JSON.parse(localStorage.getItem('alslime.appearance') || '{}');
+          if (saved.design === 'wa' || saved.design === 'glass') design = saved.design;
+          if (saved.theme === 'light' || saved.theme === 'system') theme = saved.theme;
+        } catch (e) {
+          // 既定のまま
+        }
+        if (theme === 'system') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-design', design);
+        document.documentElement.setAttribute('data-mode', theme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

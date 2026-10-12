@@ -1,15 +1,15 @@
 /**
- * ImageGenDrawerControls.tsx - 左メニュー用の画像生成ジョブ単位とタグ有効/無効設定
+ * ImageGenDrawerControls.tsx - クイック設定の画像生成ジョブの単位・自動生成・タグの有効/無効
  *
- * StatusDrawer 内で開閉するパネル（他のパネルと同じ器。デフォルト閉）。画像生成ジョブの
- * 単位（分析と生成をまとめて 1 ジョブ／分析と生成を分ける）は背景画像の縮尺と同じ
- * 横並び 2 ボタンで選び、変更は config 全体を読み直して該当キーだけ差し替えて即時保存する
+ * クイック設定の欄に並べる部品（ほかの部品と同じ開閉式の器。既定は閉）。画像生成ジョブの
+ * 単位（分析と生成をまとめて 1 ジョブ／分析と生成を分ける）は横並び 2 ボタンで選び、
+ * 変更は config 全体を読み直して該当キーだけ差し替えて即時保存する
  * （タグ判定・ワークフロー設定パネルと同じ規約。連続した変更で古い読み直しが新しい保存を
  * 上書きしないよう直列化する）。
- * タグ有効/無効設定はボタンから ComfyUITagEnableModal を開く。
- * StatusDrawer は閉じても中身を捨てないため、パネルを開いたままドロワーを閉じて開き直した
- * 場合も他画面での変更を拾えるよう、ドロワーの開閉状態を active で受け取り、パネルが
- * 開いていてドロワーが開くたびに設定を読み直す。表示条件（支援者機能・モジュール連携）は
+ * タグの有効・無効は、ボタンからその場の窓（TagEnableModal）を開いて切り替える。
+ * 窓の「素材づくりで編集」から、素材づくりのタグのタブへ移れる（onOpenTags）。
+ * クイック設定の欄は閉じても中身を捨てないため、欄の開閉状態を active で受け取り、
+ * 欄が開くたびに設定を読み直す（ほかの画面での変更を拾う）。表示条件（支援者機能・モジュール連携）は
  * Chat 側で判定して渡す。
  */
 
@@ -17,8 +17,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronRight, Layers, ListChecks } from 'lucide-react';
 import { getComfyUIConfig, saveComfyUIConfig } from '../../api/comfyui';
 import type { ComfyUIConfig, ImageJobMode } from '../../api/comfyui';
-import { ComfyUITagEnableModal } from './ComfyUITagEnableModal';
 import { ToggleSwitch } from '../common/ToggleSwitch';
+import { TagEnableModal } from './TagEnableModal';
 import { AutoSoundEffectsToggle } from './apiservice/AutoSoundEffectsToggle';
 import { createComfyUIText } from './i18n';
 import type { I18NCatalog } from '../../api/i18n';
@@ -26,27 +26,29 @@ import type { I18NCatalog } from '../../api/i18n';
 interface Props {
     backendUrl: string;
     uiCatalog?: I18NCatalog | null;
-    // ドロワーが開いているか。true になるたびに設定を読み直す（未指定なら常に有効）。
+    // クイック設定の欄が開いているか。true になるたびに設定を読み直す（未指定なら常に有効）。
     active?: boolean;
+    // 素材づくりのタグのタブを開く（未指定なら、タグの窓に「素材づくりで編集」を出さない）
+    onOpenTags?: () => void;
 }
 
 // 設定に無い・想定外の値は既定（まとめて 1 ジョブ）として扱う
 const normalizeImageJobMode = (value: unknown): ImageJobMode => (value === 'split' ? 'split' : 'combined');
 
-export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true }) => {
+export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog = null, active = true, onOpenTags }) => {
     const { COMMON, SECTION_NAMES } = createComfyUIText(uiCatalog);
     const [isOpen, setIsOpen] = useState(false);
+    const [isTagEnableOpen, setIsTagEnableOpen] = useState(false);
     const [imageJobMode, setImageJobMode] = useState<ImageJobMode>('combined');
     // 応答時の自動画像生成（設定に無ければ無効として扱う）
     const [autoGenerateEnabled, setAutoGenerateEnabled] = useState(false);
     // 開くたびに読み直した設定（自動効果音描画のトグルへ渡す。同じ設定を二重に読まないため）
     const [loadedConfig, setLoadedConfig] = useState<ComfyUIConfig | null>(null);
-    const [isTagEnableOpen, setIsTagEnableOpen] = useState(false);
     const [notice, setNotice] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null);
     // 保存の直列化（読み直し→書き込みの組が交差しないようにする）
     const saveChain = useRef<Promise<void>>(Promise.resolve());
 
-    // パネルを開いたとき、および開いたままドロワーが開き直されるたびに現在の設定を読み込む
+    // パネルを開いたとき、および開いたままクイック設定の欄が開き直されるたびに現在の設定を読み込む
     // （閉じている間の他画面での変更を拾う）。
     useEffect(() => {
         if (!isOpen || !active) return;
@@ -122,19 +124,19 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
     ];
 
     return (
-        <div className="border border-gray-700/60 rounded-lg overflow-hidden bg-gray-800/40">
+        <div className="border border-line-strong rounded-lg overflow-hidden bg-surface">
             {/* 開閉ヘッダ（タグ判定・ワークフロー設定パネルと同じ器） */}
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700/60 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2 transition-colors text-left"
             >
                 {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <Layers size={14} className="text-green-400" />
+                <Layers size={14} className="text-accent" />
                 <span>{COMMON.BUTTONS.IMAGE_JOB_MODE}</span>
             </button>
             {isOpen && (
-                <div className="p-3 border-t border-gray-700/60 space-y-3">
+                <div className="p-3 border-t border-line-strong space-y-3">
                     {/* 画像生成ジョブの単位（背景画像の縮尺と同じ横並び 2 ボタン。変更は即時保存） */}
                     <div className="space-y-1">
                         <div className="flex gap-2">
@@ -146,16 +148,16 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
                                     onClick={() => handleChangeImageJobMode(row.value)}
                                     className={`flex-1 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                                         imageJobMode === row.value
-                                            ? 'bg-blue-600/30 border-blue-500 text-blue-200'
-                                            : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                                            ? 'bg-accent-soft border-accent text-fg'
+                                            : 'bg-surface border-line-strong text-fg-muted hover:border-line-strong'
                                     }`}
                                 >
                                     {row.label}
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs text-gray-600">{imageJobModeDescription}</p>
-                        <p className="text-xs text-gray-600">{COMMON.BUTTONS.IMAGE_JOB_MODE_NOTE}</p>
+                        <p className="text-xs text-fg-muted">{imageJobModeDescription}</p>
+                        <p className="text-xs text-fg-muted">{COMMON.BUTTONS.IMAGE_JOB_MODE_NOTE}</p>
                         {/* 応答時の自動画像生成（TTS の自動読み上げと同じ即時保存トグル） */}
                         <div className="pt-2 space-y-1">
                             <ToggleSwitch
@@ -165,7 +167,7 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
                                 labelPosition="right"
                                 accent="green"
                             />
-                            <p className="text-xs text-gray-600">{COMMON.BUTTONS.AUTO_GENERATE_DESCRIPTION}</p>
+                            <p className="text-xs text-fg-muted">{COMMON.BUTTONS.AUTO_GENERATE_DESCRIPTION}</p>
                         </div>
                         {/* 自動効果音描画（API サービスを選んでいるときだけ出す。値は設定画面のトグルと同じ） */}
                         <AutoSoundEffectsToggle
@@ -176,33 +178,33 @@ export const ImageGenDrawerControls: React.FC<Props> = ({ backendUrl, uiCatalog 
                             source={loadedConfig}
                         />
                         {notice && (
-                            <span className={`flex items-center gap-1 text-xs ${notice.kind === 'saved' ? 'text-green-400' : 'text-red-300'}`}>
+                            <span className={`flex items-center gap-1 text-xs ${notice.kind === 'saved' ? 'text-ok' : 'text-danger'}`}>
                                 {notice.kind === 'saved' ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
                                 {notice.text}
                             </span>
                         )}
                     </div>
 
-                    {/* タグ有効/無効設定（カテゴリ横断のトグル一覧を別モーダルで開く） */}
-                    <div className="space-y-1 pt-3 border-t border-gray-700/60">
+                    {/* タグの有効・無効（その場で開く窓で切り替える。中身の編集は窓から素材づくりへ移る） */}
+                    <div className="space-y-1 pt-3 border-t border-line-strong">
                         <button
                             type="button"
                             onClick={() => setIsTagEnableOpen(true)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-cyan-600 rounded-lg text-sm text-gray-300 transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-surface hover:bg-surface-2 border border-accent rounded-lg text-sm text-fg-muted transition-colors"
                         >
-                            <ListChecks size={14} className="text-cyan-400" />
+                            <ListChecks size={14} className="text-accent" />
                             {SECTION_NAMES.TAG_ENABLE}
                         </button>
-                        <p className="text-xs text-gray-500">{COMMON.MESSAGES.TAG_ENABLE_DESC}</p>
+                        <p className="text-xs text-fg-muted">{COMMON.MESSAGES.TAG_ENABLE_DESC}</p>
                     </div>
                 </div>
             )}
-
-            <ComfyUITagEnableModal
+            <TagEnableModal
                 isOpen={isTagEnableOpen}
                 onClose={() => setIsTagEnableOpen(false)}
                 backendUrl={backendUrl}
                 uiCatalog={uiCatalog}
+                onOpenMaterial={onOpenTags}
             />
         </div>
     );

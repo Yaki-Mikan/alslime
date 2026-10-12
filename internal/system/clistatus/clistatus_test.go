@@ -1,23 +1,32 @@
 package clistatus
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"alslime/internal/config"
 	"alslime/internal/system/cliauth"
+	"alslime/internal/system/cliresolve"
 	"alslime/internal/system/diagnostics"
 )
 
+// resolved は指定パスへ解決できた起動パス解決を返す。
+func resolved(path string) func() (string, error) {
+	return func() (string, error) { return path, nil }
+}
+
+// failing は指定エラーで失敗する起動パス解決を返す。
+func failing(err error) func() (string, error) {
+	return func() (string, error) { return "", err }
+}
+
 func TestCheck_AllCLIsFound(t *testing.T) {
-	t.Setenv("AGY_PATH", filepath.Join(t.TempDir(), "agy.exe"))
 	checker := Checker{
-		GOOS: "windows",
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("bin", command), nil
-		},
+		GOOS:               "windows",
+		ResolveGemini:      resolved(filepath.Join("bin", "gemini.cmd")),
+		ResolveClaude:      resolved(filepath.Join("bin", "claude.exe")),
+		ResolveAntigravity: resolved(filepath.Join("bin", "agy.exe")),
 		Stat: func(string) (os.FileInfo, error) {
 			return nil, nil
 		},
@@ -33,10 +42,18 @@ func TestCheck_AllCLIsFound(t *testing.T) {
 			t.Fatalf("cli unexpected: %#v", cli)
 		}
 	}
-	// openai_compat は接続先読み出し口が未設定 → 未構成の warning。認証段階は常に ok。
+	// 表示用のコマンドは解決結果のファイル名だけ（ディレクトリは出さない）。
+	for i, want := range []string{"gemini.cmd", "claude.exe", "agy.exe"} {
+		if got.CLIs[i].Command != want {
+			t.Fatalf("command[%d]=%q want %q", i, got.CLIs[i].Command, want)
+		}
+	}
+	// openai_compat は接続先読み出し口が未設定 → 未構成の warning。
+	// 認証の段階は持たず、名前は文言キーで表示言語に合わせる。
 	compat := got.CLIs[3]
 	if compat.ID != "openai_compat" || compat.Status != diagnostics.CheckWarning ||
-		compat.MessageKey != "cli.openaiCompat.notConfigured" || compat.AuthStatus != "ok" {
+		compat.MessageKey != "cli.openaiCompat.notConfigured" || compat.AuthStatus != "" ||
+		compat.LabelKey != "cli.openaiCompat.label" {
 		t.Fatalf("openai_compat unexpected: %#v", compat)
 	}
 	// 認証: Stat が常に存在を返すため Gemini/Claude は ok、
@@ -50,16 +67,12 @@ func TestCheck_AllCLIsFound(t *testing.T) {
 }
 
 func TestCheck_MissingCLIIsWarning(t *testing.T) {
-	t.Setenv("AGY_PATH", "")
 	checker := Checker{
-		HomeDir: t.TempDir(),
-		GOOS:    "linux",
-		LookPath: func(command string) (string, error) {
-			if command == "gemini" {
-				return "/usr/bin/gemini", nil
-			}
-			return "", errors.New("not found")
-		},
+		HomeDir:            t.TempDir(),
+		GOOS:               "linux",
+		ResolveGemini:      resolved("/usr/bin/gemini"),
+		ResolveClaude:      failing(cliresolve.ErrNotFound),
+		ResolveAntigravity: failing(cliresolve.ErrNotFound),
 	}
 
 	got := checker.Check()
@@ -69,50 +82,52 @@ func TestCheck_MissingCLIIsWarning(t *testing.T) {
 	if got.CLIs[0].Status != diagnostics.CheckOK {
 		t.Fatalf("gemini should be ok: %#v", got.CLIs[0])
 	}
-	if got.CLIs[1].Status != diagnostics.CheckWarning || got.CLIs[2].Status != diagnostics.CheckWarning {
-		t.Fatalf("missing cli should be warning: %#v", got.CLIs)
+	for _, cli := range got.CLIs[1:3] {
+		if cli.Status != diagnostics.CheckWarning || cli.MessageKey != "diagnostics.cliNotFound" || cli.Command != "" {
+			t.Fatalf("missing cli should be warning: %#v", cli)
+		}
 	}
 }
 
-func TestCheck_AntigravityWindowsDefaultPathUsesExe(t *testing.T) {
-	t.Setenv("AGY_PATH", "")
-	home := t.TempDir()
+func TestCheck_起動パス解決が無いCLIは未検出(t *testing.T) {
+	got := Checker{HomeDir: t.TempDir(), GOOS: "linux"}.Check()
+	for _, cli := range got.CLIs[:3] {
+		if cli.Status != diagnostics.CheckWarning || cli.MessageKey != "diagnostics.cliNotFound" {
+			t.Fatalf("cli without resolver should be not found: %#v", cli)
+		}
+	}
+}
+
+func TestCheck_設定パスが無効なら設定不備として返す(t *testing.T) {
 	checker := Checker{
-		HomeDir: home,
-		GOOS:    "windows",
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("bin", command), nil
-		},
-		Stat: func(path string) (os.FileInfo, error) {
-			// antigravity 発見の既定パスのみ存在扱い。
-			// 認証チェック（Gemini/Claude のホーム認証ファイル）は存在しない扱い。
-			want := filepath.Join(home, "AppData", "Local", "agy", "bin", "agy.exe")
-			if path == want {
-				return nil, nil
-			}
+		GOOS:               "windows",
+		ResolveGemini:      failing(cliresolve.ErrConfiguredPathInvalid),
+		ResolveClaude:      failing(cliresolve.ErrConfiguredPathInvalid),
+		ResolveAntigravity: failing(cliresolve.ErrConfiguredPathInvalid),
+		Stat: func(string) (os.FileInfo, error) {
 			return nil, os.ErrNotExist
 		},
 	}
 
 	got := checker.Check()
-	agy := got.CLIs[2]
-	if agy.Status != diagnostics.CheckOK || agy.Command != "agy.exe" {
-		t.Fatalf("antigravity unexpected: %#v", agy)
-	}
-	// Windows の Antigravity 認証は資格ストアのため unknown。
-	if agy.AuthStatus != "unknown" {
-		t.Fatalf("antigravity auth should be unknown: %#v", agy)
+	for _, cli := range got.CLIs[:3] {
+		if cli.Status != diagnostics.CheckWarning || cli.MessageKey != "diagnostics.cliConfiguredPathMissing" {
+			t.Fatalf("configured path invalid unexpected: %#v", cli)
+		}
+		if cli.Command != "" {
+			t.Fatalf("configured path must not leak: %#v", cli)
+		}
 	}
 }
 
 func TestCheck_未認証はloginRequiredを載せる(t *testing.T) {
 	home := t.TempDir() // 認証ファイルを一切置かない
 	checker := Checker{
-		HomeDir: home,
-		GOOS:    "linux",
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("/usr/bin", command), nil // 発見は全部OK
-		},
+		HomeDir:            home,
+		GOOS:               "linux",
+		ResolveGemini:      resolved("/usr/bin/gemini"), // 発見は全部OK
+		ResolveClaude:      resolved("/usr/bin/claude"),
+		ResolveAntigravity: resolved("/usr/bin/agy"),
 	}
 
 	got := checker.Check()
@@ -144,11 +159,9 @@ func TestCheck_認証済みならmessageKeyを載せない(t *testing.T) {
 		t.Fatalf("write 失敗: %v", err)
 	}
 	checker := Checker{
-		HomeDir: home,
-		GOOS:    "linux",
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("/usr/bin", command), nil
-		},
+		HomeDir:       home,
+		GOOS:          "linux",
+		ResolveGemini: resolved("/usr/bin/gemini"),
 	}
 
 	got := checker.Check()
@@ -167,9 +180,7 @@ func TestCheck_WORKSPACE配置がデフォルトより優先(t *testing.T) {
 		HomeDir:       home,
 		GOOS:          "linux",
 		WorkspaceAuth: cliauth.WorkspacePaths{Claude: wsClaude},
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("/usr/bin", command), nil
-		},
+		ResolveClaude: resolved("/usr/bin/claude"),
 	}
 
 	got := checker.Check()
@@ -178,28 +189,19 @@ func TestCheck_WORKSPACE配置がデフォルトより優先(t *testing.T) {
 	}
 }
 
-func TestCheck_AntigravityConfiguredPathMissing(t *testing.T) {
-	configuredPath := filepath.Join(t.TempDir(), "missing-agy.exe")
-	t.Setenv("AGY_PATH", configuredPath)
-	checker := Checker{
-		GOOS: "windows",
-		LookPath: func(command string) (string, error) {
-			return filepath.Join("bin", command), nil
-		},
-		Stat: func(string) (os.FileInfo, error) {
-			return nil, os.ErrNotExist
-		},
-	}
+func TestNew_起動パス解決をそのまま使う(t *testing.T) {
+	checker := New(cliauth.WorkspacePaths{}, Resolvers{
+		Gemini:      resolved("/opt/gemini"),
+		Claude:      resolved("/opt/claude"),
+		Antigravity: resolved("/opt/agy"),
+	}, nil)
+	checker.HomeDir = t.TempDir()
+	checker.GOOS = "linux"
 
 	got := checker.Check()
-	agy := got.CLIs[2]
-	if agy.ID != "antigravity" || agy.Status != diagnostics.CheckWarning || agy.MessageKey != "diagnostics.cliConfiguredPathMissing" {
-		t.Fatalf("antigravity unexpected: %#v", agy)
-	}
-	if agy.Command == configuredPath {
-		t.Fatalf("configured absolute path leaked: %#v", agy)
-	}
-	if agy.Command != "missing-agy.exe" {
-		t.Fatalf("command=%q want basename", agy.Command)
+	for i, want := range []string{"gemini", "claude", "agy"} {
+		if got.CLIs[i].Status != diagnostics.CheckOK || got.CLIs[i].Command != want {
+			t.Fatalf("cli[%d] unexpected: %#v", i, got.CLIs[i])
+		}
 	}
 }

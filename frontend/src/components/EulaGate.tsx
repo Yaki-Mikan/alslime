@@ -135,18 +135,18 @@ export function EulaGate({ children }: EulaGateProps) {
 
     if (status === 'loading') {
         return (
-            <div className="h-screen overflow-y-auto flex items-center justify-center bg-gray-900 text-white">
+            <div className="h-screen overflow-y-auto flex items-center justify-center bg-surface text-fg">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
-                    <p className="text-gray-400">{t(COMMON_I18N_KEYS.loading)}</p>
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
+                    <p className="text-fg-muted">{t(COMMON_I18N_KEYS.loading)}</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4 overflow-y-auto">
-            <div className="bg-gray-800 p-8 rounded-2xl shadow-xl max-w-lg w-full space-y-6 my-auto">
+        <div className="h-screen flex flex-col items-center justify-center bg-surface text-fg p-4 overflow-y-auto">
+            <div className="bg-surface p-8 rounded-2xl shadow-xl max-w-lg w-full space-y-6 my-auto">
                 <div className="flex justify-center">
                     <img src="/icons/app-192.png" alt="AlSlime" className="w-20 h-20" />
                 </div>
@@ -154,48 +154,48 @@ export function EulaGate({ children }: EulaGateProps) {
 
                 {/* 言語設定（変更は即時反映） */}
                 <div className="flex items-center gap-2">
-                    <Languages size={16} className="text-blue-400 shrink-0" />
+                    <Languages size={16} className="text-accent shrink-0" />
                     <div className="relative flex-1">
                         <select
                             value={uiLanguage}
                             onChange={(e) => handleLanguageChange(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none focus:border-blue-500 appearance-none cursor-pointer hover:bg-gray-700 pr-8"
+                            className="w-full bg-surface border border-line-strong rounded-lg px-3 py-2 text-sm text-fg outline-none focus:border-accent appearance-none cursor-pointer hover:bg-surface-2 pr-8"
                         >
                             {uiLanguageOptions.map(option => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                         </select>
-                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
                     </div>
                 </div>
 
-                <p className="text-gray-300 text-sm">{t(APP_I18N_KEYS.eulaIntro)}</p>
+                <p className="text-fg-muted text-sm">{t(APP_I18N_KEYS.eulaIntro)}</p>
 
                 <div className="space-y-3 text-left">
-                    <label className="flex items-start gap-3 cursor-pointer text-sm text-gray-200">
+                    <label className="flex items-start gap-3 cursor-pointer text-sm text-fg">
                         <input
                             type="checkbox"
                             checked={checkedAge}
                             onChange={(e) => setCheckedAge(e.target.checked)}
-                            className="mt-1 w-4 h-4 shrink-0 accent-blue-500"
+                            className="mt-1 w-4 h-4 shrink-0 accent-accent"
                         />
                         <span>{t(APP_I18N_KEYS.eulaCheckAge)}</span>
                     </label>
-                    <label className="flex items-start gap-3 cursor-pointer text-sm text-gray-200">
+                    <label className="flex items-start gap-3 cursor-pointer text-sm text-fg">
                         <input
                             type="checkbox"
                             checked={checkedExternalAI}
                             onChange={(e) => setCheckedExternalAI(e.target.checked)}
-                            className="mt-1 w-4 h-4 shrink-0 accent-blue-500"
+                            className="mt-1 w-4 h-4 shrink-0 accent-accent"
                         />
                         <span>{t(APP_I18N_KEYS.eulaCheckExternalAI)}</span>
                     </label>
-                    <label className="flex items-start gap-3 cursor-pointer text-sm text-gray-200">
+                    <label className="flex items-start gap-3 cursor-pointer text-sm text-fg">
                         <input
                             type="checkbox"
                             checked={checkedAsIs}
                             onChange={(e) => setCheckedAsIs(e.target.checked)}
-                            className="mt-1 w-4 h-4 shrink-0 accent-blue-500"
+                            className="mt-1 w-4 h-4 shrink-0 accent-accent"
                         />
                         <span>{t(APP_I18N_KEYS.eulaCheckAsIs)}</span>
                     </label>
@@ -203,28 +203,28 @@ export function EulaGate({ children }: EulaGateProps) {
 
                 <button
                     onClick={() => setShowFullText((v) => !v)}
-                    className="text-sm text-blue-400 hover:text-blue-300 underline"
+                    className="text-sm text-accent hover:text-accent underline"
                 >
                     {showFullText ? t(APP_I18N_KEYS.eulaHideFull) : t(APP_I18N_KEYS.eulaReadFull)}
                 </button>
 
                 {showFullText && (
-                    <div className="bg-gray-900 rounded-lg p-4 max-h-64 overflow-y-auto text-left">
+                    <div className="bg-surface rounded-lg p-4 max-h-64 overflow-y-auto text-left">
                         {/* 規約の正文は日本語版。日本語以外のUIでは en 版全文＋日本語版優先の注記を表示する */}
                         {uiLanguage !== DEFAULT_UI_LANGUAGE && (
-                            <p className="text-xs text-amber-300 mb-2">{t(APP_I18N_KEYS.eulaJaPrevails)}</p>
+                            <p className="text-xs text-warn mb-2">{t(APP_I18N_KEYS.eulaJaPrevails)}</p>
                         )}
                         <h2 className="text-sm font-bold mb-2">
                             {uiLanguage === DEFAULT_UI_LANGUAGE ? EULA_TITLE_JA : EULA_TITLE_EN}
                         </h2>
-                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
+                        <pre className="text-xs text-fg-muted whitespace-pre-wrap font-sans leading-relaxed">
                             {uiLanguage === DEFAULT_UI_LANGUAGE ? EULA_FULL_TEXT_JA : EULA_FULL_TEXT_EN}
                         </pre>
                     </div>
                 )}
 
                 {saveError && (
-                    <div className="text-red-400 text-sm bg-red-900/20 p-3 rounded-lg">
+                    <div className="text-danger text-sm bg-danger/10 p-3 rounded-lg">
                         {t(APP_I18N_KEYS.eulaSaveFailed)}
                     </div>
                 )}
@@ -232,7 +232,7 @@ export function EulaGate({ children }: EulaGateProps) {
                 <button
                     onClick={handleAgree}
                     disabled={!allChecked || saving}
-                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+                    className="w-full py-3 px-4 bg-accent hover:brightness-110 disabled:bg-surface-2 disabled:text-fg-muted disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
                 >
                     {t(APP_I18N_KEYS.eulaAgree)}
                 </button>
